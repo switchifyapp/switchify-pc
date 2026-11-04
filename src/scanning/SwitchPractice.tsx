@@ -56,7 +56,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     finally { if (id === request.current) setPending(false); }
   };
   const highlighted = view?.blocks.filter(block => block.selected).map(block => block.label).join(", ");
-  return <div className="switch-practice-entry">
+  return <div className="switch-practice-entry" data-section="practice" data-setting="practice">
     <p>Try your saved switches safely.</p>
     <label>Test source <Select aria-label="Test source" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Switches on this computer</option><option value="remote">Switches from Switchify Remote</option></Select></label>
     <Button ref={trigger} type="button" className="secondary" disabled={pending || disabled || !("__TAURI_INTERNALS__" in window)} onClick={() => void begin()}>Test switches</Button>

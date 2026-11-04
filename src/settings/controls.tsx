@@ -13,9 +13,11 @@ export function Toggle({ checked, disabled = false, label, labelledBy, described
   </label>;
 }
 
-export function SettingGroup({ title, description, children, id, sectionRef, focusable = false }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean }) {
+// `section` names the group for the page strip and Find; `setting` marks it as
+// the home of one indexed setting, so a jump can land on it.
+export function SettingGroup({ title, description, children, id, sectionRef, focusable = false, section, setting }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean; section?: string; setting?: string }) {
   const headingId = id ? `${id}-heading` : undefined;
-  return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
+  return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId} data-section={section} data-setting={setting}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
 
 export const repeatIntervalOptions = [100, 250, 500, 1000] as const;
@@ -38,7 +40,7 @@ export const dwellDelayOptions = [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000,
 // unreachable. The fieldset keeps its programmatic link to the note through
 // aria-describedby, and the wrapper keeps the note visually attached to its
 // own group instead of floating a grid gap away from it.
-export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns, note }: {
+export function OptionGroup<T extends string | number>({ legend, options, value, onChange, disabled, columns, note, setting }: {
   legend: string;
   options: ReadonlyArray<{ value: T; label: ReactNode }>;
   value: T;
@@ -46,9 +48,10 @@ export function OptionGroup<T extends string | number>({ legend, options, value,
   disabled: boolean;
   columns?: "three" | "four" | "five";
   note?: NoteProps;
+  setting?: string;
 }) {
   const noteId = useId();
-  const group = <fieldset disabled={disabled} aria-describedby={note ? noteId : undefined}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
+  const group = <fieldset disabled={disabled} aria-describedby={note ? noteId : undefined} data-setting={setting}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>
     {options.map((option) => <Button type="button" key={option.value} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div></fieldset>;
   return note ? <div className="option-with-note">{group}<SettingNote id={noteId} {...note} /></div> : group;

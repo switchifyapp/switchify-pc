@@ -66,8 +66,8 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
     render(<App />);
     await screen.findByRole("heading", { name: "Ready" });
-    expect(screen.getByText("1 saved · Select assigned")).toBeInTheDocument();
-    expect(screen.getByText("Select opens Home · Manual")).toBeInTheDocument();
+    expect(screen.getByText("1 saved. Select assigned")).toBeInTheDocument();
+    expect(screen.getByText("Select opens Home. Manual")).toBeInTheDocument();
     scanning.state = { ...scanning.state!, paused: true };
     act(() => receive?.({ ...structuredClone(browserState), bluetooth: "connected" }));
     expect(screen.getByText("Local scanning is paused while a mobile device is connected.")).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pause listening" }));
     expect(release).toHaveBeenCalledWith(true);
     await screen.findByRole("heading", { name: "Listening paused" });
-    expect(screen.getByText("1 saved · Listening paused")).toBeInTheDocument();
+    expect(screen.getByText("1 saved. Listening paused")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit switches" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Resume listening" })).toHaveLength(2);
     fireEvent.click(screen.getAllByRole("button", { name: "Resume listening" })[0]);
@@ -214,16 +214,6 @@ describe("Switchify PC shell", () => {
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("alt", "");
   });
 
-  it("shows only the version in the sidebar footer", async () => {
-    const { container } = render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-
-    const footer = container.querySelector(".sidebar-footer");
-    expect(footer).toHaveTextContent(`v${browserState.version}`);
-    expect(footer).not.toHaveTextContent(browserState.capabilities.platform === "macos" ? "macOS" : "Windows");
-    expect(within(footer as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
-  });
-
   it("distinguishes the Mobile install QR from pairing for existing users", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -250,7 +240,6 @@ describe("Switchify PC shell", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Paired devices" }));
 
     expect(screen.getByText(`Last connected ${new Date(connectedAt).toLocaleString()}`)).toBeInTheDocument();
     expect(screen.getByText("Not connected yet")).toBeInTheDocument();
@@ -273,7 +262,6 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Help" }));
-    fireEvent.click(await screen.findByRole("tab", { name: "Troubleshooting" }));
     expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
     expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Recent errors" })).toBeInTheDocument();
@@ -394,14 +382,14 @@ describe("Switchify PC shell", () => {
     browserState.licence = licence;
     const { unmount } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    expect(screen.queryByText(/See Settings → Licence/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/See Settings, Licence/)).not.toBeInTheDocument();
     unmount();
     browserState.licence = { ...licence, status: "trial", licenceId: null, message: "12 days left in your full trial." };
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     const notice = screen.getByRole("status", { name: "Licence" });
     expect(notice).toHaveTextContent("12 days left in your full trial.");
-    expect(notice).toHaveTextContent("See Settings → Licence.");
+    expect(notice).toHaveTextContent("See Settings, Licence.");
     delete browserState.licence;
   });
 
@@ -492,7 +480,6 @@ describe("Switchify PC shell", () => {
     };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     expect(screen.getByText("Recent Bluetooth changes")).toBeInTheDocument();
     expect(screen.getByText("advertising")).toBeInTheDocument();
     expect(screen.getByText("manual disconnect")).toBeInTheDocument();
@@ -815,7 +802,6 @@ describe("Switchify PC shell", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     expect(newProfile).toHaveClass("primary");
     fireEvent.click(newProfile);
@@ -836,7 +822,6 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "listProfiles").mockResolvedValue([source, { ...source, id: crypto.randomUUID(), name: "Generic keyboard copy", builtIn: false }]);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Generic keyboard.*Built in/ }));
     expect(screen.getByRole("textbox", { name: "Profile name" })).toBeDisabled();
 
@@ -851,7 +836,6 @@ describe("Switchify PC shell", () => {
   it("identifies duplicate names and bindings at their fields", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Generic keyboard" } });
     expect(screen.getByText("Profile names must be unique.")).toBeInTheDocument();
@@ -870,7 +854,6 @@ describe("Switchify PC shell", () => {
   it("confirms dirty editor dismissal and restores focus", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const opener = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(opener);
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
@@ -882,87 +865,127 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  describe("compact sidebar", () => {
-    const compact = (matches: boolean) => {
-      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-        matches: matches && query === "(max-width: 800px)", media: query, onchange: null,
-        addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
-      })) as unknown as typeof window.matchMedia;
-    };
-    afterEach(() => { delete (window as { matchMedia?: unknown }).matchMedia; });
+  describe("finding things", () => {
+    const find = () => screen.getByRole("searchbox", { name: "Find a setting" });
 
-    it("keeps the full sidebar in a wide window", async () => {
-      compact(false);
+    it("offers every page as a tile in the nav and marks the current one", async () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });
+      const navigation = screen.getByRole("navigation", { name: "Pages" });
+      expect(within(navigation).getAllByRole("button").map((button) => button.textContent))
+        .toEqual(["Home", "Switches", "Scanning", "Panels", "Mobile", "Settings", "Help"]);
+      expect(within(navigation).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
+      expect(screen.queryByRole("button", { name: "Mouse" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^Menu,/ })).not.toBeInTheDocument();
-      expect(screen.getByRole("navigation")).toBeVisible();
+      expect(document.querySelector("aside")).toBeNull();
+      fireEvent.click(within(navigation).getByRole("button", { name: "Switches" }));
+      expect(within(navigation).getByRole("button", { name: "Switches" })).toHaveAttribute("aria-current", "page");
+      expect(within(navigation).getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");
     });
 
-    it("folds the pages into a Menu button that opens a popover", async () => {
-      compact(true);
+    it("finds settings by the words people use and takes them straight there", async () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });
-      const menu = screen.getByRole("button", { name: "Menu, Home" });
-      expect(menu).toHaveAttribute("aria-expanded", "false");
-      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+      fireEvent.change(find(), { target: { value: "speed" } });
 
-      fireEvent.click(menu);
-      expect(menu).toHaveAttribute("aria-expanded", "true");
-      expect(screen.getByRole("button", { name: "Home" })).toHaveFocus();
-      fireEvent.click(screen.getByRole("button", { name: "Switches" }));
-      expect(screen.getByRole("heading", { name: "Switches", level: 1 })).toBeInTheDocument();
-      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-      const reopened = screen.getByRole("button", { name: "Menu, Switches" });
-      expect(reopened).toHaveFocus();
+      expect(screen.getByRole("heading", { name: /settings match “speed”/, level: 1 })).toBeInTheDocument();
+      const results = within(screen.getByRole("list", { name: "Matching settings" })).getAllByRole("button");
+      expect(results[0]).toHaveAccessibleName(/^Auto scan rate, Scanning, Movement, Every/);
+      expect(results.map((button) => button.getAttribute("aria-label")!.split(",")[0])).toContain("Pointer speed");
+      expect(screen.queryByRole("heading", { name: "Switchify PC", level: 1 })).not.toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: "Pages" })).toBeInTheDocument();
 
-      fireEvent.click(reopened);
-      expect(screen.getByRole("button", { name: "Switches" })).toHaveFocus();
-      fireEvent.keyDown(screen.getByRole("button", { name: "Switches" }), { key: "Escape" });
-      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-      expect(reopened).toHaveFocus();
-
-      fireEvent.click(reopened);
-      fireEvent.pointerDown(screen.getByRole("heading", { name: "Switches", level: 1 }));
-      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-
-      // Tabbing out into the page closes it so it never covers the focused control.
-      fireEvent.click(reopened);
-      const help = screen.getByRole("button", { name: "Help" });
-      const outside = screen.getByRole("button", { name: "Add switch" });
-      fireEvent.blur(help, { relatedTarget: outside });
-      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-
-      // WebKit blurs with no target on a button press; that must not close it.
-      fireEvent.click(reopened);
-      fireEvent.blur(screen.getByRole("button", { name: "Help" }), { relatedTarget: null });
-      expect(screen.getByRole("navigation")).toBeInTheDocument();
+      fireEvent.click(results[0]);
+      expect(find()).toHaveValue("");
+      expect(await screen.findByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
+      const rate = await waitFor(() => { const el = document.querySelector('[data-setting="scan-rate"]'); expect(el).toHaveAttribute("data-found", "true"); return el!; }, { timeout: 3000 });
+      expect(rate).toContainElement(document.activeElement as HTMLElement);
+      expect(screen.getByRole("button", { name: "Scanning" })).toHaveAttribute("aria-current", "page");
     });
 
-    it("reaches the Account page from the popover", async () => {
-      compact(true);
-      const view: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
-      vi.spyOn(api, "accountStatus").mockResolvedValue(view);
-      vi.spyOn(api, "account").mockResolvedValue(view);
-      vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
-      vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
-      vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+    it("clears the search, and falls back to common tasks when nothing matches", async () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });
-      fireEvent.click(screen.getByRole("button", { name: "Menu, Home" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Account, signed in as me@example.com" }));
-      expect(await screen.findByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Menu, Account" })).toHaveFocus();
+      fireEvent.change(find(), { target: { value: "zzzq" } });
+      expect(screen.getByRole("heading", { name: "Nothing matches “zzzq”", level: 1 })).toBeInTheDocument();
+      const list = screen.getByRole("list", { name: "Matching settings" });
+      expect(within(list).getAllByRole("button")[0]).toHaveAccessibleName(/^Make scanning slower or faster, Scanning, Movement/);
+      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+      expect(find()).toHaveValue("");
+      expect(find()).toHaveFocus();
+      expect(screen.getByRole("heading", { name: "Switchify PC", level: 1 })).toBeInTheDocument();
+    });
+
+    it("focuses Find on a slash unless a field has focus", async () => {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      fireEvent.keyDown(document.body, { key: "/" });
+      expect(find()).toHaveFocus();
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      const startup = screen.getByRole("checkbox", { name: "Start with system" });
+      startup.focus();
+      fireEvent.keyDown(startup, { key: "/" });
+      expect(startup).toHaveFocus();
+    });
+
+    it("opens the exact setting from a common task on Home", async () => {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      const tasks = screen.getByRole("heading", { name: "Common tasks", level: 2 }).closest("section")!;
+      fireEvent.click(within(tasks).getByRole("button", { name: /^Change the highlight colour, Scanning, Appearance/ }));
+      expect(await screen.findByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
+      // Appearance sits behind More options, which the jump opens.
+      await waitFor(() => expect(document.querySelector('[data-setting="colour"]')).toHaveAttribute("data-found", "true"), { timeout: 3000 });
+      expect(screen.getByRole("radio", { name: "Red" })).toBeVisible();
+    });
+
+    it("jumps to a section from the page strip, opening More options when it hides the section", async () => {
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Switches" }));
+      const strip = screen.getByRole("navigation", { name: "On this page" });
+      expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!.split(",")[0])).toEqual(["Your switches", "Hold timing", "Practice"]);
+      expect(within(strip).getByRole("button", { name: /^Hold timing/ })).toHaveAccessibleName("Hold timing, 1 s");
+      expect(screen.getByRole("button", { name: "More options" })).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(within(strip).getByRole("button", { name: /^Hold timing/ }));
+      await waitFor(() => expect(document.querySelector('[data-section="hold"]')).toHaveAttribute("data-found", "true"));
+      expect(screen.getByRole("button", { name: "More options" })).toHaveAttribute("aria-expanded", "true");
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Hold timing", level: 2 })).toHaveFocus());
+    });
+
+    it("lists what was changed recently on Home, newest first", async () => {
+      vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => ({ ...structuredClone(browserState), settings: structuredClone(settings) }));
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      expect(screen.getByText("Nothing changed yet.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Start with system" }));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeChecked());
+      fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeChecked());
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      const recent = screen.getByRole("heading", { name: "Recently changed", level: 2 }).closest("section")!;
+      expect(within(recent).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+        "Click when I stop, Settings, Input, On, after 1 s",
+        "Start with system, Settings, General, On",
+      ]);
+      fireEvent.click(within(recent).getByRole("button", { name: /^Start with system/ }));
+      expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeInTheDocument();
+      await waitFor(() => expect(document.querySelector('[data-setting="startup"]')).toHaveAttribute("data-found", "true"));
+    });
+
+    it("links related settings on other pages under Also see", async () => {
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+      const also = screen.getByRole("heading", { name: "Also see", level: 2 }).closest("section")!;
+      const names = within(also).getAllByRole("button").map((button) => button.getAttribute("aria-label")!);
+      expect(names.length).toBeGreaterThan(0);
+      for (const name of names) expect(name).not.toMatch(/, Mobile, /);
     });
   });
 
-  describe("sidebar account", () => {
+  describe("account on Settings", () => {
     const signedIn: AccountView = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
     const signedOut: AccountView = { ...signedIn, signedIn: false, email: null };
-    const sidebar = async () => {
-      await screen.findByRole("navigation");
-      return within(document.querySelector("aside") as HTMLElement);
-    };
     let lastStatus: ReturnType<typeof vi.spyOn> | undefined;
     const mockAccount = (view: AccountView) => {
       let receive: (next: AccountView) => void = () => undefined;
@@ -975,59 +998,41 @@ describe("Switchify PC shell", () => {
       return (next: AccountView) => receive(next);
     };
 
-    it("replaces the version with the signed-in account", async () => {
+    it("shows the signed-in account as a section of Settings", async () => {
       mockAccount(signedIn);
       render(<App />);
-      const entry = await (await sidebar()).findByRole("button", { name: "Account, signed in as me@example.com" });
-      expect(entry).toHaveTextContent("Accountme@example.com");
-      expect((await sidebar()).queryByText(/^v\d/)).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      expect(screen.getByRole("heading", { name: "Account", level: 2 })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Account", level: 1 })).not.toBeInTheDocument();
+      const strip = screen.getByRole("navigation", { name: "On this page" });
+      await waitFor(() => expect(within(strip).getByRole("button", { name: /^Account/ })).toHaveAccessibleName("Account, Signed in as me@example.com. On"));
     });
 
     it("offers sign-in when signed out and follows account changes", async () => {
       const receive = mockAccount(signedOut);
       render(<App />);
-      expect(await (await sidebar()).findByRole("button", { name: "Sign in to your account" })).toHaveTextContent("Sign in");
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      expect(await screen.findByRole("heading", { name: "Sign in to sync your settings" })).toBeInTheDocument();
       act(() => receive(signedIn));
-      expect(await (await sidebar()).findByRole("button", { name: "Account, signed in as me@example.com" })).toBeInTheDocument();
-    });
-
-    it("opens the Account page and marks the entry current", async () => {
-      mockAccount(signedIn);
-      render(<App />);
-      const entry = await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
-      fireEvent.click(entry);
-      expect(await screen.findByRole("heading", { name: "Account", level: 1 })).toBeInTheDocument();
       expect(await screen.findByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
-      expect(entry).toHaveAttribute("aria-current", "page");
-      expect(screen.queryByRole("tablist", { name: "Settings sections" })).not.toBeInTheDocument();
     });
 
-    it("reads the account without the keychain-retrying command", async () => {
+    it("reads the account without the keychain-retrying command until the section is shown", async () => {
       mockAccount(signedIn);
       const retrying = vi.mocked(api.account);
       render(<App />);
-      await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
-      expect(lastStatus).toHaveBeenCalled();
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      await waitFor(() => expect(lastStatus).toHaveBeenCalled());
       expect(retrying).not.toHaveBeenCalled();
     });
 
     it("stays neutral while the keychain is locked", async () => {
       mockAccount({ ...signedOut, keychainUnavailable: true });
       render(<App />);
-      const entry = await (await sidebar()).findByRole("button", { name: "Account" });
-      expect(entry).toHaveTextContent("Account");
-      expect(entry).not.toHaveTextContent("Sign in");
-    });
-
-    it("leaves the Account page from the sidebar like any other page", async () => {
-      mockAccount(signedIn);
-      render(<App />);
-      const entry = await (await sidebar()).findByRole("button", { name: /^Account, signed in/ });
-      fireEvent.click(entry);
-      await screen.findByRole("heading", { name: "Account", level: 1 });
-      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-      expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeInTheDocument();
-      expect(entry).not.toHaveAttribute("aria-current");
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      expect(await screen.findByText(/Your saved sign-in can't be read/)).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Sign in to sync your settings" })).not.toBeInTheDocument();
     });
 
     it("keeps an unsaved profile edit when navigation is cancelled", async () => {
@@ -1035,20 +1040,23 @@ describe("Switchify PC shell", () => {
       vi.spyOn(window, "confirm").mockReturnValue(false);
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-      fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
       fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
       fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved" } });
-      fireEvent.click(await (await sidebar()).findByRole("button", { name: /^Account, signed in/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
       expect(window.confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
       expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved");
-      expect(screen.queryByRole("heading", { name: "Account", level: 1 })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Settings", level: 1 })).not.toBeInTheDocument();
     });
 
-    it("keeps the version in builds without accounts", async () => {
+    it("leaves the account out of builds without accounts", async () => {
       mockAccount({ ...signedOut, available: false });
       render(<App />);
-      expect(await (await sidebar()).findByText(`v${browserState.version}`)).toBeInTheDocument();
-      expect((await sidebar()).queryByRole("button", { name: /account/i })).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      await screen.findByRole("region", { name: "About" });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Account", level: 2 })).not.toBeInTheDocument());
+      const strip = screen.getByRole("navigation", { name: "On this page" });
+      expect(within(strip).queryByRole("button", { name: /^Account/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "About" })).toHaveTextContent(`Switchify PC ${browserState.version}`);
     });
   });
 
@@ -1058,7 +1066,6 @@ describe("Switchify PC shell", () => {
     const list = vi.spyOn(api, "listProfiles");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     await screen.findByRole("button", { name: "New profile" });
     const before = list.mock.calls.length;
     list.mockResolvedValueOnce([{ id: "builtin.keyboard", version: 1, name: "Generic keyboard", provider: "mapped", builtIn: true, bindings: [] },
@@ -1071,7 +1078,6 @@ describe("Switchify PC shell", () => {
   it("closes pristine new and duplicated profiles without a discard prompt", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     const newProfile = await screen.findByRole("button", { name: "New profile" });
     fireEvent.click(newProfile);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -1089,7 +1095,6 @@ describe("Switchify PC shell", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
 
@@ -1112,7 +1117,6 @@ describe("Switchify PC shell", () => {
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved controls" } });
 
@@ -1138,7 +1142,6 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "deleteProfile").mockResolvedValue([]);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: /Scanning controls.*Custom/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Changed controls" } });
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
@@ -1153,7 +1156,6 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "saveProfile").mockRejectedValue(new Error("Profile storage unavailable"));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Switch Forwarding" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
@@ -1165,7 +1167,6 @@ describe("Switchify PC shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
     expect(screen.getByRole("heading", { name: "Local switches" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Application update" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View updates" }));
@@ -1178,9 +1179,10 @@ describe("Switchify PC shell", () => {
     browserState.capabilities.platform = "macos";
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
-    expect(screen.getByText(/Enable “Switchify PC” in Accessibility/)).toBeInTheDocument();
-    expect(screen.getByText(/select the stale row, click Remove/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
+    // Setup and Fix a problem both carry the guidance, so it is found twice.
+    expect(screen.getAllByText(/Enable “Switchify PC” in Accessibility/)).toHaveLength(2);
+    expect(screen.getAllByText(/select the stale row, click Remove/)).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Open Accessibility Settings" })).toHaveLength(2);
     browserState.capabilities.platform = originalPlatform;
   });
 
@@ -1198,29 +1200,19 @@ describe("Switchify PC shell", () => {
     listener.mockRestore();
   });
 
-  it("gives the Support tabs a single tab stop, arrow-key movement and linked panels", async () => {
+  it("lists the Help sections on the page strip and jumps to one", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
 
-    const setup = screen.getByRole("tab", { name: "Setup" });
-    const troubleshooting = screen.getByRole("tab", { name: "Troubleshooting" });
-    expect(setup).toHaveAttribute("aria-selected", "true");
-    expect(setup).toHaveAttribute("tabindex", "0");
-    expect(troubleshooting).toHaveAttribute("tabindex", "-1");
-    expect(setup).toHaveAttribute("aria-controls", "support-panel-setup");
-    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Setup");
-
-    // Manual activation: arrows move focus, and only a click selects.
-    setup.focus();
-    fireEvent.keyDown(setup, { key: "ArrowRight" });
-    expect(troubleshooting).toHaveFocus();
-    expect(setup).toHaveAttribute("aria-selected", "true");
+    const strip = screen.getByRole("navigation", { name: "On this page" });
+    expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!.split(",")[0])).toEqual(["Setup", "Fix a problem"]);
+    // Both sections are on the page at once.
     expect(screen.getByRole("heading", { name: "Local switches" })).toBeInTheDocument();
-
-    fireEvent.click(troubleshooting);
-    expect(troubleshooting).toHaveAttribute("aria-selected", "true");
-    expect(troubleshooting).toHaveAttribute("aria-controls", "support-panel-troubleshooting");
-    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Troubleshooting");
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
+
+    fireEvent.click(within(strip).getByRole("button", { name: /^Fix a problem/ }));
+    const section = document.querySelector('[data-section="fix"]')!;
+    await waitFor(() => expect(section).toHaveAttribute("data-found", "true"));
+    expect(screen.getByRole("heading", { name: "Fix a problem", level: 2 })).toHaveFocus();
   });
 });

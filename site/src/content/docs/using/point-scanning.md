@@ -19,7 +19,7 @@ Narrow the search first:
 2. Cells in that row highlight in turn. Press Select to choose a cell. Choose **Back to rows** to go up a level.
 3. The lines then run only inside that cell, as above.
 
-The grid can be anything from 2 × 2 to 10 × 10. Switch between the two methods in Settings or from the Switchify item in Home.
+The grid can be anything from 2 × 2 to 10 × 10. Switch between the two methods under **Point scanning** on the Scanning page, or from the Switchify item in Home.
 
 ## Speed and passes
 
@@ -46,7 +46,7 @@ A crosshair marks the chosen point while the menu is open.
 
 ## After a selection
 
-By default a click ends the scan and Select starts the next one. In Settings, **After a selection** can be set to keep scanning so the next scan starts by itself.
+By default a click ends the scan and Select starts the next one. On the Scanning page, **After a selection** can be set to keep scanning so the next scan starts by itself.
 
 ## Several displays
 

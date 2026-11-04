@@ -3,7 +3,7 @@ title: Scanning settings
 description: Automatic or manual movement, scan rate, pass limit, item scanning pattern, what happens after a selection, and how the highlight looks.
 ---
 
-Settings save as you change them and apply straight away.
+These settings are on the **Scanning** page. They save as you change them and apply straight away. The row of tiles at the top of the page shows what each section is set to; choose one to go to it, or type what you are looking for in **Find a setting**.
 
 ## Movement
 
@@ -44,6 +44,10 @@ Menus and the keyboard can each have their own movement, rate and pattern, or us
 ## Point scanning
 
 Line speed, line-only or grid-then-line, grid size, and Auto select are on the [point scanning](/using/point-scanning/) page.
+
+## Mouse pointer
+
+Pointer speed, repeat while holding, and whether a press or a release stops repeating are in the **Mouse pointer** section at the end of the Scanning page. See [Mouse panel and radar](/using/mouse-panel/).
 
 ## Selecting and holding
 

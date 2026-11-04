@@ -1,73 +1,50 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { AppSettings, AppState, UpdateState } from "../types";
-import { Tabs, TabPanel, type TabDefinition } from "../Tabs";
 import { GeneralSection } from "./GeneralSection";
 import { InputSection } from "./InputSection";
-import { CursorSection } from "./CursorSection";
 import { PrivacySection } from "./PrivacySection";
 import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 import { LicenceSection } from "./LicenceSection";
 import { AboutSection } from "./AboutSection";
+import { AccountSection } from "./AccountSection";
+import { AlsoSee, PageHead, SectionStrip, type Jump } from "../find/Find";
+import type { FindContext } from "../find/index";
 
-
-type SettingsTabId = "general" | "input" | "cursor" | "privacy" | "updates" | "about" | "licence";
-
-export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, updateAttention, onUpdatesShown }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; updateAttention: string | null; onUpdatesShown: (shown: boolean) => void }) {
+// One page: every section in turn, with the strip at the top showing what
+// each is set to. The strip, Find and the update banner all jump to a
+// section rather than switching a tab.
+export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, onUpdatesShown, ctx, jump }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; onUpdatesShown: (shown: boolean) => void; ctx: FindContext; jump: Jump }) {
   const updatesRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (state.licence?.configured && ["expired", "unavailable"].includes(state.licence.status)) setActive("licence");
-  }, [state.licence?.configured, state.licence?.status]);
-  // Opening straight to Updates starts there, rather than committing General
-  // for one frame and letting App announce a failure for a tab already being
-  // opened.
-  const [active, setActive] = useState<SettingsTabId>(focusUpdates ? "updates" : state.licence?.configured && ["expired", "unavailable"].includes(state.licence.status) ? "licence" : "general");
 
-  // App owns the standing update failure and what has been said about it; this
-  // view only reports whether the Updates panel, which shows it, is on screen.
+  // App owns the standing update failure and what has been said about it; the
+  // Updates panel, which shows it, is on screen whenever this page is.
   useEffect(() => {
-    onUpdatesShown(active === "updates");
+    onUpdatesShown(true);
     return () => onUpdatesShown(false);
-  }, [active, onUpdatesShown]);
-
-  const tabs = useMemo<TabDefinition<SettingsTabId>[]>(() => [
-    { id: "general" as const, label: "General" },
-    { id: "input" as const, label: "Input" },
-    ...(state.capabilities.cursorOverlay ? [{ id: "cursor" as const, label: "Cursor appearance" }] : []),
-    { id: "privacy" as const, label: "Privacy" },
-    // On the Updates tab the panel itself shows the reason, so no marker there.
-    { id: "updates" as const, label: "Updates", attention: updateAttention && active !== "updates" ? updateAttention : undefined },
-    { id: "licence" as const, label: "Licence" },
-    { id: "about" as const, label: "About" },
-  ], [state.capabilities.cursorOverlay, updateAttention, active]);
+  }, [onUpdatesShown]);
 
   useEffect(() => {
-    if (!tabs.some((tab) => tab.id === active)) setActive("general");
-  }, [tabs, active]);
-
-  useEffect(() => {
-    if (focusUpdates) setActive("updates");
-  }, [focusUpdates]);
-
-
-  useEffect(() => {
-    if (!focusUpdates || active !== "updates") return;
+    if (!focusUpdates) return;
     updatesRef.current?.scrollIntoView?.({ block: "start" });
     updatesRef.current?.focus({ preventScroll: true });
     onUpdatesFocused();
-  }, [focusUpdates, active, onUpdatesFocused]);
+  }, [focusUpdates, onUpdatesFocused]);
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
 
-  return <div className="view settings-view"><header className="page-header"><div><h1>Settings</h1><p>How Switchify PC behaves on this computer</p></div></header>
-    <Tabs name="settings" tabs={tabs} active={active} onSelect={setActive} label="Settings sections" />
-    <TabPanel name="settings" id={active}>
-      {active === "general" && <GeneralSection settings={settings} update={update} />}
-      {active === "input" && <InputSection settings={settings} update={update} />}
-      {active === "cursor" && <CursorSection settings={settings} update={update} />}
-      {active === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
-      {active === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
-      {active === "licence" && <LicenceSection state={state} />}
-      {active === "about" && <AboutSection state={state} />}
-    </TabPanel>
+  return <div className="view settings-view">
+    <PageHead title="Settings" blurb="How Switchify PC behaves on this computer, and your account." />
+    <SectionStrip page="settings" ctx={ctx} jump={jump} />
+    <GeneralSection settings={settings} update={update} />
+    <InputSection settings={settings} update={update} />
+    <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />
+    <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />
+    <LicenceSection state={state} />
+    <AboutSection state={state} />
+    {ctx.account?.available !== false && <section className="setting-group" data-section="account" data-setting="account" aria-labelledby="settings-account-heading">
+      <header><h2 id="settings-account-heading">Account</h2><p>Bring your settings to your other computers.</p></header>
+      <div className="setting-controls"><AccountSection settings={settings} onSettingsChange={onChange} /></div>
+    </section>}
+    <AlsoSee page="settings" ctx={ctx} jump={jump} />
   </div>;
 }

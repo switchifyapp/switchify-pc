@@ -19,7 +19,7 @@ Next and previous app, task view, show desktop, minimise, maximise and close, wi
 
 ## Settings on the computer
 
-These apply while a phone is controlling the computer:
+These apply while a phone is controlling the computer. Pointer speed and repeat are in the **Mouse pointer** section of the Scanning page, Click when I stop is under **Input** in Settings, and the cursor overlay is under **Cursor overlay** on the Mobile page. **Find a setting** at the top of the window takes you to any of them.
 
 - **Pointer speed**: a slider from Slow to Fast, shown as a level from 1 to 10. **Fine tune speed** moves it in smaller steps with **Slower** and **Faster**.
 - **Repeat**: movement, scrolling and key repeat, with an interval and gradual acceleration.

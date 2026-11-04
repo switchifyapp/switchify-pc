@@ -5,14 +5,14 @@ description: Make scanning panels of your own, rearrange Home and the built-in m
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
 
-Open **Panels** in the sidebar of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
+Choose the **Panels** tile at the top of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
 
 Below them, **Built-in menus and panels** lists everything else that scans, one row each, under the menu that opens it, so you can see what belongs to what:
 
 - **On Home**: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs under it, Media and Zoom.
 - **On More actions**: More is a tile on the page that opens after you choose a point. Its menu opens most of Home's menus too, so those stay under Home and say **Also on More**; here are More itself and the three menus Home does not open: Mouse, Displays and Scanning.
 
-![The Panels page: two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs; On More actions lists More actions and Displays. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
+![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs; On More actions lists More actions and Displays. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 

@@ -19,7 +19,7 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep.
 
-The Settings sync card on the Account page lists what syncs and what stays on this computer. Under **Remove account** at the bottom of the page, **Delete account…** deletes the account and its saved settings from every device after you confirm.
+Signing in and settings sync are in the **Account** section of Settings. The Settings sync card there lists what syncs and what stays on this computer. Under **Remove account** at the end of the section, **Delete account…** deletes the account and its saved settings from every device after you confirm.
 
 ## Updates
 
@@ -29,7 +29,7 @@ A release candidate, such as 1.0.0-rc.32, is offered only to people already runn
 
 ## Version and licence
 
-The **About** tab in Settings shows which version of Switchify PC you have. It also links to the source code, the [licence and credits](/licence/) and this guide.
+The **About** section of Settings shows which version of Switchify PC you have. It also links to the source code, the [licence and credits](/licence/) and this guide.
 
 ## Licence checks
 
@@ -53,7 +53,7 @@ transfers and refunds.
 
 ## Diagnostics
 
-**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** tab in Settings shows the same two buttons until you choose. Once you have chosen, the Privacy tab shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.
+**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** section of Settings shows the same two buttons until you choose. Once you have chosen, the Privacy tab shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.
 
 Separately, you can **export** a local diagnostics file of up to 500 recent sanitised events at any time, for example to attach to a support email. Nothing is sent unless you send it.
 

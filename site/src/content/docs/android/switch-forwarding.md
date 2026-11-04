@@ -26,4 +26,4 @@ Built-in profiles are read-only. Duplicate one to make your own, then map each o
 - a scroll action;
 - a media action.
 
-Open the profile manager from the main window, the tray or menu bar, or Settings. Profiles sync to your other computers when you sign in.
+Profiles are under **Switch Forwarding** on the Mobile page, and the tray or menu bar opens them too. Profiles sync to your other computers when you sign in.

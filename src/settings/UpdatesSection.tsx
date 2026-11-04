@@ -99,5 +99,5 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
 
 // `update` is the app's updater state merged with the latest download progress.
 export function UpdatesSection({ state, update, run, cancel, sectionRef }: { state: AppState; update: UpdateState; run: (action: UpdateAction) => void; cancel: () => void; sectionRef: Ref<HTMLElement> }) {
-  return <SettingGroup id="settings-updates" sectionRef={sectionRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={update} run={run} cancel={cancel} /></SettingGroup>;
+  return <SettingGroup id="settings-updates" section="updates" setting="updates" sectionRef={sectionRef} focusable title="Updates" description={`Switchify PC ${state.version}`}><UpdateControls update={update} run={run} cancel={cancel} /></SettingGroup>;
 }

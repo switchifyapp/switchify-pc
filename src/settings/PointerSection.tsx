@@ -7,7 +7,7 @@ import {
 } from "./controls";
 import { speedLevel, speedLevelLabel, speedPercent } from "./pointerSpeedScale";
 
-export function PointerSection({ settings, update, children }: { settings: AppSettings; update: SettingsUpdate; children?: ReactNode }) {
+export function PointerSection({ settings, update, children, title = "Movement", description = "", section }: { settings: AppSettings; update: SettingsUpdate; children?: ReactNode; title?: string; description?: string; section?: string }) {
   const percent = settings.pointerScalePercent;
   const level = speedLevelLabel(percent);
   const [sliderLevel, setSliderLevel] = useState(level);
@@ -15,8 +15,8 @@ export function PointerSection({ settings, update, children }: { settings: AppSe
   const changeSpeed = (next: number) => {
     if (next !== percent) update("pointerScalePercent", next);
   };
-  return <SettingGroup title="Movement" description="">
-      <fieldset className="pointer-speed"><legend>Pointer speed <strong>Level {level} of 10</strong></legend>
+  return <SettingGroup title={title} description={description} section={section}>
+      <fieldset className="pointer-speed" data-setting="pointer-speed"><legend>Pointer speed <strong>Level {level} of 10</strong></legend>
         <p>Move the slider toward Fast to cover more distance with each step in Mouse scanning and Remote.</p>
         <Input type="range" className="pointer-speed-slider" aria-label="Pointer speed" aria-valuetext={`Level ${speedLevel(percent).toFixed(3)} of 10`} min={1} max={10} step={0.1} value={sliderLevel} onChange={(event) => {
           setSliderLevel(event.target.value);
@@ -39,7 +39,7 @@ export function PointerSection({ settings, update, children }: { settings: AppSe
           </div>
         </div></MoreOptions>
       </fieldset>
-      <div className="repeat-settings">
+      <div className="repeat-settings" data-setting="repeat">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         {children}
         <MoreOptions label="Repeat timing"><div className="repeat-options">

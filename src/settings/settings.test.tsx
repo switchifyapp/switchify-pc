@@ -12,7 +12,16 @@ function stateWithSettings(settings: AppSettings) {
   return { ...structuredClone(browserState), settings: structuredClone(settings) };
 }
 
-const selectTab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
+// Settings is one page: a section is reached from the "On this page" strip.
+const selectTab = (name: string) => {
+  const strip = screen.getByRole("navigation", { name: "On this page" });
+  fireEvent.click(within(strip).getByRole("button", { name: new RegExp(`^${name}(,|$)`) }));
+};
+// The pointer settings live at the end of the shared Scanning settings.
+const openMouse = async () => {
+  fireEvent.click(screen.getByRole("button", { name: "Scanning" }));
+  await screen.findByRole("slider", { name: "Pointer speed" });
+};
 const setPointerSpeed = (percent: number) => fireEvent.change(screen.getByRole("slider", { name: "Pointer speed" }), { target: { value: speedLevel(percent).toFixed(1) } });
 
 describe("Switchify PC settings", () => {
@@ -44,21 +53,22 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("button",{name:"Customise point scanning"})).toBeInTheDocument();
   });
 
-  it("links Mouse scanning guidance to the sidebar settings and keeps Input separate", async () => {
+  it("keeps the Mouse pointer settings on Scanning and Input on Settings", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    const navigation = screen.getByRole("navigation");
+    const navigation = screen.getByRole("navigation", { name: "Pages" });
     expect(within(navigation).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Home", "Switches", "Scanning", "Mouse", "Panels", "Mobile", "Settings", "Help"]);
+      .toEqual(["Home", "Switches", "Scanning", "Panels", "Mobile", "Settings", "Help"]);
     fireEvent.click(within(navigation).getByRole("button", { name: "Scanning" }));
-    fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Customise mouse scanning" }));
     expect(screen.getByText(/Actions opens editing, window, browser, media, display and scanning commands/)).toBeInTheDocument();
     expect(screen.getByText(/Modified clicks use the current pointer\./)).toBeInTheDocument();
-    expect(screen.getByText(/Pointer speed and repeat controls are under Mouse in the sidebar/)).toBeInTheDocument();
     expect(screen.getByText(/press and release a switch to stop either action/)).toBeInTheDocument();
     expect(screen.getByText(/the stop switch keeps the action going until release/)).toBeInTheDocument();
-    fireEvent.click(within(navigation).getByRole("button", { name: "Mouse" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
+    expect(screen.getByRole("heading", { name: "Mouse pointer", level: 2 })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /Pointer speed/ })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Stop repeating" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
     fireEvent.click(within(navigation).getByRole("button", { name: "Settings" }));
     selectTab("Input");
@@ -202,7 +212,7 @@ describe("Switchify PC settings", () => {
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     selectTab("Updates");
-    expect(screen.getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
+    expect(within(screen.getByRole("region", { name: "Updates" })).getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
     fireEvent.click(screen.getByRole("button", { name: "Retry download" }));
     expect(download).toHaveBeenCalledOnce();
   });
@@ -270,15 +280,15 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("group", { name: "Key interval" })).not.toBeDisabled();
   });
 
-  it("opens Mouse settings from the sidebar and keeps Input settings separate", async () => {
+  it("opens the Mouse pointer settings on Scanning and keeps Input settings separate", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
-    expect(screen.getByRole("heading", { name: "Mouse", level: 1 })).toBeInTheDocument();
+    await openMouse();
+    expect(screen.getByRole("heading", { name: "Mouse pointer", level: 2 })).toBeInTheDocument();
     expect(screen.getByText(/Pointer speed and repeat for Mouse scanning and Remote/)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" })).toBeChecked();
@@ -321,10 +331,11 @@ describe("Switchify PC settings", () => {
     expect(dwellDelay).toHaveAttribute("aria-describedby", dwellNote.id);
   });
 
-  it("exposes the cursor overlay controls on their own tab", async () => {
+  it("exposes the cursor overlay controls on the Mobile page", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Cursor appearance");
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+    selectTab("Cursor overlay");
+    expect(screen.getByRole("heading", { name: "Cursor overlay", level: 2 })).toBeInTheDocument();
 
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
     expect(screen.getByRole("button", { name: "While controlling" })).toHaveAttribute("aria-pressed", "true");
@@ -426,7 +437,8 @@ describe("Switchify PC settings", () => {
       saves.push({ settings: structuredClone(settings), resolve });
     }));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
 
     setPointerSpeed(50);
     setPointerSpeed(75);
@@ -457,7 +469,8 @@ describe("Switchify PC settings", () => {
       finishSave = resolve;
     }));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
 
     setPointerSpeed(50);
     const runtimeState = {
@@ -491,7 +504,7 @@ describe("Switchify PC settings", () => {
 
     selectTab("Privacy");
     fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
+    await openMouse();
     setPointerSpeed(50);
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 150 })));
 
@@ -530,11 +543,10 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
     fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
     const updates = await screen.findByRole("region", { name: "Updates" });
     await waitFor(() => expect(updates).toHaveFocus());
-    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
@@ -547,194 +559,71 @@ describe("Switchify PC settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
   });
 
 
-  it("names every settings section as a tab and marks only the active one selected", async () => {
+  it("lists every settings section on the page strip with its current value", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    const tablist = screen.getByRole("tablist", { name: "Settings sections" });
-    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Cursor appearance", "Privacy", "Updates", "Licence", "About"]);
-    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("General");
-  });
-
-  it("keeps a single tab stop and moves focus with the arrow keys without activating", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const general = screen.getByRole("tab", { name: "General" });
-    const pointer = screen.getByRole("tab", { name: "Input" });
-    const about = screen.getByRole("tab", { name: "About" });
-    expect(general).toHaveAttribute("tabindex", "0");
-    expect(pointer).toHaveAttribute("tabindex", "-1");
-
-    general.focus();
-    fireEvent.keyDown(general, { key: "ArrowRight" });
-    expect(pointer).toHaveFocus();
-    // Manual activation: moving focus must not change the selected panel.
-    expect(general).toHaveAttribute("aria-selected", "true");
+    const strip = screen.getByRole("navigation", { name: "On this page" });
+    const names = within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!);
+    // The browser fallback has no account support, so no Account section here.
+    expect(names.map((name) => name.split(",")[0])).toEqual(["General", "Input", "Privacy", "Updates", "Licence", "About"]);
+    expect(names[0]).toBe("General, Off");
+    expect(names[3]).toContain(`Switchify PC ${browserState.version}`);
+    // Every section is on the page at once, so nothing is hidden behind a tab.
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
-    // The tab stop follows focus, so tabbing out and back does not discard it.
-    expect(pointer).toHaveAttribute("tabindex", "0");
-    expect(general).toHaveAttribute("tabindex", "-1");
-
-    fireEvent.keyDown(pointer, { key: "ArrowLeft" });
-    expect(general).toHaveFocus();
-    fireEvent.keyDown(general, { key: "ArrowLeft" });
-    expect(about).toHaveFocus();
-    fireEvent.keyDown(about, { key: "ArrowRight" });
-    expect(general).toHaveFocus();
-    fireEvent.keyDown(general, { key: "End" });
-    expect(about).toHaveFocus();
-    fireEvent.keyDown(about, { key: "Home" });
-    expect(general).toHaveFocus();
-
-    fireEvent.click(pointer);
-    expect(pointer).toHaveAttribute("aria-selected", "true");
-    expect(pointer).toHaveAttribute("tabindex", "0");
-    expect(general).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Updates" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "About" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Account", level: 2 })).not.toBeInTheDocument();
   });
 
-  it("omits the Cursor appearance tab when the platform cannot show a cursor overlay", async () => {
+  it("omits the cursor overlay section when the platform cannot show a cursor overlay", async () => {
     browserState.capabilities = { ...structuredClone(defaultCapabilities), cursorOverlay: false };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
 
-    expect(screen.queryByRole("tab", { name: "Cursor appearance" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent))
-      .toEqual(["General", "Input", "Privacy", "Updates", "Licence", "About"]);
-    selectTab("Input");
+    const strip = screen.getByRole("navigation", { name: "On this page" });
+    expect(within(strip).queryByRole("button", { name: /^Cursor overlay/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.queryByRole("checkbox", { name: "Show cursor overlay" })).not.toBeInTheDocument();
   });
 
-  it("switches to the Updates tab when the banner is used from another tab", async () => {
+  it("focuses Updates when the banner is used from another section", async () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     selectTab("Input");
-    expect(screen.getByRole("tab", { name: "Input" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
 
-    expect(await screen.findByRole("region", { name: "Updates" })).toHaveFocus();
-    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Updates" })).toHaveFocus());
   });
 
-  it("keeps a pending Mouse edit across sidebar pages and saves it", async () => {
+  it("keeps a pending Mouse edit across pages and saves it", async () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
+    await openMouse();
     setPointerSpeed(50);
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     selectTab("Privacy");
-    fireEvent.click(screen.getByRole("button", { name: "Mouse" }));
+    await openMouse();
 
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ pointerScalePercent: 50 })));
   });
 
 
-  it("keeps the tab stop on the last focused tab after focus leaves the tablist", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const general = screen.getByRole("tab", { name: "General" });
-    const pointer = screen.getByRole("tab", { name: "Input" });
-    general.focus();
-    fireEvent.keyDown(general, { key: "ArrowRight" });
-    expect(pointer).toHaveAttribute("tabindex", "0");
-
-    const startup = screen.getByRole("checkbox", { name: "Start with system" });
-    startup.focus();
-    expect(pointer).toHaveAttribute("tabindex", "0");
-    expect(general).toHaveAttribute("tabindex", "-1");
-  });
-
-  it("makes the panel a tab stop only when nothing inside it can take focus", async () => {
-    browserState.updater = { status: "checking", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    // General holds a focusable toggle, so the panel must not add its own stop.
-    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("tabindex");
-
-    selectTab("Updates");
-    // While checking, the only button is disabled, so the panel becomes reachable.
-    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveAttribute("tabindex", "0"));
-  });
-
-  it("points aria-controls only at the panel that is rendered", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const general = screen.getByRole("tab", { name: "General" });
-    expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
-    expect(document.getElementById("settings-panel-general")).toBeInTheDocument();
-    for (const name of ["Input", "Cursor appearance", "Privacy", "Updates", "Licence", "About"]) {
-      expect(screen.getByRole("tab", { name })).not.toHaveAttribute("aria-controls");
-    }
-    // The panel is not a tab stop of its own; its controls are.
-    expect(screen.getByRole("tabpanel")).not.toHaveAttribute("tabindex");
-  });
-
-
-  it("moves the tab stop onto the selection when the banner selects Updates", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    const pointer = screen.getByRole("tab", { name: "Input" });
-    fireEvent.click(pointer);
-    pointer.focus();
-    expect(pointer).toHaveAttribute("tabindex", "0");
-
-    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
-    await screen.findByRole("region", { name: "Updates" });
-
-    // The tab stop must not strand on Pointer once Updates becomes the selection.
-    const updates = screen.getByRole("tab", { name: "Updates" });
-    expect(updates).toHaveAttribute("aria-selected", "true");
-    expect(updates).toHaveAttribute("tabindex", "0");
-    expect(pointer).toHaveAttribute("tabindex", "-1");
-  });
-
-  it("keeps the panel tab stop while the panel itself holds focus", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = { status: "checking", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Updates");
-
-    const panel = screen.getByRole("tabpanel");
-    await waitFor(() => expect(panel).toHaveAttribute("tabindex", "0"));
-    panel.focus();
-    expect(panel).toHaveFocus();
-
-    // Finishing the check swaps the disabled button for an enabled one. Dropping
-    // tabIndex from the focused panel would send focus to the document body.
-    act(() => stateHandler?.({
-      ...structuredClone(browserState),
-      updater: { status: "current", version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null },
-      switchKeysReleased: false,
-    }));
-    expect(screen.getByRole("button", { name: "Check for updates" })).toBeInTheDocument();
-    expect(panel).toHaveAttribute("tabindex", "0");
-    expect(panel).toHaveFocus();
-  });
-
   it("shows an accessible Slow–Fast scale and keeps fine tuning collapsed", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     const slider = screen.getByRole("slider", { name: "Pointer speed" });
     expect(slider).toHaveValue("5.0");
     expect(slider).toHaveAttribute("aria-valuetext", "Level 5.000 of 10");
@@ -754,7 +643,8 @@ describe("Switchify PC settings", () => {
     const save = vi.spyOn(api, "saveSettings");
     browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 150 };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.8");
     expect(save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
@@ -766,7 +656,8 @@ describe("Switchify PC settings", () => {
     const save = vi.spyOn(api, "saveSettings");
     browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 5 };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     const slider = screen.getByRole("slider", { name: "Pointer speed" });
     fireEvent.change(slider, { target: { value: "1.1" } });
     expect(slider).toHaveValue("1.1");
@@ -779,7 +670,8 @@ describe("Switchify PC settings", () => {
   it("announces every fine tuning step even when the rounded main level stays the same", async () => {
     browserState.settings = { ...structuredClone(defaultBrowserSettings), pointerScalePercent: 1300 };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));
     const before = screen.getByText(`Fine-tuned level ${speedLevel(1300).toFixed(3)} of 10`).textContent;
     fireEvent.click(screen.getByRole("button", { name: "Faster" }));
@@ -790,7 +682,8 @@ describe("Switchify PC settings", () => {
 
   it("maps both slider endpoints and stops fine tuning at the limits", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     const slider = screen.getByRole("slider", { name: "Pointer speed" });
     fireEvent.change(slider, { target: { value: "1" } });
     expect(slider).toHaveValue("1.0");
@@ -808,7 +701,8 @@ describe("Switchify PC settings", () => {
       return () => undefined;
     });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Mouse" }));
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
     act(() => stateHandler?.(stateWithSettings({ ...defaultBrowserSettings, pointerScalePercent: 175 })));
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("6.1");
   });
@@ -862,8 +756,7 @@ describe("Switchify PC settings", () => {
   it("keeps the overlay explanation reachable while the overlay is off", async () => {
     browserState.settings = { ...structuredClone(defaultBrowserSettings), cursorOverlayEnabled: false };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Cursor appearance");
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
 
     // The disclosure must sit outside the disabled fieldset. Asserted on the
     // disabled property rather than by clicking, because jsdom dispatches clicks
@@ -883,7 +776,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
     const pointerNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(pointerNames).toEqual(["More about key repeat"]);
-    selectTab("Cursor appearance");
+    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
     const cursorNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(cursorNames).toEqual(["More about overlay visibility"]);
     expect(new Set([...pointerNames, ...cursorNames]).size).toBe(2);
@@ -917,114 +810,36 @@ describe("Switchify PC settings", () => {
 
 
   const failedUpdater = (error: string) => ({ status: "failed" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error, retryAction: "download" as const });
-  const checkingUpdater = { status: "checking" as const, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-  const currentUpdater = { status: "current" as const, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
   const updatesNotice = () => document.getElementById("settings-updates-notice")!;
-  const updatesMarker = () => screen.getByRole("tab", { name: "Updates" }).querySelector(".tab-attention");
-
-  it("announces a standing update failure once from another tab and marks the Updates tab", async () => {
-    browserState.updater = failedUpdater("Download failed");
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    // On General the Updates panel is unmounted, so the failure needs its own voice.
-    expect(updatesNotice()).toHaveTextContent("Download failed. Open the Updates tab to retry.");
-    expect(updatesNotice()).toHaveAttribute("aria-live", "assertive");
-    const updates = screen.getByRole("tab", { name: "Updates" });
-    expect(updates).toHaveTextContent("Updates");
-    expect(updatesMarker()).toBeInTheDocument();
-    // The tab's description carries the reason but not the hint, which would
-    // be self-referential read from the tab it points at.
-    const description = document.getElementById(updates.getAttribute("aria-describedby")!)!;
-    expect(description).toHaveTextContent("Download failed.");
-    expect(description).not.toHaveTextContent("Open the Updates tab");
-
-    // On Updates the panel's own region is the only live text, and the marker
-    // and description stand down because the reason is on screen.
-    selectTab("Updates");
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toHaveTextContent("Download failed.");
-    expect(updatesNotice()).toBeEmptyDOMElement();
-    expect(updatesMarker()).toBeNull();
-    expect(screen.getByRole("tab", { name: "Updates" })).not.toHaveAttribute("aria-describedby");
-
-    // Having been shown, the failure is not spoken again on leaving.
-    selectTab("Input");
-    expect(updatesNotice()).toBeEmptyDOMElement();
-    expect(updatesMarker()).toBeInTheDocument();
-  });
-
-  it("stays silent for a failure that lands on the Updates tab, and speaks a different one later", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Updates");
-
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Download failed") }));
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(updatesNotice()).toBeEmptyDOMElement();
-
-    selectTab("Input");
-    expect(updatesNotice()).toBeEmptyDOMElement();
-
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Signature check failed") }));
-    expect(updatesNotice()).toHaveTextContent("Signature check failed. Open the Updates tab to retry.");
-  });
-
   it("opens straight to Updates without a notice when the failure is what brought the user there", async () => {
     browserState.updater = failedUpdater("Download failed");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Troubleshooting" }));
     fireEvent.click(screen.getByRole("button", { name: "View updates" }));
 
     await waitFor(() => expect(screen.getByRole("region", { name: "Updates" })).toHaveFocus());
-    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed.");
     expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
-  it("neither re-announces nor unmarks a standing failure while the scheduled check cycles", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = failedUpdater("Update check failed: offline");
+  it("speaks a standing failure only from the Updates section, which is always on the Settings page", async () => {
+    browserState.updater = failedUpdater("Download failed");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    const spoken = "Update check failed: offline. Open the Updates tab to retry.";
-    expect(updatesNotice()).toHaveTextContent(spoken);
-
-    // The backend re-checks every few hours: failed -> checking -> failed with
-    // the same text. Nothing may change while that happens.
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
-    expect(updatesNotice()).toHaveTextContent(spoken);
-    expect(updatesMarker()).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-describedby");
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: offline") }));
-    expect(updatesNotice()).toHaveTextContent(spoken);
-    expect(updatesMarker()).toBeInTheDocument();
-
-    // A settled recovery clears everything, and a later failure is new again.
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: currentUpdater }));
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed.");
     expect(updatesNotice()).toBeEmptyDOMElement();
-    expect(updatesMarker()).toBeNull();
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: offline") }));
-    expect(updatesNotice()).toHaveTextContent(spoken);
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
   it("ends the backend failure text as a sentence everywhere it is shown", async () => {
     browserState.updater = failedUpdater("Update download could not start: check for an update first");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(updatesNotice()).toHaveTextContent("Update download could not start: check for an update first. Open the Updates tab to retry.");
-    selectTab("Updates");
     expect(screen.getByRole("alert")).toHaveTextContent("Update download could not start: check for an update first.");
+    expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
   it("reports a cancelled download politely without repeating the retry hint", async () => {
@@ -1033,117 +848,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(updatesNotice()).toHaveTextContent("Download cancelled. You can retry when ready.");
-    expect(updatesNotice()).not.toHaveTextContent("Open the Updates tab");
-    expect(updatesNotice()).toHaveAttribute("aria-live", "polite");
-    expect(updatesMarker()).toBeInTheDocument();
-  });
-
-  it("does not mark the Updates tab for states the banner already covers", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-
-    expect(screen.getByRole("status", { name: "Application update" })).toBeInTheDocument();
-    expect(updatesMarker()).toBeNull();
-    expect(document.getElementById("settings-tab-updates-description")).toBeNull();
-    expect(updatesNotice()).toBeEmptyDOMElement();
-  });
-
-
-  it("does not repeat a failure the user has already read when they leave and re-enter Settings", async () => {
-    browserState.updater = failedUpdater("Download failed");
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(updatesNotice()).toHaveTextContent("Download failed.");
-    selectTab("Updates");
-
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    // Still standing, so still marked, but it has been read: nothing is spoken.
-    expect(updatesMarker()).toBeInTheDocument();
-    expect(updatesNotice()).toBeEmptyDOMElement();
-  });
-
-  it("treats a scheduled check that fails with different transport wording as the same failure", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = failedUpdater("Update check failed: dns error");
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(updatesNotice()).toHaveTextContent("Update check failed: dns error. Open the Updates tab to retry.");
-
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: failedUpdater("Update check failed: connection timed out") }));
-    // The marker and description carry the new wording. The live region does
-    // not interrupt for it, and does not keep the old words either.
-    expect(updatesNotice()).toBeEmptyDOMElement();
-    const updates = screen.getByRole("tab", { name: "Updates" });
-    expect(document.getElementById(updates.getAttribute("aria-describedby")!)).toHaveTextContent("connection timed out");
-  });
-
-  it("speaks the result of a check the user asked for, even when it is the same failure", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = { ...failedUpdater("Update check failed: offline"), retryAction: "check" };
-    let finishCheck: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "checkForUpdates").mockImplementation(() => new Promise((resolve) => { finishCheck = resolve; }));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(updatesNotice()).toHaveTextContent("Update check failed: offline.");
-    selectTab("Updates");
-    expect(updatesNotice()).toBeEmptyDOMElement();
-
-    // A check the user started is not the scheduled one: the "checking" the
-    // backend publishes first is not held for it, so the marker drops, and
-    // whatever comes back is news, even from another tab.
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
-    selectTab("Input");
-    expect(updatesMarker()).toBeNull();
-    await act(async () => { finishCheck?.({ ...structuredClone(browserState), updater: { ...failedUpdater("Update check failed: offline"), retryAction: "check" } }); });
-    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
-    expect(updatesMarker()).toBeInTheDocument();
-  });
-
-  it("keeps a standing failure marked when Settings opens during the scheduled check", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = failedUpdater("Update check failed: offline");
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-
-    // The failure is standing on Home; the scheduler starts a check; the user
-    // opens Settings while it runs.
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: checkingUpdater }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(updatesMarker()).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Updates" })).toHaveAttribute("aria-describedby");
-    expect(updatesNotice()).toHaveTextContent("Update check failed: offline. Open the Updates tab to retry.");
-  });
-
-  it("drops the marker while an install the user started is in progress", async () => {
-    let stateHandler: ((state: typeof browserState) => void) | undefined;
-    vi.spyOn(api, "onState").mockImplementation(async (handler) => {
-      stateHandler = handler;
-      return () => undefined;
-    });
-    browserState.updater = { ...failedUpdater("Update installation failed: installer exited with code 1"), retryAction: "install" };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(updatesMarker()).toBeInTheDocument();
-
-    act(() => stateHandler?.({ ...structuredClone(browserState), updater: { status: "applying", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null } }));
-    expect(updatesMarker()).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Updates" })).getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
     expect(updatesNotice()).toBeEmptyDOMElement();
   });
 

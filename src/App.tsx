@@ -2,31 +2,36 @@ import { Button, Input, Select, StatusIcon } from "./ui/controls";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Accessibility, Bluetooth, ChevronDown, ChevronRight, CircleHelp, CircleUserRound, Download,
-  Copy, Home, Keyboard, KeyRound, LayoutGrid, Menu, MousePointer2, Plus, Power, RefreshCw, Save, Settings,
+  Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
+  Copy, Home, Keyboard, KeyRound, LayoutGrid, Plus, Power, RefreshCw, Save, Settings,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
-import { api, type ProfileExitAction } from "./api";
-import { AccountSection } from "./settings/AccountSection";
+import { api, type NavigationTarget, type ProfileExitAction } from "./api";
 import type { AccountView, AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
 import { applyLocalSettings, changedSettingKeys } from "./settings/diff";
 import { SettingsView } from "./settings/SettingsView";
-import { MouseSettingsView } from "./settings/MouseSettingsView";
+import { CursorSection } from "./settings/CursorSection";
 import { updateDescription, updateInFlight, updateLiveness, updateProgress, updateStanding, useUpdateProgress, type UpdateAction } from "./settings/UpdatesSection";
-import { TabPanel, Tabs } from "./Tabs";
 import { PanelsView } from "./panels/PanelsView";
 import { usePanels } from "./panels/usePanels";
 import { useSwitches, type SwitchController } from "./scanning/useSwitches";
 import { lastModeName, selectOpensHome, useScanning, type ScanningController } from "./scanning/useScanning";
-import { areaOptions } from "./scanning/preferences";
+import { areaOptions, type ScanArea } from "./scanning/preferences";
 import { homeStatus } from "./homeStatus";
 import { BuyLicence } from "./licensing/BuyLicence";
 import { interfaceModeAdvice, reservedKeyAdvice } from "./help/keyAvailability";
-
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
+import { AlsoSee, CommonTasks, FindResults, FindTile, PageHead, RecentlyChanged, SectionStrip, useArrival, useRecent, type Jump } from "./find/Find";
+import { pageLabels, type FindContext, type Page, type Target } from "./find/index";
 
-type View = "switches" | "scanning" | "mouse" | "panels" | "mobile" | "home" | "devices" | "profiles" | "settings" | "support" | "account";
+type View = Page;
+
+/** The pages, in nav order, with the icon each tile shows. */
+const pages: [Page, ReactNode][] = [
+  ["home", <Home size={24} />], ["switches", <Keyboard size={24} />], ["scanning", <SlidersHorizontal size={24} />], ["panels", <LayoutGrid size={24} />],
+  ["mobile", <Smartphone size={24} />], ["settings", <Settings size={24} />], ["support", <CircleHelp size={24} />],
+];
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
@@ -49,44 +54,6 @@ const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
   error: "Bluetooth could not start. Try restarting Switchify PC.",
 };
 
-// Replaces the version label: who is signed in, and the way to the Account
-// page. Builds without accounts keep the version, which Settings → Updates
-// also shows.
-function SidebarAccount({ account, version, active, onOpen }: { account: AccountView | null; version: string; active: boolean; onOpen: () => void }) {
-  if (!account?.available) return <span>v{version}</span>;
-  // A locked keychain may hide a saved sign-in, so stay neutral then.
-  const signedOut = !account.signedIn && !account.keychainUnavailable;
-  const label = account.signedIn && account.email ? `Account, signed in as ${account.email}` : signedOut ? "Sign in to your account" : "Account";
-  return <Button className="nav-button sidebar-account" data-active={active} aria-current={active ? "page" : undefined} aria-label={label} onClick={onOpen}>
-    <CircleUserRound size={19} aria-hidden="true" />
-    <span className="sidebar-account-text">
-      <span>{signedOut ? "Sign in" : "Account"}</span>
-      {account.signedIn && account.email && <small title={account.email}>{account.email}</small>}
-    </span>
-  </Button>;
-}
-
-function NavButton({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {
-  return <Button className="nav-button" data-active={active} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{children}</span></Button>;
-}
-
-// Narrow windows fold the sidebar into a Menu button and a popover, so the
-// page content starts near the top instead of under a grid of page buttons.
-const compactSidebarQuery = "(max-width: 800px)";
-
-function useCompactSidebar(): boolean {
-  const [compact, setCompact] = useState(() => window.matchMedia?.(compactSidebarQuery).matches ?? false);
-  useEffect(() => {
-    const query = window.matchMedia?.(compactSidebarQuery);
-    if (!query) return;
-    const update = () => setCompact(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return compact;
-}
-
 function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
   if (state.accessibility === "granted") return <p>Ready</p>;
   if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
@@ -97,7 +64,7 @@ function AccessibilityCopy({ state, detailed = false }: { state: AppState; detai
   </>;
 }
 
-function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessibility, onReleaseSwitchKeys }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; onDisconnect: () => void; onAccessibility: () => void; onReleaseSwitchKeys: (released: boolean) => void }) {
+function HomeView({ state, switches, scanning, navigate, ctx, jump, recent, onDisconnect, onAccessibility, onReleaseSwitchKeys }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; ctx: FindContext; jump: Jump; recent: string[]; onDisconnect: () => void; onAccessibility: () => void; onReleaseSwitchKeys: (released: boolean) => void }) {
   const saved = switches.state?.settings.bindings ?? [];
   const hasSelect = saved.some((binding) => binding.pressAction === "select" || binding.holdActions.includes("select"));
   // The hero names the state in words, so its colour is never the only cue.
@@ -106,7 +73,7 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
   const mobileConnected = state.bluetooth === "connected";
   const released = state.switchKeysReleased;
   return <div className="view">
-    <header className="page-header"><div><h1>Switchify PC</h1><p>Control your computer with switches.</p></div></header>
+    <PageHead title="Switchify PC" blurb="Control your computer with switches." />
     <section className="connection-band status-hero" data-tone={tone} aria-labelledby="home-status-title">
       <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><Keyboard size={26} /></StatusIcon>
       <div><h2 id="home-status-title">{title}</h2><p role="status">{message}</p></div>
@@ -116,10 +83,12 @@ function HomeView({ state, switches, scanning, navigate, onDisconnect, onAccessi
     </section>
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved · {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
-      <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`} · {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
+      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved. {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
+      <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`}. {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
       <article><StatusIcon ok={mobileConnected || undefined}><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
     </section>
+    <CommonTasks ctx={ctx} jump={jump} />
+    <RecentlyChanged ctx={ctx} jump={jump} recent={recent} />
   </div>;
 }
 
@@ -127,13 +96,13 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
   const bluetoothOk = state.bluetooth === "advertising" || state.bluetooth === "connected";
   // Amber only when the person can do something about it here.
   const bluetoothFixable = state.bluetooth === "poweredOff" || state.bluetooth === "unauthorized" || state.bluetooth === "conflict";
-  return <section>
-    <section className="connection-band" data-tone={state.bluetooth === "connected" ? "ready" : bluetoothFixable ? "attention" : "neutral"}>
+  return <section className="subview" data-section="connection" aria-label="Connection">
+    <section className="connection-band" data-tone={state.bluetooth === "connected" ? "ready" : bluetoothFixable ? "attention" : "neutral"} data-setting="connection">
       <StatusIcon ok={bluetoothOk || (bluetoothFixable ? false : undefined)}><Bluetooth size={20} /></StatusIcon><div><h2>{bluetoothLabels[state.bluetooth]}</h2><p>{state.bluetooth === "connected" ? state.connectedDeviceName ?? bluetoothDescriptions.connected : bluetoothDescriptions[state.bluetooth]}</p></div>
       {state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}
     </section>
     <p className="mobile-note">Optional. Connecting a mobile device pauses local scanning.</p>
-    <div className="mobile-cards">
+    <div className="mobile-cards" data-section="pairing" data-setting="pairing">
     <div className="mobile-download">
       <h2>Install Switchify for mobile</h2><p>Scan to get the app.</p>
       <figure><img src={mobileQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Get Switchify</figcaption></figure>
@@ -145,7 +114,7 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
-  return <div className="subview"><header className="section-header"><div><h2>Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
+  return <div className="subview" data-section="devices" data-setting="devices"><header className="section-header"><div><h2>Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
     {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h3>No paired devices</h3><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
       <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
   </div>;
@@ -352,7 +321,7 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".section-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
-  return <div className="subview"><header className="section-header"><div><h2>Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
+  return <div className="subview" data-section="profiles" data-setting="profiles"><header className="section-header"><div><h2>Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
     <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
@@ -373,26 +342,25 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
   </section>;
 }
 
-const supportTabs = [{ id: "setup", label: "Setup" }, { id: "troubleshooting", label: "Troubleshooting" }] as const;
-
-function SupportView({ state, switches, busy, perform, openSetup, openUpdates }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void }) {
-  const [tab, setTab] = useState<(typeof supportTabs)[number]["id"]>("setup");
-  return <div className="view"><header className="page-header"><div><h1>Help</h1><p>Set up Switchify PC and fix common problems. The full guide is at <a href="https://pc.theswitchify.app" target="_blank" rel="noreferrer">pc.theswitchify.app</a>.</p></div></header>
-    <Tabs name="support" tabs={supportTabs} active={tab} onSelect={setTab} label="Support view" />
-    <TabPanel name="support" id={tab}>{tab === "setup" ? <><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button><section className="task-list" aria-label="Setup status">
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon><Keyboard size={19} /></StatusIcon><div><h2>Local switches</h2><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div></article>
-      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Optional mobile connection</h2><p>{bluetoothLabels[state.bluetooth]}. Open Mobile connection for pairing and forwarding profiles.</p></div></article>
-    </section></> : <section className="task-list" aria-label="Troubleshooting actions">
-      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Bluetooth connection</h2><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h2>Input access</h2><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
-      <article><StatusIcon><Keyboard size={19} /></StatusIcon><div><h2>Switch not recognized</h2><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div></article>
-      <article><StatusIcon><RefreshCw size={19} /></StatusIcon><div><h2>Application update</h2><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
-      <article><StatusIcon><Download size={19} /></StatusIcon><div><h2>Diagnostics</h2><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
-      <article className="diagnostic-detail"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h2>Recent Bluetooth changes</h2><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(" → ") : "No Bluetooth changes recorded yet"}</p></div></article>
-      <article className="diagnostic-detail"><StatusIcon><Power size={19} /></StatusIcon><div><h2>Last disconnect</h2><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
-      <article className="diagnostic-detail"><StatusIcon><CircleHelp size={19} /></StatusIcon><div><h2>Recent errors</h2><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(" · ") : "No recent errors"}</p></div></article>
-    </section>}</TabPanel>
+function SupportView({ state, switches, busy, perform, openSetup, openUpdates, ctx, jump }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void; ctx: FindContext; jump: Jump }) {
+  return <div className="view"><PageHead title="Help" blurb={<>Set up Switchify PC and fix common problems. The full guide is at <a href="https://pc.theswitchify.app" target="_blank" rel="noreferrer">pc.theswitchify.app</a>.</>} />
+    <SectionStrip page="support" ctx={ctx} jump={jump} />
+    <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><header className="section-header"><div><h2 id="support-setup-heading">Setup</h2><p>The three things a working setup needs.</p></div><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button></header><div className="task-list" aria-label="Setup status">
+      <article data-setting="input-access"><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
+      <article><StatusIcon><Keyboard size={19} /></StatusIcon><div><h3>Local switches</h3><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "switches" })}>Open Switches</Button></article>
+      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Optional mobile connection</h3><p>{bluetoothLabels[state.bluetooth]}. Open Mobile for pairing and forwarding profiles.</p></div><Button className="secondary" onClick={() => jump({ page: "mobile", section: "pairing" })}>Open Mobile</Button></article>
+    </div></section>
+    <section className="subview" data-section="fix" aria-labelledby="support-fix-heading"><header className="section-header"><div><h2 id="support-fix-heading">Fix a problem</h2><p>Checks and tools for when something is not working.</p></div></header><div className="task-list" aria-label="Troubleshooting actions">
+      <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth connection</h3><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
+      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
+      <article data-setting="not-recognised"><StatusIcon><Keyboard size={19} /></StatusIcon><div><h3>Switch not recognized</h3><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "practice", setting: "practice" })}>Test switches</Button></article>
+      <article><StatusIcon><RefreshCw size={19} /></StatusIcon><div><h3>Application update</h3><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
+      <article data-setting="diagnostics"><StatusIcon><Download size={19} /></StatusIcon><div><h3>Diagnostics</h3><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
+      <article className="diagnostic-detail"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Recent Bluetooth changes</h3><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(", then ") : "No Bluetooth changes recorded yet"}</p></div></article>
+      <article className="diagnostic-detail"><StatusIcon><Power size={19} /></StatusIcon><div><h3>Last disconnect</h3><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
+      <article className="diagnostic-detail"><StatusIcon><CircleHelp size={19} /></StatusIcon><div><h3>Recent errors</h3><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(". ") : "No recent errors"}</p></div></article>
+    </div></section>
+    <AlsoSee page="support" ctx={ctx} jump={jump} />
   </div>;
 }
 
@@ -533,7 +501,7 @@ export function App() {
   const switches=useSwitches();
   const scanning=useScanning();
   const [state, setState] = useState<AppState | null>(null);
-  // The one download-progress listener, owned here so the Updates tab shows
+  // The one download-progress listener, owned here so the Updates section shows
   // the latest sample even when it mounts mid-download.
   const liveUpdater = useUpdateProgress(state?.updater);
   const pairingOpen = !!state?.pendingPairings.length;
@@ -544,12 +512,23 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const customPanels = usePanels();
   const viewRef = useRef<View>("home");
+  const jumpRef = useRef<Jump>(() => undefined);
   const [profiles, setProfiles] = useState<SwitchProfile[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [focusUpdates, setFocusUpdates] = useState(false);
   const [account, setAccount] = useState<AccountView | null>(null);
-  // --- Update failures away from the Updates tab ------------------------------
+  const [query, setQuery] = useState("");
+  const [arrival, setArrival] = useState<Target | null>(null);
+  const [requestedArea, setRequestedArea] = useState<ScanArea | "shared" | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const findRef = useRef<HTMLInputElement>(null);
+  const ctx = useMemo<FindContext | null>(() => state ? {
+    state, settings, config: scanning.config, scan: scanning.state, bindings: switches.state?.settings.bindings ?? null, holdIntervalMs: switches.state?.settings.holdIntervalMs ?? null,
+    panels: customPanels.panels, builtins: customPanels.builtins, profiles: view === "mobile" ? profiles : null, account,
+  } : null, [state, settings, scanning.config, scanning.state, switches.state, customPanels.panels, customPanels.builtins, profiles, account, view]);
+  const recent = useRecent(ctx);
+  // --- Update failures away from the Updates section --------------------------
   // Failed and cancelled are the updater states with something to act on that
   // the global banner deliberately leaves out: the scheduled check fails for
   // every offline user, so showing these app-wide would nag. They are surfaced
@@ -575,7 +554,7 @@ export function App() {
   const [heldFailure, setHeldFailure] = useState(settledFailure);
   if (!inFlight && heldFailure !== settledFailure) setHeldFailure(settledFailure);
   const updateFailure = inFlight ? heldFailure : settledFailure;
-  // Whether SettingsView currently has the Updates tab selected.
+  // Whether the Settings page, which holds the Updates section, is shown.
   const [updatesShown, setUpdatesShown] = useState(false);
   const announcedUpdateFailure = useRef<{ key: string; text: string } | null>(null);
   const [updateNotice, setUpdateNotice] = useState("");
@@ -586,7 +565,7 @@ export function App() {
     const announced = announcedUpdateFailure.current;
     if (updateFailure.key !== announced?.key) {
       announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text };
-      setUpdateNotice(updateFailure.status === "failed" ? `${updateFailure.text} Open the Updates tab to retry.` : updateFailure.text);
+      setUpdateNotice(updateFailure.status === "failed" ? `${updateFailure.text} Open Updates in Settings to retry.` : updateFailure.text);
     } else if (announced && updateFailure.text !== announced.text) {
       // The same failure in different words is not worth an interruption, but
       // stale text must not sit there contradicting the tab's description.
@@ -739,7 +718,7 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    // Read-only: loading the sidebar must never prompt for the keychain.
+    // Read-only: loading the account for the index must never prompt for the keychain.
     void api.accountStatus().then((view) => { if (active) setAccount(view); }).catch(() => undefined);
     const stop = api.onAccount((view) => setAccount(view));
     return () => { active = false; void stop.then((unlisten) => unlisten()); };
@@ -748,8 +727,10 @@ export function App() {
   useEffect(() => {
     let unlisten: () => void = () => {};
     let disposed = false;
-    void api.onNavigateRequested((target) => {
-      if (!disposed) selectView(target);
+    void api.onNavigateRequested((target: NavigationTarget) => {
+      if (disposed) return;
+      if (target === "profiles") jumpRef.current({ page: "mobile", section: "profiles" });
+      else selectView(target);
     }).then((stop) => {
       if (disposed) stop();
       else unlisten = stop;
@@ -782,76 +763,46 @@ export function App() {
     return () => window.removeEventListener("beforeunload", preventUnsavedUnload);
   }, []);
 
-  useEffect(() => { if (view === "profiles") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
+  useEffect(() => { if (view === "mobile") void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason))); }, [view]);
   // Settings sync can change profiles from another computer; refresh the list
   // unless an edit is in progress, which a refresh would discard.
   useEffect(() => {
-    if (view !== "profiles") return;
+    if (view !== "mobile") return;
     const stop = api.onProfilesChanged(() => {
       if (!profileEditorDirty.current) void api.listProfiles().then(setProfiles).catch((reason) => setError(String(reason)));
     });
     return () => { void stop.then((unlisten) => unlisten()); };
   }, [view]);
-  const nav = useMemo(() => [
-    ["home", "Home", <Home size={19} />], ["switches", "Switches", <Keyboard size={19} />], ["scanning", "Scanning", <SlidersHorizontal size={19} />], ["mouse", "Mouse", <MousePointer2 size={19} />], ["panels", "Panels", <LayoutGrid size={19} />], ["mobile", "Mobile", <Smartphone size={19} />], ["settings", "Settings", <Settings size={19} />],
-    ["support", "Help", <CircleHelp size={19} />],
-  ] as const, []);
-
-  const selectView = (next: View) => {
-    if (next === viewRef.current) return;
-    if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
-    if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;
+  const selectView = (next: View): boolean => {
+    if (next === viewRef.current) return true;
+    if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return false;
+    if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return false;
     profileEditorDirty.current = false;
     panelEditorDirty.current = false;
     viewRef.current = next;
     setView(next);
+    return true;
   };
 
-  // The compact sidebar: a Menu button naming the current page opens a
-  // popover with the page list. Choosing a page, Escape or a press outside
-  // closes it; focus goes back to the button so the next press reopens it.
-  const compactSidebar = useCompactSidebar();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const asideRef = useRef<HTMLElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const menuPanelRef = useRef<HTMLDivElement>(null);
-  const menuPanelId = useId();
-  const navActive = (id: View) => view === id || (id === "mobile" && (view === "devices" || view === "profiles"));
-  const currentPage = view === "account" ? "Account" : nav.find(([id]) => navActive(id))?.[1] ?? "Menu";
-  useEffect(() => { if (!compactSidebar) setMenuOpen(false); }, [compactSidebar]);
+  // Finding things: the Find tile's query, and the setting a jump is heading to.
+  const jump: Jump = (target) => {
+    setQuery("");
+    if (!selectView(target.page)) return;
+    setRequestedArea(target.area ?? (target.page === "scanning" ? "shared" : null));
+    setArrival(target);
+  };
+  useArrival(rootRef, arrival, () => setArrival(null));
+  jumpRef.current = jump;
   useEffect(() => {
-    if (!menuOpen) return;
-    const panel = menuPanelRef.current;
-    (panel?.querySelector<HTMLElement>('[aria-current="page"]') ?? panel?.querySelector<HTMLElement>("button"))?.focus();
-    const outside = (event: PointerEvent) => {
-      if (!asideRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [menuOpen]);
-  const closeMenu = () => {
-    setMenuOpen(false);
-    menuButtonRef.current?.focus();
-  };
-  const chooseView = (next: View) => {
-    selectView(next);
-    if (compactSidebar) closeMenu();
-  };
-  const onSidebarKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape" && menuOpen) {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((event.target as HTMLElement | null)?.closest("input, select, textarea, [contenteditable]")) return;
       event.preventDefault();
-      closeMenu();
-    }
-  };
-  // Tabbing out of the popover closes it, so it never covers the control
-  // that now has focus. A null relatedTarget is ignored: WebKit clears focus
-  // on a button press instead of focusing it, so a click inside the popover
-  // would otherwise close it before the click lands.
-  const onSidebarBlur = (event: React.FocusEvent) => {
-    const next = event.relatedTarget as Node | null;
-    if (menuOpen && next && !asideRef.current?.contains(next)) setMenuOpen(false);
-  };
-
+      findRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const openUpdates = () => {
     if (viewRef.current !== "settings") {
       if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
@@ -890,22 +841,21 @@ export function App() {
   };
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
-  return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div className="app-shell">
-    <aside ref={asideRef} inert={setupOpen || state.pendingPairings.length > 0} data-menu-open={compactSidebar ? menuOpen : undefined} onKeyDown={onSidebarKeyDown} onBlur={onSidebarBlur}>
+  const modal = setupOpen || state.pendingPairings.length > 0;
+  const current = ctx!;
+  return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div ref={rootRef} className="app-shell" data-scan={scanning.config.scannerColor} data-thickness={scanning.config.scanPreferences?.thickness ?? "standard"}>
+    <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
-      {compactSidebar && <Button ref={menuButtonRef} className="sidebar-menu-button" aria-label={`Menu, ${currentPage}`} aria-expanded={menuOpen} aria-controls={menuPanelId} onClick={() => setMenuOpen((open) => !open)}><Menu size={19} aria-hidden="true" /><span>{currentPage}</span><ChevronDown className="sidebar-menu-chevron" size={18} aria-hidden="true" /></Button>}
-      <div ref={menuPanelRef} id={menuPanelId} className="sidebar-panel" hidden={compactSidebar && !menuOpen}>
-        <nav>{nav.map(([id, label, icon]) => <NavButton key={id} active={navActive(id)} icon={icon} onClick={() => chooseView(id)}>{label}</NavButton>)}</nav>
-        <div className="sidebar-footer"><SidebarAccount account={account} version={state.version} active={view === "account"} onOpen={() => chooseView("account")} /></div>
-      </div>
-    </aside>
-    <DemonstrationProvider platform={state.capabilities.platform} suspended={setupOpen || state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><main inert={setupOpen || state.pendingPairings.length > 0}>
+      <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
+      <FindTile query={query} onChange={setQuery} inputRef={findRef} />
+    </header>
+    <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
       {state.licence?.configured && (state.licence.status !== "licensed" || (state.licence.offlineDaysRemaining != null && state.licence.offlineDaysRemaining <= 7)) && <div className="licence-banner-wrap">
         <div className="licence-banner" data-locked={state.licence.locked ?? ["expired", "unavailable", "lease_expired", "revoked", "deactivated"].includes(state.licence.status)}>
           <KeyRound size={24} aria-hidden="true" />
           <div role="status" aria-label="Licence">
             <p className="licence-banner-message">{state.licence.message}</p>
-            <p className="licence-banner-hint">See Settings → Licence.</p>
+            <p className="licence-banner-hint">See Settings, Licence.</p>
           </div>
           {state.licence.status !== "licensed" && <BuyLicence />}
         </div>
@@ -913,19 +863,20 @@ export function App() {
       {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
-      {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onReleaseSwitchKeys={(released) => void perform(() => api.setSwitchKeysReleased(released))} />}
-      {view === "switches" && <div className="view"><header className="page-header"><div><h1>Switches</h1><p>The switches you use to control this computer.</p></div></header><SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} suspended={pairingOpen} /></div>}
-      {view === "scanning" && <div className="view"><header className="page-header"><div><h1>Scanning</h1><p>Choose how your switches control the pointer.</p></div></header><ScanningSection controller={scanning} settings={settings ?? undefined} onSettingsChange={changeSettings} /></div>}
-      {view === "mouse" && <MouseSettingsView settings={settings} onChange={changeSettings} scanning={scanning} />}
-      {view === "panels" && <PanelsView controller={customPanels} theme={scanning.config.scanPreferences?.panelTheme} onDirtyChange={(dirty) => { panelEditorDirty.current = dirty; }} />}
-      {(view === "mobile" || view === "devices" || view === "profiles") && <div className="view"><header className="page-header"><div><h1>Mobile</h1><p>Control this computer from Switchify on a phone or tablet.</p></div></header><Tabs name="mobile" label="Mobile connection sections" active={view} onSelect={selectView} tabs={[{id: "mobile", label: "Connection"}, {id: "devices", label: "Paired devices"}, {id: "profiles", label: "Switch Forwarding"}]} /><TabPanel name="mobile" id={view}>
-      {view === "mobile" && <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />}
-      {view === "devices" && <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />}
-      {view === "profiles" && <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />}
-      </TabPanel></div>}
-      {view === "settings" && <SettingsView state={state} updater={liveUpdater ?? state.updater} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} updateAttention={updateFailure?.text ?? null} onUpdatesShown={setUpdatesShown} />}
-      {view === "account" && <div className="view"><header className="page-header"><div><h1>Account</h1><p>Bring your settings to your other computers.</p></div></header><AccountSection settings={settings} onSettingsChange={changeSettings} /></div>}
-      {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} />}
+      {query ? <FindResults query={query} ctx={current} jump={jump} /> : <>
+      {view === "home" && <HomeView state={state} switches={switches} scanning={scanning} navigate={selectView} ctx={current} jump={jump} recent={recent} onDisconnect={() => void perform(api.disconnectAll)} onAccessibility={() => void perform(() => api.checkAccessibility(true))} onReleaseSwitchKeys={(released) => void perform(() => api.setSwitchKeysReleased(released))} />}
+      {view === "switches" && <div className="view"><PageHead title="Switches" blurb="The switches you use to control this computer." /><SectionStrip page="switches" ctx={current} jump={jump} /><SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} suspended={pairingOpen} /><AlsoSee page="switches" ctx={current} jump={jump} /></div>}
+      {view === "scanning" && <div className="view"><PageHead title="Scanning" blurb="How the highlight moves and looks, and the pointer it drives." /><SectionStrip page="scanning" ctx={current} jump={jump} /><ScanningSection controller={scanning} settings={settings ?? undefined} onSettingsChange={changeSettings} requestedArea={requestedArea} onAreaOpened={() => setRequestedArea(null)} /><AlsoSee page="scanning" ctx={current} jump={jump} /></div>}
+      {view === "panels" && <PanelsView controller={customPanels} theme={scanning.config.scanPreferences?.panelTheme} onDirtyChange={(dirty) => { panelEditorDirty.current = dirty; }} strip={<SectionStrip page="panels" ctx={current} jump={jump} />} alsoSee={<AlsoSee page="panels" ctx={current} jump={jump} />} />}
+      {view === "mobile" && <div className="view"><PageHead title="Mobile" blurb="Control this computer from Switchify on a phone or tablet." /><SectionStrip page="mobile" ctx={current} jump={jump} />
+        <MobileConnection state={state} onDisconnect={() => void perform(api.disconnectAll)} />
+        <DevicesView state={state} forget={(id) => void perform(() => api.forgetDevice(id))} />
+        <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />
+        {state.capabilities.cursorOverlay && <div className="subview" data-section="cursor"><CursorSection settings={settings} update={(key, value) => changeSettings({ ...settings, [key]: value })} /></div>}
+        <AlsoSee page="mobile" ctx={current} jump={jump} /></div>}
+      {view === "settings" && <SettingsView state={state} updater={liveUpdater ?? state.updater} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} onUpdatesShown={setUpdatesShown} ctx={current} jump={jump} />}
+      {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} ctx={current} jump={jump} />}
+      </>}
     </main></DemonstrationProvider>
     {setupOpen && <SetupGuide state={state} switches={switches} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
     {state.pendingPairings.length > 0 && <PairingDialog error={error} requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}

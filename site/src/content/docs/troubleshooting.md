@@ -3,7 +3,7 @@ title: Troubleshooting
 description: The switch is not recognised, input access on a Mac, Bluetooth, and where to get help.
 ---
 
-Switchify PC's Help page has **Setup** and **Troubleshooting** tabs with the same checks as below, plus illustrated guides for connecting a switch, learning a key, assigning Select, grid and line scanning, press-hold-release, macOS access, pairing and startup. It also links to this guide.
+Switchify PC's Help page has **Setup** and **Fix a problem** sections with the same checks as below, plus illustrated guides for connecting a switch, learning a key, assigning Select, grid and line scanning, press-hold-release, macOS access, pairing and startup. It also links to this guide.
 
 ## Nothing happens when I press the switch
 
@@ -38,8 +38,8 @@ Switchify PC keeps pairing tokens in the Windows credential store or the macOS K
 
 ## Bluetooth
 
-The Troubleshooting tab shows the Bluetooth state and recent changes, and lets you disconnect all devices. Only one app can advertise the Switchify Bluetooth service at a time.
+The Fix a problem section of Help shows the Bluetooth state and recent changes, and lets you disconnect all devices. Only one app can advertise the Switchify Bluetooth service at a time.
 
 ## Get help
 
-Email [info@theswitchify.app](mailto:info@theswitchify.app). Attach the diagnostics export from the Troubleshooting tab if it helps; it contains no typed text, device names or paths. Bugs and ideas are welcome on [GitHub](https://github.com/switchifyapp/switchify-pc/issues).
+Email [info@theswitchify.app](mailto:info@theswitchify.app). Attach the diagnostics export from the Fix a problem section of Help if it helps; it contains no typed text, device names or paths. Bugs and ideas are welcome on [GitHub](https://github.com/switchifyapp/switchify-pc/issues).

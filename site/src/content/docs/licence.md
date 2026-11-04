@@ -16,22 +16,22 @@ management and licence entry remain available. Ordinary development builds do
 not enable paid licensing.
 
 During the trial, a notice at the top of the app shows how many days remain.
-It also points to **Settings → Licence** for entering your key. The notice
+It also points to the **Licence** section of Settings for entering your key. The notice
 disappears once this computer is licensed, and returns when 7 days or fewer
 remain in its offline allowance.
 
 **Buy licence** opens checkout in your default browser. It appears in the
-trial notice and on **Settings → Licence** when this computer is not licensed.
+trial notice and in the **Licence** section of Settings when this computer is not licensed.
 It opens Stripe checkout for a one-time purchase covering one computer.
 An internet connection is needed to open checkout. Your purchase email includes
 your key and a **Switchify-PC.licence** attachment that you can save and import.
 
-Open **Settings → Licence** to paste a key, choose **Paste and activate**, or
+Open the **Licence** section of Settings to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
-days or active licence appear in the status panel at the top of this page.
+days or active licence appear in the status panel at the top of the section.
 Connect to the internet for the first activation. No Switchify account is
 required. The app checks at launch and daily while running; each successful
-check allows up to 30 days offline. The Licence page shows the last successful
+check allows up to 30 days offline. The Licence section shows the last successful
 check and days remaining. When 7 days or fewer remain, the app shows a reminder,
 including at 3 days and 1 day. Choose **Check licence now** after reconnecting.
 A failed check leaves the existing allowance intact; it does not add extra days.
@@ -72,14 +72,14 @@ ends. Settings and licence recovery remain available. If you stay offline
 beyond the allowance, connect to the internet and choose **Check licence now**.
 Signing out or deleting your Switchify account does not remove the local key.
 
-If the trial or offline allowance has ended, the Licence page automatically moves focus between
+If the trial or offline allowance has ended, the Licence section automatically moves focus between
 buttons every 1.5 seconds. Any configured local switch selects the focused
 button. Copy your key first, then choose **Paste and activate**. This recovery
-mode controls only this page; it does not type or move the pointer in other
+mode controls only this section; it does not type or move the pointer in other
 applications. For help or a lost key, contact info@theswitchify.app.
 
 Using the mouse, pressing Tab, or typing in the key field pauses automatic
-button scanning on the Licence page. Choose **Resume automatic button
+button scanning in the Licence section. Choose **Resume automatic button
 scanning** when you want to use your local switches again.
 
 The licence also lets you study, change and share the app. If you share it, changed or not, the licence sets out how you must make the source code available. A changed version you share must stay under the same licence. If people use your changed version over a network, you must offer them its source code. The [source code](https://github.com/switchifyapp/switchify-pc) is on GitHub. Read the licence for exactly what applies.

@@ -62,7 +62,7 @@ function sentence(text: string) {
   return text.split(", ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" · ");
 }
 
-export function PanelsView({ controller, theme, onDirtyChange }: { controller: PanelsController; theme?: PanelTheme; onDirtyChange: (dirty: boolean) => void }) {
+export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }: { controller: PanelsController; theme?: PanelTheme; onDirtyChange: (dirty: boolean) => void; strip?: ReactNode; alsoSee?: ReactNode }) {
   const { panels, builtins, extras, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, saveExtras, tryPanel, setEditing } = controller;
   const [open, setOpen] = useState<CustomPanel | null>(null);
   const [builtin, setBuiltin] = useState<BuiltinEditing | null>(null);
@@ -113,7 +113,9 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
   const onMore = menu("more") !== undefined || MORE_MENUS.some(menu);
   return <div className="view">
     <header className="page-header"><div><h1>Panels</h1><p>Panels of your own, which Home lists under My panels, then the built-in menus and panels.</p></div><Button data-opener="new-panel" className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
+    {strip}
     {error && <p className="field-error" role="alert">{error}</p>}
+    <section className="panel-group panel-group-yours" data-section="yours" data-setting="your-panels" aria-label="Your panels">
     {panels === null ? <p className="capability-note">Loading your panels...</p>
       : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
       : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
@@ -122,7 +124,8 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
           <span className="panel-card-text"><strong>{panel.name}</strong><small>{panel.description.trim() || `${tileCount(panel)} ${tileCount(panel) === 1 ? "tile" : "tiles"}`}</small></span>
         </Button>
       </li>)}</ul>}
-    {(onHome || onMore || unplaced.length > 0) && <section className="panel-group" aria-labelledby="builtin-heading">
+    </section>
+    {(onHome || onMore || unplaced.length > 0) && <section className="panel-group" data-section="builtin" data-setting="builtin-menus" aria-labelledby="builtin-heading">
       <header className="section-header"><div><h2 id="builtin-heading">Built-in menus and panels</h2><p>Listed under the menu that opens them. More actions is a tile on the page that opens after you choose a point, and its menu opens most of Home's menus too. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys.</p></div></header>
       <div className="menu-lists">
         {onHome && <section>
@@ -146,5 +149,6 @@ export function PanelsView({ controller, theme, onDirtyChange }: { controller: P
         </section>}
       </div>
     </section>}
+    {alsoSee}
   </div>;
 }

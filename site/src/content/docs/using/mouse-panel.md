@@ -22,7 +22,7 @@ The panel has a slim bar along its top with the Switchify PC name and a **Settin
 
 ## Speed and repeat
 
-Pointer speed has ten levels plus fine tuning. The panel, the Mouse settings page and the Android app all show the same level. Hold a switch on a movement or scroll button and it repeats, with a repeat interval and gradual acceleration you can set. Repeat stops when you release the switch, or on the next press, whichever you choose in Settings.
+Pointer speed has ten levels plus fine tuning. The panel, the **Mouse pointer** section at the end of the Scanning page, and the Android app all show the same level. Hold a switch on a movement or scroll button and it repeats, with a repeat interval and gradual acceleration you can set. Repeat stops when you release the switch, or on the next press, whichever you choose in Settings.
 
 The panel can move itself out of the way when the pointer approaches it.
 

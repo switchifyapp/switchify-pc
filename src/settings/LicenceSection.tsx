@@ -57,7 +57,7 @@ export function LicenceSection({ state }: { state: AppState }) {
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   };
-  return <SettingGroup id="settings-licence" title="Licence" description="Your purchase and trial on this computer">
+  return <SettingGroup id="settings-licence" section="licence" setting="licence" title="Licence" description="Your purchase and trial on this computer">
     <div className="licence-panel" ref={scope} onPointerDownCapture={() => setRecoveryPaused(true)} onFocusCapture={(event) => {
       if (event.target.matches("textarea,input,select")) setRecoveryPaused(true);
     }}>

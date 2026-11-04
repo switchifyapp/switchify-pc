@@ -42,7 +42,7 @@ function SyncDetails() {
 function AccountPairingRow({ settings, onChange }: { settings: AppSettings; onChange: (next: AppSettings) => void }) {
   const headingId = useId();
   const noteId = useId();
-  return <article>
+  return <article data-setting="auto-approve">
     <StatusIcon><Smartphone size={19} /></StatusIcon>
     <div><h3 id={headingId}>Approve phones on this account automatically</h3><p id={noteId}>A phone signed in to this account pairs with this computer without comparing codes. Turn this off if other people share the account.</p></div>
     <Toggle labelledBy={headingId} describedBy={noteId} checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />

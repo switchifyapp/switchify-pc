@@ -1,7 +1,10 @@
 import { Button } from "../ui/controls";
 import { Demonstration } from "../help/Demonstration";
 import { type ScanningController, validSwitches, mouseRepeatStopInstruction } from "../scanning/useScanning";
+import type { ScanArea } from "../scanning/preferences";
 import { ScannerPreferences } from "./ScannerPreferences";
+import { PointerSection } from "./PointerSection";
+import { OptionGroup, type SettingsUpdate } from "./controls";
 import type { AppSettings } from "../types";
 
 const phases = {
@@ -28,7 +31,21 @@ const phases = {
   y: "Choose the vertical position",
 };
 
-export function ScanningSection({ controller, settings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
+/** The pointer the scanning drives: speed and repeat, with the stop-repeat edge the scanner owns. */
+export function PointerSettings({ settings, onSettingsChange, scanning }: { settings: AppSettings; onSettingsChange: (next: AppSettings) => void; scanning: ScanningController }) {
+  const update: SettingsUpdate = (key, value) => onSettingsChange({ ...settings, [key]: value });
+  return <PointerSection settings={settings} update={update} title="Mouse pointer" description="Pointer speed and repeat for Mouse scanning and Remote." section="pointer">
+    <OptionGroup legend="Stop repeating" value={scanning.config.mouseRepeatStopEdge ?? "release"} disabled={!scanning.state?.supported || !!scanning.pending}
+      options={[{ value: "press" as const, label: "On switch press" }, { value: "release" as const, label: "On switch release" }]}
+      onChange={value => scanning.update("mouseRepeatStopEdge", value)}
+      note={{ summary: "Applies to movement and scrolling in Mouse scanning, and to keys repeating on the scanned keyboard, including switches forwarded by Remote. On switch release keeps repeating while you hold the switch. The stop gesture ignores assigned switch actions." }} />
+    <p role="status" className="setting-note">{scanning.pending ? "Saving scanning settings..." : scanning.unsaved ? "Scanning settings have unsaved changes." : "Saved automatically."}</p>
+    {scanning.error && <p role="alert">{scanning.error}</p>}
+    {scanning.error && scanning.unsaved && <Button type="button" className="secondary" disabled={!!scanning.pending || !validSwitches(scanning.config)} onClick={scanning.retry}>Retry save</Button>}
+  </PointerSection>;
+}
+
+export function ScanningSection({ controller, settings, onSettingsChange, requestedArea, onAreaOpened }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void; requestedArea?: ScanArea | "shared" | null; onAreaOpened?: () => void }) {
   const { state, config, pending, error, retry, unsaved } = controller;
   return <div className="scanner-settings">
     <div className="scanner-status">
@@ -38,7 +55,8 @@ export function ScanningSection({ controller, settings, onSettingsChange }: { co
       {error && unsaved && <Button type="button" className="secondary" disabled={!!pending || !validSwitches(config)} onClick={retry}>Retry save</Button>}
       {!validSwitches(config) && <p role="alert">Each switch action needs a different key. Escape is reserved for cancel.</p>}
     </div>
-    <ScannerPreferences controller={controller} settings={settings} onSettingsChange={onSettingsChange} />
+    <ScannerPreferences controller={controller} settings={settings} onSettingsChange={onSettingsChange} requestedArea={requestedArea} onAreaOpened={onAreaOpened}
+      pointer={settings && onSettingsChange ? <PointerSettings settings={settings} onSettingsChange={onSettingsChange} scanning={controller} /> : null} />
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Point scanning chooses a screen location with a moving line or grid, then opens actions for clicks, scrolling and dragging. Mouse scanning moves a visible pointer ring and offers directions, clicks, dragging, scrolling and Keyboard in a persistent panel.</p>
       <p>Select opens Home, unless you chose Last mode used. Home offers Point, Mouse and Keyboard, plus Apps and windows, Editing, Browser and Media commands that act on the app in front, so you can bring the right app forward with switches instead of focusing it first. After a click or other action, Select carries on in the same mode; Close menu, Stop scanning or Escape means the next Select opens Home. Home is also a tile in the Point action menu and Mouse Actions.</p>

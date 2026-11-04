@@ -13,7 +13,7 @@ import {
   type PointScanState,
 } from "./scanning/useScanning";
 import { defaultScanPreferences } from "./scanning/preferences";
-import { MouseSettingsView } from "./settings/MouseSettingsView";
+import { PointerSettings } from "./settings/ScanningSection";
 import { browserState } from "./api";
 import { ScanningSection } from "./settings/ScanningSection";
 function more() {
@@ -610,7 +610,7 @@ it("explains the saved Mouse mode and keeps mode cards keyboard accessible", asy
 
 function MouseSettings() {
   const scanning = useScanning();
-  return <MouseSettingsView settings={browserState.settings} onChange={() => {}} scanning={scanning} />;
+  return <PointerSettings settings={browserState.settings} onSettingsChange={() => {}} scanning={scanning} />;
 }
 
 it("saves the accessible Mouse stop choice and retains failed edits for retry", async () => {

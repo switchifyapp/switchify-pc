@@ -1,5 +1,5 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, lightPanels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
@@ -9,7 +9,10 @@ import type { AppSettings } from '../types';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
 
-export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void }) {
+// `requestedArea` opens a scanning area (or returns to the shared settings) on
+// behalf of a jump from Find; `pointer` is the Mouse pointer section shown
+// after the shared settings.
+export function ScannerPreferences({ controller, settings: appSettings, onSettingsChange, requestedArea, onAreaOpened, pointer }: { controller: ScanningController; settings?: AppSettings; onSettingsChange?: (next: AppSettings) => void; requestedArea?: ScanArea | 'shared' | null; onAreaOpened?: () => void; pointer?: ReactNode }) {
   const { config, state, update, chooseKeyboardLayout, pending } = controller;
   const [area, setArea] = useState<'shared' | ScanArea>('shared');
   const heading = useRef<HTMLHeadingElement>(null);
@@ -38,6 +41,16 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     changedView.current = true;
     setArea(next);
   };
+  useEffect(() => {
+    if (!requestedArea) return;
+    if (requestedArea !== area) {
+      if (requestedArea === 'shared') { changedView.current = true; setArea('shared'); }
+      else openArea(requestedArea);
+    }
+    onAreaOpened?.();
+  }, [requestedArea]);
+  // Where each shared setting lives, so a jump from Find can land on it.
+  const settingIds: Partial<Record<keyof ScanOptions, string>> = area === 'shared' ? { automatic: 'movement', intervalMs: 'scan-rate', nextScan: 'after-selection', direction: 'direction', passLimit: 'pass-limit', pattern: 'item-scanning', color: 'colour', thickness: 'thickness' } : {};
   const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse scanning' };
   const descriptions = {
     point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
@@ -71,7 +84,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
   };
   const field = (key: keyof ScanOptions, label: string, children: (locked: boolean) => ReactNode) => {
     const custom = area !== 'shared' && settings[area]?.[key] != null;
-    return <div className="scanner-preference" key={key} tabIndex={-1} role="group" aria-label={`${label} setting`}>
+    return <div className="scanner-preference" key={key} tabIndex={-1} role="group" aria-label={`${label} setting`} data-setting={settingIds[key]}>
       {area !== 'shared' && <div className="scanner-inheritance"><span className={custom ? 'custom' : ''}>{custom ? 'Custom' : 'Default'}</span>
         {custom && <Button type="button" className="text-button" disabled={disabled} aria-label={`Use default for ${label.toLowerCase()}`} onClick={event => { const field = event.currentTarget.closest<HTMLElement>('.scanner-preference'); change(key, undefined); requestAnimationFrame(() => (field?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? field)?.focus()); }}>Use default</Button>}
       </div>}
@@ -85,8 +98,8 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
-    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key !== config.controlMode ? 'Open with a switch or scanned control' : opensHome ? 'Used last' : 'Select starts here'}</span></Button>)}</div></section>}
-    {area === 'shared' && <SettingGroup title="Starting" description="">
+    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes" data-section="areas"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key !== config.controlMode ? 'Open with a switch or scanned control' : opensHome ? 'Used last' : 'Select starts here'}</span></Button>)}</div></section>}
+    {area === 'shared' && <SettingGroup section="starting" setting="select-starts" title="Starting" description="">
       <OptionGroup<NonNullable<PointScanConfig['startWith']>>
         legend="Select starts"
         disabled={disabled}
@@ -98,8 +111,8 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
           : 'Select starts the last mode you used straight away. Open Home from the Point action menu or Mouse Actions.' }}
       />
     </SettingGroup>}
-    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse in the sidebar. Switch to Point returns to screen selection.</p>}
-    {area === 'mouse' && <SettingGroup title="Radar" description="Radar picks an area, then a direction, then a distance to move the pointer.">
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. Modified clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse pointer, after the shared scanning settings. Switch to Point returns to screen selection.</p>}
+    {area === 'mouse' && <SettingGroup setting="radar" title="Radar" description="Radar picks an area, then a direction, then a distance to move the pointer.">
       <OptionGroup<number>
         legend="Radar speed"
         columns="five"
@@ -118,6 +131,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     </SettingGroup>}
     {area === 'point' && <>
       <SettingGroup
+        setting="point-method"
         title="Point scan"
         description=""
       >
@@ -165,7 +179,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
 
         
       </SettingGroup>
-      <MoreOptions label="Click options"><SettingGroup title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
+      <MoreOptions label="Click options"><SettingGroup setting="auto-select" title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
         <Toggle label="Auto select" checked={config.autoSelectEnabled} disabled={disabled} onChange={(value) => update("autoSelectEnabled", value)} />
         {config.autoSelectEnabled && <label className="exact-speed">
           <span>Auto select delay (seconds)</span>
@@ -176,7 +190,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
 
     </>}
     {area === 'keyboard' && <>
-      <SettingGroup title="Keyboard layout" description="Choose the Letters page layout. Navigation, Numbers and Symbols stay the same in every layout.">
+      <SettingGroup setting="keyboard-layout" title="Keyboard layout" description="Choose the Letters page layout. Navigation, Numbers and Symbols stay the same in every layout.">
         <OptionGroup<PointScanConfig['keyboardLayout']>
           legend="Keyboard layout"
           disabled={disabled || !!pending}
@@ -197,16 +211,16 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       </SettingGroup>
       <p className="setting-note">The Symbols page shows every symbol on the main keys of a UK keyboard as its own key, and each key types what it shows. The scanning keyboard spaces prose punctuation for you: after a full stop, comma, question mark or exclamation mark on Letters or Symbols it adds a space. Other symbols type exactly as shown, and the full stop on Numbers stays a decimal point. Period, question mark, and exclamation mark capitalize the next letter.</p>
     </>}
-    {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
+    {(area === 'keyboard' || area === 'mouse' || area === 'menu') && <SettingGroup setting="panel-position" title="Panel position" description="The keyboard, the mouse panel, Home and the action menus share one position. Choose it from Position on the keyboard or mouse panel.">
       <Toggle label="Move away from the pointer" checked={config.panelAvoidsPointer} disabled={disabled} onChange={value => update('panelAvoidsPointer', value)} />
       <p className="setting-note">While the pointer is over a panel or menu, it moves to the other side of the screen. It returns when the pointer moves away.</p>
     </SettingGroup>}
-    {area === 'keyboard' && <SettingGroup title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
+    {area === 'keyboard' && <SettingGroup setting="word-prediction" title="Suggestions" description="Show word suggestions while typing with the scanning keyboard.">
       <Toggle label="Word prediction" checked={config.wordPrediction} disabled={disabled} onChange={value => update('wordPrediction', value)} />
       <p className="setting-note">Uses an offline English word database and an on-device language model. Suggestions appear as you type and after a space. If prediction fails, a Retry predictions key appears on the keyboard; typing still works. Your typing never leaves this computer.</p>
       {appSettings && onSettingsChange && <LearnedWords settings={appSettings} onSettingsChange={onSettingsChange} disabled={!config.wordPrediction} />}
     </SettingGroup>}
-    <SettingGroup title="Movement" description="">
+    <SettingGroup section="movement" title="Movement" description="">
     {field('automatic', 'Automatic scanning', locked => <Toggle label="Automatic scanning" checked={effective.automatic} disabled={locked} onChange={value => change('automatic', value)} />)}
     {field('intervalMs', 'Auto scan rate', locked => <>
       <div className="exact-speed"><span>Auto scan rate</span><div className="scan-rate-stepper">
@@ -218,6 +232,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     </>)}
     </SettingGroup>
     <MoreOptions>
+    <div className="scanner-after" data-section="after" role="group" aria-label="After a selection">
     {field('nextScan', 'After a selection', locked => <OptionGroup<ScanOptions['nextScan']> legend="After a selection" columns={area === 'shared' ? 'three' : undefined} disabled={locked || (area !== 'shared' && area !== 'point' && !effective.automatic)} value={nextScan}
       options={[...usualOption, { value: 'automatic', label: 'Keep scanning' }, { value: 'wait', label: 'Wait for Select' }]} onChange={value => change('nextScan', value)}
       note={{ summary: area === 'point' ? 'After a click, the next point scan starts by itself or waits for Select. Scanning still stops at the pass limit.'
@@ -235,15 +250,16 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     {area !== 'point' && field('pattern', 'Item scanning', locked => <OptionGroup<ItemScanning> legend="Item scanning" columns="three" disabled={locked} value={itemScanning(effective)} options={(['grouped', 'rowGroups', 'linear'] as const).map(value => ({ value, label: itemScanningLabels[value] }))} onChange={chooseItemScanning}
       note={{ summary: 'Groups, then items chooses a row before an item. Rows, groups, then items also splits a row of seven or more items, such as a keyboard row, into two to four smaller groups. One item at a time visits each item directly. Point scanning uses its own line and grid modes.' }} />)}
 
-    <SettingGroup title="Appearance" description="Choose a highlight that is easy to see.">
+    </div>
+    <SettingGroup section="appearance" title="Appearance" description="Choose a highlight that is easy to see.">
     {area === 'shared' && <OptionGroup<PanelSize>
-      legend="Panel size" disabled={disabled} value={settings.panelSize ?? 'medium'}
+      setting="panel-size" legend="Panel size" disabled={disabled} value={settings.panelSize ?? 'medium'}
       options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]}
       onChange={panelSize => update('scanPreferences', { ...settings, panelSize })}
       note={{ summary: 'Sizes the keyboard, the mouse panel, Home and the action menus. Each panel fits its controls and shrinks to fit the screen.' }}
     />}
     {area === 'shared' && <OptionGroup<PanelTheme>
-      legend="Panel theme" columns="three" disabled={disabled} value={settings.panelTheme ?? 'system'}
+      setting="panel-theme" legend="Panel theme" columns="three" disabled={disabled} value={settings.panelTheme ?? 'system'}
       options={[{ value: 'system', label: 'Match system' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]}
       onChange={panelTheme => update('scanPreferences', { ...settings, panelTheme })}
       note={{ summary: 'Colours the keyboard, the mouse panel, Home and the action menus. Match system follows your computer\'s light or dark setting. On light panels the scanner colour is a deeper shade so it stays easy to see, and white becomes dark grey.' }}
@@ -256,7 +272,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       <span className={`scanner-sample-selection ${effective.thickness}`}>Selected area</span>
     </div>
     </SettingGroup>
-    {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title">
+    {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title" data-section="advanced" data-setting="advanced">
       <header><h2 id="scanner-areas-title">Advanced panel settings</h2><p>Menus and Keyboard can use different scan settings from the shared defaults.</p></header>
       <div className="scanner-area-cards">{(['menu', 'keyboard'] as const).map(key => {
         const options = areaOptions(config, key);
@@ -272,6 +288,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       })}</div>
     </section>}
     </MoreOptions>
+    {area === 'shared' && pointer}
     {area !== 'shared' && <Button type="button" className="secondary" disabled={disabled || Object.values(settings[area] ?? {}).every(value => value == null)} onClick={() => update('scanPreferences', { ...settings, [area]: {} })}>Reset scanning overrides</Button>}
     <p className="setting-note scanner-save-note">Press Select to scan again.</p>
   </div>;
