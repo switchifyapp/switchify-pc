@@ -111,10 +111,21 @@ pub struct Preferences {
     pub thickness: Thickness,
     pub next_scan: NextScan,
     pub start_from: StartFrom,
+    /// Extra time on the first item after scanning starts or enters a group,
+    /// shared by menus, the keyboard and the mouse panel. 0 is off.
+    pub first_item_ms: u64,
+    /// How long each step inside a group takes, as a percentage of the scan
+    /// rate. 100 is the same rate.
+    pub group_rate_percent: u16,
     pub point: Overrides,
     pub menu: Overrides,
     pub keyboard: Overrides,
     pub mouse: Overrides,
+}
+/// The choices Settings offers, so a saved value always shows as chosen.
+pub const FIRST_ITEM_MS: [u64; 5] = [0, 500, 1000, 1500, 2000];
+fn valid_group_rate(value: u16) -> bool {
+    matches!(value, 100 | 150 | 200)
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -128,6 +139,8 @@ impl Default for Preferences {
             thickness: Thickness::Standard,
             next_scan: NextScan::Standard,
             start_from: StartFrom::Standard,
+            first_item_ms: 0,
+            group_rate_percent: 100,
             point: Default::default(),
             menu: Default::default(),
             keyboard: Default::default(),
@@ -150,6 +163,8 @@ pub struct Resolved {
     pub thickness: Thickness,
     pub next_scan: NextScan,
     pub start_from: StartFrom,
+    pub first_item_ms: u64,
+    pub group_rate_percent: u16,
 }
 impl Default for Resolved {
     fn default() -> Self {
@@ -207,6 +222,16 @@ impl Preferences {
             thickness: local.thickness.unwrap_or(self.thickness),
             next_scan: local.next_scan.unwrap_or(self.next_scan),
             start_from: local.start_from.unwrap_or(self.start_from),
+            first_item_ms: if FIRST_ITEM_MS.contains(&self.first_item_ms) {
+                self.first_item_ms
+            } else {
+                0
+            },
+            group_rate_percent: if valid_group_rate(self.group_rate_percent) {
+                self.group_rate_percent
+            } else {
+                100
+            },
         }
     }
 }
@@ -244,6 +269,12 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
     if !valid_passes(preferences.pass_limit) {
         preferences.pass_limit = 3;
     }
+    if !FIRST_ITEM_MS.contains(&preferences.first_item_ms) {
+        preferences.first_item_ms = 0;
+    }
+    if !valid_group_rate(preferences.group_rate_percent) {
+        preferences.group_rate_percent = 100;
+    }
     for local in [
         &mut preferences.point,
         &mut preferences.menu,
@@ -267,6 +298,9 @@ fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
         "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
         "pattern" => (optional && choice.is_null()) || Pattern::deserialize(&*choice).is_ok(),
         "rowGroups" => (optional && choice.is_null()) || choice.is_boolean(),
+        "firstItemMs" | "groupRatePercent" => {
+            !optional && choice.as_u64().is_some_and(|v| v <= u64::from(u16::MAX))
+        }
         _ => true,
     });
 }
@@ -447,6 +481,43 @@ mod tests {
         assert_eq!(saved.keyboard.pattern, None);
         assert_eq!(saved.keyboard.row_groups, None);
         assert_eq!(saved.keyboard.interval_ms, Some(250));
+    }
+    #[test]
+    fn first_item_and_group_timing_default_off_round_trip_and_are_shared() {
+        let saved = read(serde_json::json!({"direction": "reverse"}));
+        assert_eq!(saved.first_item_ms, 0);
+        assert_eq!(saved.group_rate_percent, 100);
+        let chosen = Preferences {
+            first_item_ms: 1500,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut stored = serde_json::to_value(&chosen).unwrap();
+        assert_eq!(stored["firstItemMs"], 1500);
+        assert_eq!(stored["groupRatePercent"], 200);
+        // An area never has timing of its own.
+        stored["menu"] = serde_json::json!({"firstItemMs": 100, "groupRatePercent": 150});
+        let restored = read(stored);
+        assert_eq!(restored, chosen);
+        for area in [Area::Menu, Area::Keyboard, Area::Mouse] {
+            let resolved = restored.resolve(area, true, 1000, ScannerColor::Blue);
+            assert_eq!(resolved.first_item_ms, 1500);
+            assert_eq!(resolved.group_rate_percent, 200);
+        }
+        // Values this version does not know fall back alone.
+        for (first, rate) in [
+            (serde_json::json!(9000), serde_json::json!(175)),
+            (serde_json::json!(750), serde_json::json!(120)),
+            (serde_json::json!("slow"), serde_json::json!(-1)),
+            (serde_json::json!(null), serde_json::json!(1e9)),
+        ] {
+            let saved = read(serde_json::json!({
+                "passLimit": 5, "firstItemMs": first, "groupRatePercent": rate,
+            }));
+            assert_eq!(saved.pass_limit, 5);
+            assert_eq!(saved.first_item_ms, 0);
+            assert_eq!(saved.group_rate_percent, 100);
+        }
     }
     #[test]
     fn areas_inherit_and_override_independently() {

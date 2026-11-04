@@ -67,6 +67,15 @@ impl<T: Clone> Navigator<T> {
     pub fn path(&self) -> &[usize] {
         &self.path
     }
+    /// Inside a group whose children are all leaves, on one of them or on
+    /// the slot that leaves the group.
+    pub fn among_leaves(&self) -> bool {
+        !self.path.is_empty()
+            && self
+                .siblings()
+                .iter()
+                .all(|node| matches!(node, Node::Leaf(_)))
+    }
     pub fn index(&self) -> usize {
         self.index
     }

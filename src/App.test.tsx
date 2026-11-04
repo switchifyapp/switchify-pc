@@ -1057,7 +1057,7 @@ describe("Switchify PC shell", () => {
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Switches" }));
       const strip = screen.getByRole("navigation", { name: "On this page" });
-      expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!.split(",")[0])).toEqual(["Your switches", "Hold timing", "Practice"]);
+      expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!.split(",")[0])).toEqual(["Your switches", "Press timing", "Hold timing", "Practice"]);
       expect(within(strip).getByRole("button", { name: /^Hold timing/ })).toHaveAccessibleName("Hold timing, 1 s");
       expect(screen.getByRole("button", { name: "More options" })).toHaveAttribute("aria-expanded", "false");
       fireEvent.click(within(strip).getByRole("button", { name: /^Hold timing/ }));

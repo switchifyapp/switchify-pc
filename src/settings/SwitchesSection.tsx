@@ -24,6 +24,8 @@ import {
 
 const holdIntervalPresets = [500, 1000, 1500, 2000, 3000] as const;
 const holdIntervalValues = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
+const acceptPresets = [0, 100, 200, 300, 500, 1000];
+const ignoreRepeatPresets = [0, 250, 500, 1000, 2000];
 const newId = "new";
 
 function seconds(ms: number) {
@@ -33,9 +35,10 @@ function seconds(ms: number) {
 
 // The emergency exit must outlast the longest hold list, so it grows with the
 // interval. Mirrors the backend rule so the shown number matches behaviour.
-export function escapeHoldMs(bindings: Binding[], holdIntervalMs: number) {
+// Hold actions start once a press counts, so the hold time adds to it.
+export function escapeHoldMs(bindings: Binding[], holdIntervalMs: number, acceptMs = 0) {
   const longest = Math.max(0, ...bindings.map((b) => b.holdActions.length));
-  return longest ? Math.max(4000, (longest + 2) * holdIntervalMs) : 4000;
+  return longest ? Math.max(4000, (longest + 2) * holdIntervalMs + acceptMs) : 4000;
 }
 
 function summary(binding: Binding) {
@@ -86,6 +89,7 @@ function SwitchEditor({
   isNew,
   disabled,
   holdIntervalMs,
+  acceptMs = 0,
   unavailable,
   keyError,
   unavailableReason,
@@ -107,6 +111,8 @@ function SwitchEditor({
   isNew: boolean;
   disabled: boolean;
   holdIntervalMs: number;
+  /** Hold actions start once a press counts. */
+  acceptMs?: number;
   unavailable: boolean;
   keyError: string | null;
   /** Why the saved key cannot be used on this computer, when `unavailable`. */
@@ -270,7 +276,7 @@ function SwitchEditor({
         <p className="setting-note">
           {binding.holdActions.length
             ? `Hold ${binding.holdActions
-                .map((a, i) => `${seconds(holdIntervalMs * (i + 1))} for ${actions[a]}`)
+                .map((a, i) => `${seconds(acceptMs + holdIntervalMs * (i + 1))} for ${actions[a]}`)
                 .join(", ")}. Release to run the action shown.`
             : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
         </p>
@@ -646,9 +652,10 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
     setExpanded(null);
     focusAfter.current = newId;
   };
-  const escapeMs = escapeHoldMs(
-    [...settings.bindings, ...remoteRows.map(({ slot, index }) => remoteBinding(slot, index))],
-    settings.holdIntervalMs,
+  // Press timing applies to local switches only.
+  const escapeMs = Math.max(
+    escapeHoldMs(settings.bindings, settings.holdIntervalMs, settings.acceptMs ?? 0),
+    escapeHoldMs(remoteRows.map(({ slot, index }) => remoteBinding(slot, index)), settings.holdIntervalMs),
   );
   const isPreset = (holdIntervalPresets as readonly number[]).includes(
     settings.holdIntervalMs,
@@ -803,6 +810,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                       isNew={false}
                       disabled={disabled}
                       holdIntervalMs={settings.holdIntervalMs}
+                      acceptMs={settings.acceptMs ?? 0}
                       unavailable={unavailable}
                       unavailableReason={unavailable ? unavailableKeyReason(binding.key, platform) : undefined}
                       keyError={errorFor(binding.id)}
@@ -922,6 +930,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   isNew
                   disabled={draftSlot === null && disabled}
                   holdIntervalMs={settings.holdIntervalMs}
+                  acceptMs={draftSlot === null ? settings.acceptMs ?? 0 : 0}
                   unavailable={false}
                   keyError={errorFor(newId)}
                   onChange={setDraft}
@@ -953,6 +962,37 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
       </SettingGroup>
       <MoreOptions label="More options">
+      <SettingGroup
+        section="timing"
+        title="Press timing"
+        description="Ignore presses that are too short or come too soon after the last one, such as a tremor, a bump or a switch that bounces."
+      >
+        <OptionGroup<number>
+          setting="accept-time"
+          legend="Hold before a press counts"
+          columns="three"
+          disabled={disabled}
+          value={settings.acceptMs ?? 0}
+          onChange={(acceptMs) => controller.update({ ...settings, acceptMs })}
+          options={acceptPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
+          note={{ summary: "A press released sooner than this does nothing. Hold action timing starts once the press counts, so each hold action takes this much longer, and the hold that resets the scan can too. Each switch and the reset hold below show the resulting times." }}
+        />
+        <OptionGroup<number>
+          setting="ignore-repeat"
+          legend="Ignore presses after a press"
+          columns="five"
+          disabled={disabled}
+          value={settings.ignoreRepeatMs ?? 0}
+          onChange={(ignoreRepeatMs) => controller.update({ ...settings, ignoreRepeatMs })}
+          options={ignoreRepeatPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
+          note={{ summary: "After a press that counts, any switch pressed within this time does nothing. Timing starts when the switch is released." }}
+        />
+        <p className="setting-note">
+          These apply to switches connected to this computer, not to switches
+          forwarded from Switchify Remote. Escape and holding a switch to reset
+          the scan still work.
+        </p>
+      </SettingGroup>
       <SettingGroup
         section="hold"
         setting="hold-interval"

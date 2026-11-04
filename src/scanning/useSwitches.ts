@@ -23,6 +23,10 @@ export type Binding = {
 export type SwitchSettings = {
   schemaVersion: number;
   holdIntervalMs: number;
+  /** A press released sooner than this is ignored. Missing means off. */
+  acceptMs?: number;
+  /** Presses this soon after the last press that counted are ignored. Missing means off. */
+  ignoreRepeatMs?: number;
   bindings: Binding[];
 };
 export type SwitchState = {

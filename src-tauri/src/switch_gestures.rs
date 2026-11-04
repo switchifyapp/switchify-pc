@@ -20,6 +20,9 @@ pub struct Gestures {
     held: HashSet<String>,
     press: Option<Press>,
     interval_ms: u64,
+    accept_ms: u64,
+    /// When the last press that counted was released.
+    last_counted: Option<u64>,
 }
 impl Gestures {
     #[cfg(test)]
@@ -28,6 +31,14 @@ impl Gestures {
     }
     pub fn pressed_for_scan(&mut self, id: &str, now: u64, settings: &Settings, countdown: bool) {
         if !self.held.insert(id.into()) || self.held.len() != 1 {
+            return;
+        }
+        // Too soon after the last press that counted: still held, so movement
+        // freezes, but its release does nothing.
+        if self
+            .last_counted
+            .is_some_and(|last| now.saturating_sub(last) < settings.ignore_repeat_ms)
+        {
             return;
         }
         if let Some(binding) = settings.bindings.iter().find(|b| b.id == id) {
@@ -50,6 +61,7 @@ impl Gestures {
                 binding.hold_actions.clear();
             }
             self.interval_ms = settings.hold_interval_ms;
+            self.accept_ms = settings.accept_ms;
             self.press = Some(Press {
                 binding: binding.clone(),
                 started: now,
@@ -58,12 +70,14 @@ impl Gestures {
     }
     fn candidate(&self, now: u64) -> Option<Action> {
         let p = self.press.as_ref()?;
-        let elapsed = now.saturating_sub(p.started);
-        if elapsed < self.interval_ms || p.binding.hold_actions.is_empty() {
+        // Hold actions count from when the press counts, so the press action
+        // always has a full interval of its own.
+        let held = now.saturating_sub(p.started).checked_sub(self.accept_ms)?;
+        if held < self.interval_ms || p.binding.hold_actions.is_empty() {
             return None;
         }
         let index =
-            (elapsed / self.interval_ms - 1).min(p.binding.hold_actions.len() as u64 - 1) as usize;
+            (held / self.interval_ms - 1).min(p.binding.hold_actions.len() as u64 - 1) as usize;
         Some(p.binding.hold_actions[index])
     }
     pub fn prompt(&self, now: u64) -> Option<Prompt> {
@@ -79,7 +93,12 @@ impl Gestures {
         let action = self
             .candidate(now)
             .unwrap_or_else(|| self.press.as_ref().unwrap().binding.press_action);
-        self.press = None;
+        let started = self.press.take().unwrap().started;
+        // Too short to count, such as a tremor or a bump.
+        if now.saturating_sub(started) < self.accept_ms {
+            return None;
+        }
+        self.last_counted = Some(now);
         Some(action)
     }
     pub fn held(&self) -> bool {
@@ -201,6 +220,76 @@ mod tests {
         g.cancel();
         assert_eq!(g.released("one", 2000), None);
         assert!(g.prompt(2000).is_none());
+    }
+    #[test]
+    fn a_press_shorter_than_the_hold_time_is_ignored() {
+        let settings = Settings {
+            accept_ms: 300,
+            ..settings()
+        };
+        let mut g = Gestures::default();
+        g.pressed("one", 0, &settings);
+        assert!(g.held());
+        assert_eq!(g.released("one", 299), None);
+        assert!(!g.held());
+        g.pressed("one", 1000, &settings);
+        assert_eq!(g.released("one", 1300), Some(Action::Select));
+        // Hold actions start once the press counts, so a hold time longer
+        // than the hold interval still leaves room for the press action.
+        let slow = Settings {
+            accept_ms: 1500,
+            ..settings
+        };
+        g.pressed("one", 5000, &slow);
+        assert!(g.prompt(7499).is_none());
+        assert_eq!(g.prompt(7500).unwrap().action, Action::Next);
+        assert_eq!(g.prompt(8500).unwrap().action, Action::Stop);
+        assert_eq!(g.released("one", 8500), Some(Action::Stop));
+        for (release, expected) in [
+            (10_499, None),
+            (10_500, Some(Action::Select)),
+            (11_499, Some(Action::Select)),
+            (11_500, Some(Action::Next)),
+        ] {
+            g.pressed("one", 9000, &slow);
+            assert_eq!(g.released("one", release), expected);
+        }
+    }
+    #[test]
+    fn presses_too_soon_after_one_that_counted_are_ignored() {
+        let settings = Settings {
+            ignore_repeat_ms: 500,
+            ..settings()
+        };
+        let mut g = Gestures::default();
+        g.pressed("one", 0, &settings);
+        assert_eq!(g.released("one", 100), Some(Action::Select));
+        // A bounce, and another switch, inside the window.
+        g.pressed("one", 150, &settings);
+        assert!(g.held());
+        assert_eq!(g.released("one", 200), None);
+        g.pressed("two", 599, &settings);
+        assert_eq!(g.released("two", 2000), None);
+        // An ignored press does not extend the window.
+        g.pressed("two", 2100, &settings);
+        assert_eq!(g.released("two", 2200), Some(Action::Back));
+        // A press too short to count does not start one.
+        let both = Settings {
+            accept_ms: 300,
+            ..settings
+        };
+        g.pressed("one", 3000, &both);
+        assert_eq!(g.released("one", 3100), None);
+        g.pressed("one", 3200, &both);
+        assert_eq!(g.released("one", 3500), Some(Action::Select));
+    }
+    #[test]
+    fn timing_off_counts_every_press() {
+        let mut g = Gestures::default();
+        for start in [0, 1, 2] {
+            g.pressed("one", start * 10, &settings());
+            assert_eq!(g.released("one", start * 10 + 1), Some(Action::Select));
+        }
     }
     #[test]
     fn first_switch_owns_gesture_and_repeats_do_not_restart_it() {

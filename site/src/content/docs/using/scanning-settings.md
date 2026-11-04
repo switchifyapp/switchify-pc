@@ -1,6 +1,6 @@
 ---
 title: Scanning settings
-description: Automatic or manual movement, scan rate, pass limit, item scanning pattern, what happens after a selection, and how the highlight looks.
+description: Automatic or manual movement, scan rate, first-item and in-group timing, pass limit, item scanning pattern, what happens after a selection, and how the highlight looks.
 ---
 
 These settings are on the **Scanning** page. They save as you change them and apply straight away. The row of tiles at the top of the page shows what each section is set to; choose one to go to it, or type what you are looking for in **Find a setting**.
@@ -13,6 +13,10 @@ Chosen options in Settings have a filled background and a checkmark. A separate 
 - **Manual** scanning moves only when you press Next or Previous. It needs Select, Next and Previous.
 - **Initial direction** can be forward or reverse.
 - **Pass limit**: stop after 1, 2, 3, 5 passes, or never. The default is 3.
+- **Extra time on the first item**: off, or 0.5 to 2 seconds. The first item stays highlighted for longer when scanning starts, starts again after a selection, or moves into or back out of a row or group, giving you time to react.
+- **Inside a row or group**: the same rate, 1.5 times as long, or twice as long. Items inside a row or group stay highlighted for this long compared with the scan rate. Rows and groups themselves move at the scan rate.
+
+The last two are shared by menus, the keyboard and the mouse panel, and only change automatic scanning. Point scanning keeps its own line speed.
 
 ## Item scanning
 

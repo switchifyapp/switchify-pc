@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,7 +232,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             6 => upgrade_v6(value)?,
             7 => upgrade_v7(value)?,
             8 => upgrade_v8(value)?,
-            _ => upgrade_v9(value)?,
+            9 => upgrade_v9(value)?,
+            _ => upgrade_v10(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -396,6 +397,30 @@ fn upgrade_v9(mut value: Value) -> Result<Value, ParseError> {
         let old = rows.take();
         *rows = serde_json::json!({ "rows": old, "columns": [] });
     }
+    value["schemaVersion"] = Value::from(10);
+    Ok(value)
+}
+
+/// Version 10 had no switch timing and no first-item or in-group scan
+/// timing, all of which are off unless chosen. Switch timing that is off is
+/// left out, so version 10 switches already read as off.
+fn upgrade_v10(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(10)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let invalid = || ParseError::Invalid("it does not match version 10 settings".into());
+    value
+        .get("switches")
+        .and_then(Value::as_object)
+        .filter(|s| !s.contains_key("acceptMs") && !s.contains_key("ignoreRepeatMs"))
+        .ok_or_else(invalid)?;
+    let preferences = value
+        .pointer_mut("/pointScan/scanPreferences")
+        .and_then(Value::as_object_mut)
+        .filter(|p| !p.contains_key("firstItemMs") && !p.contains_key("groupRatePercent"))
+        .ok_or_else(invalid)?;
+    preferences.insert("firstItemMs".into(), Value::from(0));
+    preferences.insert("groupRatePercent".into(), Value::from(100));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -613,6 +638,17 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 11 {
+        let switches = value["switches"].as_object_mut().unwrap();
+        switches.remove("acceptMs");
+        switches.remove("ignoreRepeatMs");
+        let preferences = value
+            .pointer_mut("/pointScan/scanPreferences")
+            .and_then(Value::as_object_mut)
+            .unwrap();
+        preferences.remove("firstItemMs");
+        preferences.remove("groupRatePercent");
+    }
     if version < 10 {
         if let Some(extras) = value.get_mut("panelExtras").and_then(Value::as_object_mut) {
             for panel in extras.values_mut() {
@@ -823,6 +859,45 @@ mod tests {
         let mut early = version_nine.clone();
         early["panelExtras"]["mouse"] = json!({ "rows": [], "columns": [] });
         assert!(matches!(parse(early, 9), Err(ParseError::Invalid(_))));
+    }
+
+    #[test]
+    fn version_ten_documents_read_with_every_timing_off() {
+        let mut local = local();
+        local.switches.accept_ms = 300;
+        local.switches.ignore_repeat_ms = 1000;
+        local.point_scan.scan_preferences.first_item_ms = 1500;
+        local.point_scan.scan_preferences.group_rate_percent = 200;
+        let current = serde_json::to_value(local.document()).unwrap();
+        assert_eq!(current["switches"]["acceptMs"], json!(300));
+        assert_eq!(current["switches"]["ignoreRepeatMs"], json!(1000));
+        let parsed = parse(current.clone(), SCHEMA_VERSION).unwrap();
+        assert_eq!(parsed.switches.accept_ms, 300);
+        assert_eq!(parsed.point_scan.scan_preferences.group_rate_percent, 200);
+        let version_ten = written_by(current, 10);
+        let parsed = parse(version_ten.clone(), 10).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.switches.accept_ms, 0);
+        assert_eq!(parsed.switches.ignore_repeat_ms, 0);
+        let preferences = &parsed.point_scan.scan_preferences;
+        assert_eq!(preferences.first_item_ms, 0);
+        assert_eq!(preferences.group_rate_percent, 100);
+        // Switch timing that is off is left out, as version 10 wrote it.
+        let off = serde_json::to_value(&parsed).unwrap();
+        assert!(off["switches"].get("acceptMs").is_none());
+        assert_eq!(off["switches"], version_ten["switches"]);
+        for (pointer, field) in [
+            ("/switches", "acceptMs"),
+            ("/pointScan/scanPreferences", "firstItemMs"),
+        ] {
+            let mut early = version_ten.clone();
+            early.pointer_mut(pointer).unwrap()[field] = json!(0);
+            assert!(matches!(parse(early, 10), Err(ParseError::Invalid(_))));
+        }
+        // Timing a build does not allow is refused, not reset.
+        let mut lossy = serde_json::to_value(local.document()).unwrap();
+        lossy["pointScan"]["scanPreferences"]["groupRatePercent"] = json!(175);
+        assert!(parse(lossy, SCHEMA_VERSION).is_err());
     }
 
     #[test]
@@ -1188,6 +1263,8 @@ mod tests {
             keys(preferences),
             [
                 "direction",
+                "firstItemMs",
+                "groupRatePercent",
                 "keyboard",
                 "menu",
                 "mouse",

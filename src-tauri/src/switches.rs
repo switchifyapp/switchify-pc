@@ -15,13 +15,30 @@ pub struct Binding {
 pub struct Settings {
     pub schema_version: u32,
     pub hold_interval_ms: u64,
+    /// A press released sooner than this is ignored. Added in synced version
+    /// 11; the default only fills in switch settings saved by an older build.
+    /// Left out while off, so older builds still read the file.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub accept_ms: u64,
+    /// A press that starts this soon after the last press that counted is
+    /// ignored. The same default rule as `accept_ms`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ignore_repeat_ms: u64,
     pub bindings: Vec<Binding>,
 }
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+/// The choices Settings offers, so a saved value always shows as chosen.
+pub const ACCEPT_MS: [u64; 6] = [0, 100, 200, 300, 500, 1000];
+pub const IGNORE_REPEAT_MS: [u64; 5] = [0, 250, 500, 1000, 2000];
 impl Default for Settings {
     fn default() -> Self {
         Self {
             schema_version: 1,
             hold_interval_ms: 1000,
+            accept_ms: 0,
+            ignore_repeat_ms: 0,
             bindings: vec![],
         }
     }
@@ -30,9 +47,11 @@ impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
             || !(250..=5000).contains(&self.hold_interval_ms)
+            || !ACCEPT_MS.contains(&self.accept_ms)
+            || !IGNORE_REPEAT_MS.contains(&self.ignore_repeat_ms)
             || self.bindings.len() > 128
         {
-            return Err("Unsupported switch settings or hold interval.".into());
+            return Err("Unsupported switch settings or switch timing.".into());
         }
         let mut ids = std::collections::HashSet::new();
         let mut keys = std::collections::HashSet::new();
@@ -94,7 +113,8 @@ impl Settings {
         if n == 0 {
             4000
         } else {
-            4000.max((n + 2) * self.hold_interval_ms)
+            // Hold actions start once the press counts.
+            4000.max((n + 2) * self.hold_interval_ms + self.accept_ms)
         }
     }
     pub fn migrate(config: &crate::point_scan::Config) -> Self {
@@ -143,6 +163,35 @@ mod tests {
             serde_json::from_value::<Settings>(updated).unwrap(),
             settings
         );
+    }
+    #[test]
+    fn switch_timing_is_saved_only_when_chosen_and_bounded() {
+        let mut s = Settings::migrate(&crate::point_scan::Config::default());
+        let off = serde_json::to_value(&s).unwrap();
+        assert!(off.get("acceptMs").is_none());
+        assert!(off.get("ignoreRepeatMs").is_none());
+        s.accept_ms = 1000;
+        s.ignore_repeat_ms = 2000;
+        s.validate().unwrap();
+        let on = serde_json::to_value(&s).unwrap();
+        assert_eq!(on["acceptMs"], 1000);
+        assert_eq!(serde_json::from_value::<Settings>(on).unwrap(), s);
+        // Only the choices Settings offers.
+        s.accept_ms = 150;
+        assert!(s.validate().is_err());
+        s.accept_ms = 0;
+        s.ignore_repeat_ms = 5000;
+        assert!(s.validate().is_err());
+    }
+    #[test]
+    fn the_emergency_hold_outlasts_hold_actions_after_the_hold_time() {
+        let mut s = Settings::migrate(&crate::point_scan::Config::default());
+        s.bindings[0].hold_actions = vec![Action::Next, Action::Back, Action::Stop];
+        s.hold_interval_ms = 1000;
+        s.accept_ms = 1000;
+        assert_eq!(s.escape_ms(), 6000);
+        s.bindings[0].hold_actions.clear();
+        assert_eq!(s.escape_ms(), 4000);
     }
     #[test]
     fn legacy_bindings_migrate_without_losing_keys() {

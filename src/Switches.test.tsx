@@ -658,3 +658,21 @@ it("keeps saved local switches and testing visible before mobile assignments", a
   expect(screen.getByRole("button", { name: "Add remote switch" })).toBeVisible();
   expect(mocks.invoke.mock.calls.some(([command]) => command.startsWith("save_"))).toBe(false);
 });
+it("saves press timing, which starts off", async () => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
+  const accept = screen.getByRole("group", { name: "Hold before a press counts" });
+  expect(within(accept).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(within(accept).getByRole("button", { name: "0.3s" }));
+  await waitFor(() => expect(current.settings.acceptMs).toBe(300));
+  const ignore = screen.getByRole("group", { name: "Ignore presses after a press" });
+  fireEvent.click(within(ignore).getByRole("button", { name: "0.5s" }));
+  await waitFor(() => expect(current.settings.ignoreRepeatMs).toBe(500));
+  expect(current.settings.acceptMs).toBe(300);
+  expect(within(ignore).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
+  // Hold actions, and the hold that resets the scan, start once a press counts.
+  open("Head switch");
+  await screen.findByText("Hold 1.3s for Next, 2.3s for Stop scanning. Release to run the action shown.");
+  await screen.findByText(/Holding any switch for 4.3s resets the scan/);
+});

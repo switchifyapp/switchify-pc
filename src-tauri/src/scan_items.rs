@@ -32,6 +32,9 @@ pub struct ItemScanner<T> {
     revision: u64,
     /// Suspended by the user's choice to wait after a selection.
     waiting: bool,
+    /// No automatic step yet since scanning started again here, so the
+    /// highlight gets the extra time on the first item.
+    first: bool,
 }
 impl<T: Clone> ItemScanner<T> {
     pub fn new(nodes: Vec<Node<T>>, policy: Policy) -> Self {
@@ -46,6 +49,7 @@ impl<T: Clone> ItemScanner<T> {
             pending: false,
             revision: 0,
             waiting: false,
+            first: true,
         }
     }
     pub fn nodes(rows: &[Vec<T>]) -> Vec<Node<T>> {
@@ -190,6 +194,7 @@ impl<T: Clone> ItemScanner<T> {
         self.cycles = 0;
         self.suspended = false;
         self.waiting = false;
+        self.first = true;
     }
     pub fn waiting(&self) -> bool {
         self.waiting
@@ -258,10 +263,32 @@ impl<T: Clone> ItemScanner<T> {
             self.suspended = self.options.exhausted(self.cycles);
         }
     }
+    /// How long the highlight stays on the current item, given the scan rate.
+    fn step_ms(&self, period: u64) -> u64 {
+        // Items in a group of leaves, and that group's leave slot, take the
+        // group rate; rows, a long row's groups and the slot leaving a long
+        // row keep the scan rate.
+        let step = if self.nav.among_leaves() {
+            period.saturating_mul(u64::from(self.options.group_rate_percent)) / 100
+        } else {
+            period
+        };
+        if self.first {
+            step.saturating_add(self.options.first_item_ms)
+        } else {
+            step
+        }
+    }
     pub fn advance(&mut self, ms: u64, period: u64) -> bool {
-        if self.pending || self.suspended || !self.interval.elapsed(ms, period) {
+        let step = self.step_ms(period);
+        if self.pending || self.suspended || !self.interval.elapsed(ms, step) {
             return false;
         }
+        // The extra time is not carried into the next step.
+        if self.first && self.options.first_item_ms > 0 {
+            self.interval.reset();
+        }
+        self.first = false;
         self.skip_automatic();
         true
     }
@@ -300,6 +327,7 @@ impl<T: Clone> ItemScanner<T> {
             }
             Action::Next | Action::Back => {
                 self.reset_clock();
+                self.first = false;
                 if self.policy.reset_passes_on_step {
                     self.cycles = 0;
                 }
@@ -309,6 +337,8 @@ impl<T: Clone> ItemScanner<T> {
             Action::Reverse => {
                 self.forward = !self.forward;
                 self.restart_interval();
+                // Turning round is not starting again.
+                self.first = false;
             }
             _ => {}
         }
@@ -394,6 +424,109 @@ mod tests {
         assert!(!scan.advance(499, 500));
         assert!(scan.advance(1, 500));
         assert_eq!(scan.handle(Action::Select), Some("close"));
+    }
+
+    #[test]
+    fn the_first_item_gets_extra_time_and_groups_their_own_rate() {
+        let rows = [vec!["copy", "paste"], vec!["close"]];
+        let options = Resolved {
+            first_item_ms: 1000,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
+        // The first row waits the scan rate plus the extra time.
+        assert!(!scan.advance(1499, 500));
+        assert!(scan.advance(1, 500));
+        assert_eq!(scan.nav.index(), 1);
+        // Later rows wait the scan rate alone.
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        assert_eq!(scan.nav.index(), 0);
+        // Entering a group gives its first item the extra time too, on top
+        // of the slower rate inside the group.
+        assert_eq!(scan.handle(Action::Select), None);
+        assert!(!scan.advance(1999, 500));
+        assert!(scan.advance(1, 500));
+        assert!(!scan.advance(999, 500));
+        assert!(scan.advance(1, 500));
+        // A step by hand ends the extra time.
+        scan.restart();
+        scan.handle(Action::Next);
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+    }
+
+    #[test]
+    fn groups_of_a_long_row_keep_the_scan_rate_and_reversing_adds_no_extra_time() {
+        let rows = [vec!["a", "b", "c", "d", "e", "f", "g"], vec!["close"]];
+        let options = Resolved {
+            row_groups: true,
+            first_item_ms: 1000,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
+        scan.handle(Action::Select);
+        assert!(scan.group_scan());
+        // The first group: the scan rate plus the extra time, not doubled.
+        assert!(!scan.advance(1499, 500));
+        assert!(scan.advance(1, 500));
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        scan.handle(Action::Reverse);
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        // Keys inside a group take the group rate.
+        scan.handle(Action::Select);
+        assert!(!scan.advance(1999, 500));
+        assert!(scan.advance(1, 500));
+        assert!(!scan.advance(999, 500));
+        assert!(scan.advance(1, 500));
+    }
+
+    #[test]
+    fn the_slot_leaving_a_long_row_keeps_the_scan_rate_and_a_group_takes_the_group_rate() {
+        let rows = [vec!["a", "b", "c", "d", "e", "f", "g"], vec!["close"]];
+        let options = Resolved {
+            row_groups: true,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
+        scan.handle(Action::Select);
+        let mut steps = 0;
+        while !scan.nav.escaping() {
+            assert!(scan.advance(500, 500));
+            steps += 1;
+            assert!(steps < 10);
+        }
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        // Inside a group, its leave slot takes the group rate like its keys.
+        scan.restart();
+        scan.handle(Action::Select);
+        scan.handle(Action::Select);
+        let mut steps = 0;
+        while !scan.nav.escaping() {
+            assert!(!scan.advance(999, 500));
+            assert!(scan.advance(1, 500));
+            steps += 1;
+            assert!(steps < 10);
+        }
+        assert!(!scan.advance(999, 500));
+        assert!(scan.advance(1, 500));
+    }
+
+    #[test]
+    fn timing_left_alone_keeps_the_scan_rate_everywhere() {
+        let rows = [vec!["copy", "paste"], vec!["close"]];
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, Resolved::default());
+        assert!(scan.advance(500, 500));
+        assert!(scan.advance(500, 500));
+        scan.handle(Action::Select);
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
     }
 
     #[test]
