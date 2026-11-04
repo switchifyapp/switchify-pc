@@ -396,17 +396,19 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .panel-picture-slot > * { flex: 1 1 0; min-width: 0; }
 /* The editing picture: each line is the drawn row plus its tools beside it. */
 .panel-picture-line { display: grid; grid-template-columns: minmax(0, 1fr); }
-.panel-picture-editing .panel-picture-line { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.panel-picture-editing { overflow-x: auto; }
+.panel-picture-editing .panel-picture-line { grid-template-columns: minmax(min-content, 1fr) 136px; gap: 8px; align-items: center; }
+.panel-picture-editing .panel-picture-slot { min-width: 64px; }
+.panel-picture-editing .panel-picture-keys { min-width: min-content; }
 .panel-picture-editing .panel-picture-tools { display: grid; grid-template-columns: repeat(2, 64px); gap: 8px; width: 136px; }
-.panel-picture-editing .panel-picture-tools .btn, .panel-picture-column-tools .btn { width: 64px; height: 64px; min-width: 64px; min-height: 64px; padding: 0; color: inherit; }
+.panel-picture-editing .panel-picture-tools .btn, .panel-column-buttons .btn { width: 64px; height: 64px; min-width: 64px; min-height: 64px; padding: 0; color: inherit; }
 .panel-picture-editing .btn.panel-editor-tile { overflow: hidden; overflow-wrap: anywhere; }
 .panel-picture-large .panel-picture-tile[data-fixed] { overflow-wrap: break-word; }
 .panel-picture-editing .panel-picture-rows { gap: 8px; padding: 12px 8px 12px 12px; }
 .panel-picture-editing .btn.panel-editor-tile { width: 100%; min-width: 64px; min-height: 64px; border-radius: 8px; padding: 6px 8px; }
-.panel-picture-column-tools { align-items: flex-start; }
-.panel-picture-column-tools .panel-picture-slot { justify-content: center; }
-.panel-picture-editing .panel-picture-column-tools .panel-picture-slot { flex-wrap: wrap; gap: 4px; min-width: 64px; }
-.panel-picture-column-tools .panel-picture-slot > .btn { flex: 0 0 auto; }
+.panel-column-toolbars { display: flex; flex-wrap: wrap; gap: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+.panel-column-toolbar { display: grid; gap: 8px; min-width: 0; }
+.panel-column-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .panel-canvas-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .panel-picture-keys { display: flex; gap: 4px; min-width: 0; }
 .panel-picture-large .panel-picture-keys { gap: 8px; }
