@@ -787,6 +787,17 @@ export function App() {
   };
 
   // Finding things: the Find tile's query, and the setting a jump is heading to.
+  // Find's results replace the page, so the first letter typed asks the same
+  // question leaving the page would; a refused question leaves the box empty.
+  const changeQuery = (next: string) => {
+    if (next && !query) {
+      if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
+      if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;
+      profileEditorDirty.current = false;
+      panelEditorDirty.current = false;
+    }
+    setQuery(next);
+  };
   const jump: Jump = (target) => {
     setQuery("");
     if (!selectView(target.page)) return;
@@ -853,7 +864,7 @@ export function App() {
     <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
       <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
-      <FindTile query={query} onChange={setQuery} inputRef={findRef} />
+      <FindTile query={query} onChange={changeQuery} inputRef={findRef} />
     </header>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
       {state.licence?.configured && (state.licence.status !== "licensed" || (state.licence.offlineDaysRemaining != null && state.licence.offlineDaysRemaining <= 7)) && <div className="licence-banner-wrap">

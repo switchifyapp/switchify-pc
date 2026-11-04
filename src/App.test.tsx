@@ -866,6 +866,25 @@ describe("Switchify PC shell", () => {
   });
 
   describe("finding things", () => {
+    it("asks before Find discards unsaved panel changes", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Home, not changed" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Remove row 1" }));
+      const find = screen.getByRole("searchbox", { name: "Find a setting" });
+      fireEvent.change(find, { target: { value: "s" } });
+      expect(confirm).toHaveBeenCalledWith("Discard unsaved panel changes?");
+      expect(find).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+      confirm.mockReturnValue(true);
+      fireEvent.change(find, { target: { value: "s" } });
+      expect(await screen.findByRole("list", { name: "Matching settings" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+      expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    });
+
     const find = () => screen.getByRole("searchbox", { name: "Find a setting" });
 
     it("offers every page as a tile in the nav and marks the current one", async () => {

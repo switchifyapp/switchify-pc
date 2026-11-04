@@ -83,6 +83,9 @@ describe("forgiving matching", () => {
   it("keeps short words exact so one letter cannot match everything", () => {
     const ctx = context();
     expect(search("qzx", ctx)).toEqual([]);
+    expect(search("/", ctx)).toEqual([]);
+    expect(search("- ✨ ?", ctx)).toEqual([]);
+    expect(search("/ speed", ctx)[0].id).toBe("scan-rate");
     expect(normalise("Colours")).toBe("colour");
     expect(normalise("switches")).toBe("switch");
     expect(normalise("sizes")).toBe("size");

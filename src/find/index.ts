@@ -255,15 +255,17 @@ function indexedOf(e: Entry): Indexed {
 export function search(query: string, ctx: FindContext): Entry[] {
   const raw = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!raw.length) return [];
-  const terms = raw.map(normalise).filter(Boolean);
+  // A word with no letters or digits (punctuation, an emoji) is not a search
+  // term; a query made only of those matches nothing.
+  const pairs = raw.map((typed) => [typed, normalise(typed)] as const).filter(([, t]) => t);
+  if (!pairs.length) return [];
   const score = (e: Entry) => {
     const { labelTokens, wordTokens, rawTokens, phrases } = indexedOf(e);
     const label = e.label.toLowerCase();
     const haystack = [label, ...phrases, pageLabels[e.page].toLowerCase(), sectionLabel(e.page, e.section).toLowerCase(), (e.value(ctx) ?? "").toLowerCase()];
     const haystackTokens = tokens(haystack.join(" "));
     let total = 0;
-    for (const [i, t] of terms.entries()) {
-      const typed = raw[i];
+    for (const [typed, t] of pairs) {
       if (label.startsWith(typed)) total += 6;
       else if (labelTokens.includes(t) || wordTokens.includes(t)) total += 5;
       else if (label.includes(typed) || phrases.some((p) => p.includes(typed))) total += 4;
