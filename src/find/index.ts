@@ -110,7 +110,7 @@ const catalogue = [
     value: (c) => { if (!c.config) return null; const n = sharedOptions(c.config).passLimit; return n ? `${n} ${n === 1 ? "pass" : "passes"}` : "Unlimited"; }, related: ["scan-rate"] },
   { id: "item-scanning", label: "Item scanning", words: ["pattern", "groups", "rows", "linear", "one item at a time", "row groups", "group scanning"], page: "scanning", section: "after",
     value: (c) => c.config ? itemScanningLabels[itemScanning(sharedOptions(c.config))] : null, related: ["advanced", "direction"] },
-  { id: "colour", label: "Scanner colour", words: ["color", "highlight colour", "red", "green", "blue", "yellow", "white", "outline", "see the highlight", "contrast", "visible"], page: "scanning", section: "appearance",
+  { id: "colour", label: "Scanner colour", words: ["color", "highlight colour", "red", "green", "blue", "yellow", "outline", "see the highlight", "contrast", "visible"], page: "scanning", section: "appearance",
     value: (c) => c.config ? cap(c.config.scannerColor) : null, related: ["thickness", "overlay-colour", "panel-theme"] },
   { id: "thickness", label: "Highlight thickness", words: ["thin", "thick", "line", "border", "width", "hard to see"], page: "scanning", section: "appearance",
     value: (c) => c.config ? cap(sharedOptions(c.config).thickness) : null, related: ["colour", "panel-size"] },

@@ -58,6 +58,7 @@ pub struct Config {
     pub keyboard_wait_after_typing: bool,
     /// Moves the keyboard or mouse panel away while the pointer is over it.
     pub panel_avoids_pointer: bool,
+    #[serde(deserialize_with = "crate::scan_preferences::deserialize_scanner_color")]
     pub scanner_color: crate::scanning::ScannerColor,
     pub mode: Mode,
     pub automatic: bool,
@@ -849,7 +850,7 @@ mod tests {
     #[test]
     fn scanner_colours_round_trip_and_reject_unknown_values() {
         use crate::scanning::ScannerColor::*;
-        for color in [Red, Green, Blue, Yellow, White] {
+        for color in [Red, Green, Blue, Yellow] {
             let config = Config {
                 scanner_color: color,
                 ..Config::default()
@@ -858,6 +859,45 @@ mod tests {
             assert_eq!(serde_json::from_str::<Config>(&saved).unwrap(), config);
         }
         assert!(serde_json::from_str::<Config>(r#"{"scannerColor":"unknown"}"#).is_err());
+    }
+    #[test]
+    fn legacy_white_scanning_settings_load_as_blue_without_affecting_cursor_white() {
+        use crate::{scan_preferences::Area, scanning::ScannerColor};
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "scannerColor": "white", "speed": 4,
+            "scanPreferences": {
+                "point": {"color": "white", "intervalMs": 1500},
+                "menu": {"color": "white"},
+                "keyboard": {"color": "white"},
+                "mouse": {"color": "white"}
+            }
+        }))
+        .unwrap();
+        assert_eq!(config.scanner_color, ScannerColor::Blue);
+        assert_eq!(config.speed, 4);
+        assert_eq!(config.resolved(Area::Point).interval_ms, 1500);
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(saved["scannerColor"], "blue");
+        for (area, name) in [
+            (Area::Point, "point"),
+            (Area::Menu, "menu"),
+            (Area::Keyboard, "keyboard"),
+            (Area::Mouse, "mouse"),
+        ] {
+            assert_eq!(config.resolved(area).color, ScannerColor::Blue);
+            assert_eq!(saved["scanPreferences"][name]["color"], "blue");
+        }
+        let inherited: Config = serde_json::from_value(serde_json::json!({
+            "scannerColor": "white", "scanPreferences": {"keyboard": {"color": null}}
+        }))
+        .unwrap();
+        assert_eq!(inherited.scan_preferences.keyboard.color, None);
+        assert_eq!(inherited.resolved(Area::Keyboard).color, ScannerColor::Blue);
+        assert_eq!(
+            ScannerColor::from_cursor_overlay("white"),
+            ScannerColor::White
+        );
+        assert_eq!(ScannerColor::from_cursor_overlay("white").rgb(), [255; 3]);
     }
     #[test]
     fn manual_entry_into_escape_discards_partial_interval() {

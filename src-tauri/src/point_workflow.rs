@@ -5828,7 +5828,7 @@ mod tests {
     #[test]
     fn scanner_colour_follows_action_scroll_and_drag_menus() {
         use crate::scanning::ScannerColor::*;
-        for color in [Red, Green, Blue, Yellow, White] {
+        for color in [Red, Green, Blue, Yellow] {
             let mut s = session(false);
             s.technique.point.config.scanner_color = color;
             s.technique.point.config.scan.color = color;

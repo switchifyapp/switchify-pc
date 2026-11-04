@@ -255,17 +255,28 @@ it("saves what Select starts and explains Home without asking to focus an app", 
   expect(screen.getByText("Select starts here")).toBeInTheDocument();
 });
 
+it.each([null, "Customise point scanning", "Customise menus", "Customise keyboard"])("offers four scan colours in %s", async (customise) => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  if (customise) fireEvent.click(screen.getByRole("button", { name: customise }));
+  const colours = within(screen.getByRole("group", { name: "Scanner colour" }));
+  expect(colours.getAllByRole("radio").map(radio => radio.getAttribute("value"))).toEqual(["red", "green", "blue", "yellow"]);
+  expect(colours.queryByRole("radio", { name: "White" })).not.toBeInTheDocument();
+});
+
 it("retains a failed colour selection for retry", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   mocks.invoke.mockRejectedValueOnce(new Error("Cannot save colour"));
   more();
-  fireEvent.click(screen.getByRole("radio", { name: "White" }));
+  expect(screen.queryByRole("radio", { name: "White" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Yellow" }));
   expect(await screen.findByRole("button", { name: "Retry save" })).toBeEnabled();
-  expect(screen.getByRole("radio", { name: "White" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "Yellow" })).toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: { ...defaultPointScanConfig, scannerColor: "white" },
+    config: { ...defaultPointScanConfig, scannerColor: "yellow" },
   }));
 });
 
