@@ -1,0 +1,7 @@
+Model2Vec potion-base-2M by Minish Lab
+https://huggingface.co/minishlab/potion-base-2M
+https://github.com/MinishLab/model2vec
+MIT License. Copyright (c) 2024 Thomas van Dongen.
+Tokenizer vocabulary from BAAI bge-base-en-v1.5, MIT License.
+https://huggingface.co/BAAI/bge-base-en-v1.5
+Converted to per-row int8 for Switchify PC. No model inference service is used.

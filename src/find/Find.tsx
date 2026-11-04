@@ -2,9 +2,10 @@
 // top of each page, the Also see links, Home's common tasks and recently
 // changed, and the jump that takes a person to one setting and marks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useSemantic } from "./useSemantic";
 import { Search, X } from "lucide-react";
 import { Button } from "../ui/controls";
-import { available, commonTasks, entry, index, pageLabels, search, sectionLabel, sections, targetOf, type Entry, type FindContext, type Page, type Target } from "./index";
+import { available, commonTasks, entry, index, pageLabels, searchWithMeaning, sectionLabel, sections, targetOf, type Entry, type FindContext, type Page, type Target } from "./index";
 
 export type Jump = (target: Target) => void;
 
@@ -77,7 +78,8 @@ export function FindTile({ query, onChange, inputRef }: { query: string; onChang
 }
 
 export function FindResults({ query, ctx, jump }: { query: string; ctx: FindContext; jump: Jump }) {
-  const hits = search(query, ctx);
+  const semantic = useSemantic(query);
+  const hits = searchWithMeaning(query, ctx, semantic);
   const title = hits.length ? `${hits.length} ${hits.length === 1 ? "setting matches" : "settings match"} “${query}”` : `Nothing matches “${query}”`;
   return <div className="view">
     <p className="sr-only" role="status" aria-live="polite">{title}</p>

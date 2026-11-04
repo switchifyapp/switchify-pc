@@ -87,6 +87,8 @@ jobs:
             echo 'Wrong-format updater payload was accepted.' >&2
             exit 1
           fi
+      - name: Fetch find model
+        run: node scripts/fetch-find-model.mjs
       - run: npm run lint
       - run: npm test
       - run: npm run build

@@ -187,6 +187,6 @@ fn production_csp_allows_only_local_assets_and_tauri_ipc() {
     assert_ne!(security["devCsp"], security["csp"]);
     assert_eq!(
         security["csp"],
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
     );
 }
