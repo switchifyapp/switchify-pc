@@ -885,6 +885,21 @@ describe("Switchify PC shell", () => {
       expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     });
 
+    it("asks before Find discards unsaved profile changes", async () => {
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+      fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+      fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Break test" } });
+      const find = screen.getByRole("searchbox", { name: "Find a setting" });
+      fireEvent.change(find, { target: { value: " " } });
+      expect(confirm).not.toHaveBeenCalled();
+      fireEvent.change(find, { target: { value: "s" } });
+      expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+      expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
+      expect(screen.getByLabelText("Profile name")).toHaveValue("Break test");
+    });
+
     const find = () => screen.getByRole("searchbox", { name: "Find a setting" });
 
     it("offers every page as a tile in the nav and marks the current one", async () => {
