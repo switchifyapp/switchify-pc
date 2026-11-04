@@ -438,7 +438,7 @@ fn present(window: HWND, labels: &[String], layout: &Layout) -> Result<(), Strin
         layout,
         pixmap.data(),
         labels.iter().any(|label| label.contains('\n')),
-        false,
+        LabelAlignment::Top,
         [255, 255, 255],
     )
 }
@@ -495,15 +495,23 @@ thread_local! {
     static PANEL_FIXTURE: std::cell::RefCell<Option<Pixmap>> = const { std::cell::RefCell::new(None) };
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LabelAlignment {
+    Top,
+    Centered,
+    BoundedCentered,
+}
+
 fn present_pixmap_with_text(
     window: HWND,
     labels: &[String],
     layout: &Layout,
     rgba: &[u8],
     wrap: bool,
-    center_wrapped: bool,
+    alignment: LabelAlignment,
     text_rgb: [u8; 3],
 ) -> Result<(), String> {
+    let center_wrapped = alignment != LabelAlignment::Top;
     unsafe {
         let screen = ScreenDc(GetDC(None));
         if screen.0.is_invalid() {
@@ -579,7 +587,7 @@ fn present_pixmap_with_text(
         } else {
             1.0
         };
-        let font = if shrink < 1.0 {
+        let mut font = if shrink < 1.0 {
             // GDI only has whole-pixel fonts. Shrink from the whole-pixel size
             // that was measured, round down, and always lose at least a pixel,
             // otherwise the "shrunk" font could be the one that did not fit.
@@ -588,6 +596,21 @@ fn present_pixmap_with_text(
         } else {
             font
         };
+        if alignment == LabelAlignment::BoundedCentered {
+            let full = (FONT_SIZE * layout.scale).round().max(1.0);
+            let initial = if shrink < 1.0 {
+                (full * shrink).floor().min(full - 1.0).max(1.0)
+            } else {
+                full
+            };
+            font = fit_bounded_font(
+                memory.0,
+                labels,
+                &layout.chips,
+                initial,
+                (full * 0.6).floor().max(1.0),
+            )?;
+        }
         let _font_selection = SelectedObject {
             dc: memory.0,
             previous: SelectObject(memory.0, font.0),
@@ -628,9 +651,11 @@ fn present_pixmap_with_text(
                     &mut measured,
                     DT_CENTER | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX,
                 );
-                let vertical_padding = text_rect.top.min((layout.height - height).max(0) / 2);
-                text_rect.top = vertical_padding;
-                text_rect.bottom = layout.height - vertical_padding;
+                if alignment != LabelAlignment::BoundedCentered {
+                    let vertical_padding = text_rect.top.min((layout.height - height).max(0) / 2);
+                    text_rect.top = vertical_padding;
+                    text_rect.bottom = layout.height - vertical_padding;
+                }
                 text_rect.top += ((text_rect.bottom - text_rect.top - height) / 2).max(0);
             }
             let _ = DrawTextW(
@@ -708,6 +733,61 @@ fn present_pixmap_with_text(
     }
 }
 
+/// Fit wrapped Home labels inside the space below or beside their icon.
+fn fit_bounded_font(
+    dc: HDC,
+    labels: &[String],
+    chips: &[RECT],
+    initial: f64,
+    minimum: f64,
+) -> Result<GdiObject, String> {
+    let mut size = initial;
+    loop {
+        let font = bold_font(size)?;
+        let fits = {
+            let _selected = SelectedObject {
+                dc,
+                previous: unsafe { SelectObject(dc, font.0) },
+            };
+            let measure = |label: &str| {
+                let mut text = label.encode_utf16().collect::<Vec<_>>();
+                let mut bounds = RECT::default();
+                unsafe {
+                    DrawTextW(
+                        dc,
+                        &mut text,
+                        &mut bounds,
+                        DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX,
+                    )
+                };
+                f64::from(bounds.right - bounds.left)
+            };
+            labels.iter().zip(chips).all(|(label, chip)| {
+                let wrapped = crate::scan_tile::break_long_words(
+                    label,
+                    f64::from(chip.right - chip.left),
+                    measure,
+                );
+                let mut text = wrapped.encode_utf16().collect::<Vec<_>>();
+                let mut bounds = *chip;
+                let height = unsafe {
+                    DrawTextW(
+                        dc,
+                        &mut text,
+                        &mut bounds,
+                        DT_CENTER | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX,
+                    )
+                };
+                height <= chip.bottom - chip.top
+            })
+        };
+        if fits || size <= minimum {
+            return Ok(font);
+        }
+        size = (size - 1.0).max(minimum);
+    }
+}
+
 fn copy_rgba_to_bgra(source: &[u8], target: &mut [u8]) -> Result<(), String> {
     if source.len() != target.len() || !source.len().is_multiple_of(4) {
         return Err("the modifier overlay pixel buffer has an invalid length".into());
@@ -725,10 +805,28 @@ pub(crate) fn present_scan_tile(
     let pixmap = crate::scan_tile::bitmap(tile)?;
     let width = pixmap.width() as i32;
     let height = pixmap.height() as i32;
-    let horizontal_padding = (8.0 * tile.scale).round().max(1.0) as i32;
-    let vertical_padding = (6.0 * tile.scale).round().max(1.0) as i32;
-    let horizontal_padding = horizontal_padding.min((width - 1).max(0) / 2);
-    let vertical_padding = vertical_padding.min((height - 1).max(0) / 2);
+    let home = tile
+        .style
+        .is_some_and(|style| style.role.home_icon().is_some());
+    let label = if home {
+        crate::scan_tile::label_rect(tile)
+    } else {
+        // Keep the established pixel rounding on other panels.
+        let horizontal = (8.0 * tile.scale)
+            .round()
+            .max(1.0)
+            .min(f64::from((width - 1).max(0) / 2));
+        let vertical = (6.0 * tile.scale)
+            .round()
+            .max(1.0)
+            .min(f64::from((height - 1).max(0) / 2));
+        crate::scanning::Rect {
+            x: horizontal,
+            y: vertical,
+            width: f64::from(width) - horizontal * 2.0,
+            height: f64::from(height) - vertical * 2.0,
+        }
+    };
     let layout = Layout {
         x: tile.rect.x.round() as i32,
         y: tile.rect.y.round() as i32,
@@ -736,10 +834,10 @@ pub(crate) fn present_scan_tile(
         height,
         scale: tile.scale * crate::scan_tile::keyboard_font_size(tile) / FONT_SIZE,
         chips: vec![RECT {
-            left: horizontal_padding,
-            top: vertical_padding,
-            right: width - horizontal_padding,
-            bottom: height - vertical_padding,
+            left: label.x.round() as i32,
+            top: label.y.round() as i32,
+            right: (label.x + label.width).round().min(f64::from(width)) as i32,
+            bottom: (label.y + label.height).round().min(f64::from(height)) as i32,
         }],
     };
     present_pixmap_with_text(
@@ -748,7 +846,11 @@ pub(crate) fn present_scan_tile(
         &layout,
         pixmap.data(),
         true,
-        true,
+        if home {
+            LabelAlignment::BoundedCentered
+        } else {
+            LabelAlignment::Centered
+        },
         crate::scan_tile::text_rgb(tile),
     )
 }
@@ -804,7 +906,11 @@ mod tests {
                 &layout,
                 &pixels,
                 wrapped,
-                wrapped,
+                if wrapped {
+                    LabelAlignment::Centered
+                } else {
+                    LabelAlignment::Top
+                },
                 [255, 255, 255],
             );
             assert!(result.is_err());
@@ -962,6 +1068,70 @@ mod tests {
     }
 
     #[test]
+    fn long_home_labels_fit_their_icon_free_text_area() {
+        // Font measurement only: no windows, input or desktop capture.
+        unsafe {
+            let screen = ScreenDc(GetDC(None));
+            let dc = MemoryDc(CreateCompatibleDC(Some(screen.0)));
+            assert!(!dc.0.is_invalid());
+            for scale in [0.8_f64, 1.0, 1.5, 2.0] {
+                for label in [
+                    "Morning reading writing evening leisure",
+                    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+                    "Apps and windows",
+                ] {
+                    let area = RECT {
+                        left: 8,
+                        top: 40,
+                        right: 8 + (160.0 * scale).round() as i32,
+                        bottom: 40 + (42.0 * scale).round() as i32,
+                    };
+                    let font = fit_bounded_font(
+                        dc.0,
+                        &[label.into()],
+                        &[area],
+                        (16.0 * scale).round(),
+                        (9.0 * scale).round(),
+                    )
+                    .unwrap();
+                    let _selected = SelectedObject {
+                        dc: dc.0,
+                        previous: SelectObject(dc.0, font.0),
+                    };
+                    let measure = |text: &str| {
+                        let mut text = text.encode_utf16().collect::<Vec<_>>();
+                        let mut bounds = RECT::default();
+                        DrawTextW(
+                            dc.0,
+                            &mut text,
+                            &mut bounds,
+                            DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX,
+                        );
+                        f64::from(bounds.right - bounds.left)
+                    };
+                    let label = crate::scan_tile::break_long_words(
+                        label,
+                        f64::from(area.right - area.left),
+                        measure,
+                    );
+                    let mut text = label.encode_utf16().collect::<Vec<_>>();
+                    let mut bounds = area;
+                    let height = DrawTextW(
+                        dc.0,
+                        &mut text,
+                        &mut bounds,
+                        DT_CENTER | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX,
+                    );
+                    assert!(
+                        height <= area.bottom - area.top,
+                        "Home text must not enter the icon area or clip"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "Exports synthetic panels through the native Windows text renderer; no input or desktop capture"]
     fn export_panel_size_fixtures() {
         use crate::{
@@ -1027,7 +1197,37 @@ mod tests {
             let numbers_frame = page(crate::scan_keyboard::Page::Numbers);
             let symbols_frame = page(crate::scan_keyboard::Page::Symbols);
             keyboard.fixture_page(crate::scan_keyboard::Key::Dock);
+            let mut home = crate::scan_menu::Menu::builtin(
+                crate::scan_menu::Kind::Home,
+                &crate::builtin_panels::default_document(crate::scan_menu::Kind::Home),
+                Resolved {
+                    panel_size: size,
+                    panel_theme: theme,
+                    color: ScannerColor::Blue,
+                    ..Default::default()
+                },
+            );
+            let home_row = home.frame(screen, 1.0, mouse.dock, false);
+            home.handle(crate::scanning::Action::Select);
+            let home_item = home.frame(screen, 1.0, mouse.dock, false);
+            let mut long_document =
+                crate::builtin_panels::default_document(crate::scan_menu::Kind::Home);
+            long_document.rows[0][0].label = "Morning reading writing evening leisure".into();
+            let home_long = crate::scan_menu::Menu::builtin(
+                crate::scan_menu::Kind::Home,
+                &long_document,
+                Resolved {
+                    panel_size: size,
+                    panel_theme: theme,
+                    color: ScannerColor::Blue,
+                    ..Default::default()
+                },
+            )
+            .frame(screen, 1.0, mouse.dock, false);
             for (name, frame) in [
+                ("home", home_row),
+                ("home-item", home_item),
+                ("home-long-label", home_long),
                 (
                     "mouse",
                     mouse.frame(screen, 1.0, ScannerColor::default(), false),

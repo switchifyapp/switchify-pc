@@ -92,6 +92,8 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     let on_band = style.is_some_and(|s| s.role == TileRole::MenuBar);
     let base = match style.map(|s| s.role) {
         Some(TileRole::Character) => palette.character,
+        Some(TileRole::HomeAction(_)) => palette.character,
+        Some(TileRole::HomeNavigation(_)) => palette.other,
         Some(TileRole::Utility) => palette.utility,
         Some(TileRole::MenuBar) => palette.menu_bar,
         _ => palette.other,
@@ -117,7 +119,13 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             1.0
         };
     let inset = ((2.0 * tile.scale) as f32).max(stroke_width / 2.0);
-    let radius = (if on_band { 6.0 } else { 8.0 } * tile.scale) as f32;
+    let radius = (if on_band {
+        6.0
+    } else if style.is_some_and(|s| s.role.home_icon().is_some()) {
+        10.0
+    } else {
+        8.0
+    } * tile.scale) as f32;
     let width = bitmap.width() as f32;
     let height = bitmap.height() as f32;
     let path = key_outline(width, height, inset.min(width.min(height) / 4.0), radius);
@@ -158,7 +166,36 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             bitmap.fill_rect(rect, &paint, Transform::identity(), None);
         }
     }
+    crate::scan_home::draw_icon(&mut bitmap, tile);
     Ok(bitmap)
+}
+
+/// Label bounds in top-left coordinates, shared by both platform painters.
+pub fn label_rect(tile: &FrameTile) -> crate::scanning::Rect {
+    use crate::scanning::{Rect, TileRole};
+    let s = tile.scale;
+    let left = if tile
+        .style
+        .is_some_and(|style| matches!(style.role, TileRole::HomeNavigation(_)))
+    {
+        42.0 * s
+    } else {
+        8.0 * s
+    };
+    let top = if tile
+        .style
+        .is_some_and(|style| matches!(style.role, TileRole::HomeAction(_)))
+    {
+        40.0 * s
+    } else {
+        6.0 * s
+    };
+    Rect {
+        x: left,
+        y: top,
+        width: (tile.rect.width - left - 8.0 * s).max(1.0),
+        height: (tile.rect.height - top - 6.0 * s).max(1.0),
+    }
 }
 
 /// The opacity of a placeholder slot's outline over the panel.

@@ -4,7 +4,7 @@ use crate::{
     panel_actions::PanelAction,
     scan_items::{ItemScanner, Policy},
     scan_panel::{Dock, Panel, PanelKey},
-    scanning::{Action, Frame, Rect, TileRole},
+    scanning::{Action, Frame, HomeIcon, Rect, TileRole},
 };
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,6 +302,25 @@ impl Menu {
         }
     }
     fn item_role(&self, item: Item) -> TileRole {
+        if self.kind == Kind::Home {
+            return match item {
+                Item::Custom(index) => self
+                    .cells
+                    .get(index)
+                    .map_or(TileRole::HomeAction(HomeIcon::Action), |cell| {
+                        home_action_role(&cell.action)
+                    }),
+                Item::PointScan => TileRole::HomeAction(HomeIcon::Point),
+                Item::Keyboard => TileRole::HomeAction(HomeIcon::Keyboard),
+                Item::MousePanel => TileRole::HomeAction(HomeIcon::Mouse),
+                Item::Group(kind) => TileRole::HomeAction(home_menu_icon(kind)),
+                Item::Switchify => TileRole::HomeNavigation(HomeIcon::Settings),
+                Item::Panels => TileRole::HomeNavigation(HomeIcon::Panels),
+                Item::Back => TileRole::HomeNavigation(HomeIcon::Back),
+                Item::Cancel => TileRole::HomeNavigation(HomeIcon::Close),
+                _ => TileRole::HomeAction(HomeIcon::Action),
+            };
+        }
         match item {
             Item::Custom(index) => match self.cells.get(index).map(|cell| &cell.action) {
                 Some(PanelAction::Back | PanelAction::Close) => TileRole::Toolbar,
@@ -379,6 +398,36 @@ impl Menu {
             appearance: options.panel_theme.appearance(),
         }
         .frame(screen, units, options.color)
+    }
+}
+
+fn home_menu_icon(kind: Kind) -> HomeIcon {
+    match kind {
+        Kind::Windows => HomeIcon::Windows,
+        Kind::Editing => HomeIcon::Editing,
+        Kind::Browser | Kind::Tabs => HomeIcon::Browser,
+        Kind::Media => HomeIcon::Media,
+        Kind::Zoom => HomeIcon::Zoom,
+        Kind::Panels | Kind::Custom => HomeIcon::Panels,
+        _ => HomeIcon::Action,
+    }
+}
+
+fn home_action_role(action: &PanelAction) -> TileRole {
+    use crate::panel_actions::BuiltInPanel;
+    match action {
+        PanelAction::OpenPanel { panel } => match panel {
+            BuiltInPanel::Point => TileRole::HomeAction(HomeIcon::Point),
+            BuiltInPanel::Mouse => TileRole::HomeAction(HomeIcon::Mouse),
+            BuiltInPanel::Keyboard => TileRole::HomeAction(HomeIcon::Keyboard),
+            BuiltInPanel::Switchify => TileRole::HomeNavigation(HomeIcon::Settings),
+            BuiltInPanel::Menu(kind) => TileRole::HomeAction(home_menu_icon(*kind)),
+        },
+        PanelAction::MyPanels => TileRole::HomeNavigation(HomeIcon::Panels),
+        PanelAction::Back => TileRole::HomeNavigation(HomeIcon::Back),
+        PanelAction::Close => TileRole::HomeNavigation(HomeIcon::Close),
+        PanelAction::OpenCustomPanel { .. } => TileRole::HomeAction(HomeIcon::Panels),
+        _ => TileRole::HomeAction(HomeIcon::Action),
     }
 }
 
@@ -755,6 +804,51 @@ mod tests {
     /// The message floating beside the panel, if there is one.
     fn message(frame: &Frame) -> Option<String> {
         frame.label.as_ref().map(|label| label.text.clone())
+    }
+
+    #[test]
+    fn home_icons_follow_actions_without_changing_documents_or_scan_order() {
+        use crate::{custom_panels::Cell, panel_actions::BuiltInPanel};
+        let document = CustomPanel {
+            id: "builtin-home".into(),
+            version: 1,
+            name: "Home".into(),
+            description: String::new(),
+            rows: vec![vec![
+                Cell {
+                    label: "Mouse".into(),
+                    action: PanelAction::OpenPanel {
+                        panel: BuiltInPanel::Point,
+                    },
+                    span: 2,
+                },
+                Cell {
+                    label: "Keyboard".into(),
+                    action: PanelAction::Close,
+                    span: 1,
+                },
+            ]],
+        };
+        let before = serde_json::to_value(&document).unwrap();
+        let home = Menu::builtin(Kind::Home, &document, Default::default());
+        assert_eq!(
+            home.item_role(Item::Custom(0)),
+            TileRole::HomeAction(HomeIcon::Point)
+        );
+        assert_eq!(
+            home.item_role(Item::Custom(1)),
+            TileRole::HomeNavigation(HomeIcon::Close)
+        );
+        assert_eq!(home.frame_labels(), [vec!["Mouse", "Keyboard"]]);
+        assert_eq!(home.item_weight(Item::Custom(0)), 2.0);
+        assert_eq!(serde_json::to_value(&document).unwrap(), before);
+        let custom = Menu::custom(&document, Default::default());
+        assert_eq!(custom.item_role(Item::Custom(0)), TileRole::Utility);
+        assert_eq!(custom.item_role(Item::Custom(1)), TileRole::Toolbar);
+
+        let mut menu = Menu::new(Kind::Home, 250);
+        assert_eq!(menu.handle(Action::Select), None);
+        assert_eq!(menu.handle(Action::Select), Some(Item::PointScan));
     }
 
     #[test]

@@ -26,6 +26,14 @@ cd site && npm run screenshots   # APP_URL overrides http://127.0.0.1:5181/
 
 Recapture when a change alters a screen that a screenshot shows, and check each image before committing. The Mac setup screenshot comes from the same browser with the platform set to macOS, so it uses the fonts of the computer you capture on.
 
+The scanned Home image uses the native Windows text renderer with synthetic panel data. It captures no desktop pixels and sends no input. From the repository root in PowerShell:
+
+```powershell
+$env:SWITCHIFY_PANEL_FIXTURES = Join-Path $env:TEMP 'switchify-panel-fixtures'
+cargo test --manifest-path src-tauri/Cargo.toml export_panel_size_fixtures -- --ignored --test-threads=1
+Copy-Item (Join-Path $env:SWITCHIFY_PANEL_FIXTURES 'home-item-Medium.png') site/src/assets/screenshots/scanned-home.png
+```
+
 Any change that users can see in the app must update these pages in the same pull request. Write for switch users and AT professionals: plain language, no claims the app does not back up, and no accuracy claims for word prediction.
 
 Hosting: a Vercel project for the `switchify-pc` repository with its root directory set to `site`, and `pc.theswitchify.app` pointed at it.

@@ -4,8 +4,8 @@ import { lightPanels } from "../scanning/preferences";
 
 /** The native panels' colours, so a picture looks like the panel will. */
 const palettes = {
-  dark: { panel: "#141820", band: "#1e2430", utility: "#222936", toolbar: "#191e28", border: "#3e4859", bandBorder: "#4a566c", text: "#ffffff" },
-  light: { panel: "#f0f2f6", band: "#e2e6ed", utility: "#eceff4", toolbar: "#f4f6f9", border: "#c4cbd6", bandBorder: "#b0b9c8", text: "#141820" },
+  dark: { panel: "#141820", band: "#1e2430", character: "#2b3342", utility: "#222936", toolbar: "#191e28", border: "#3e4859", bandBorder: "#4a566c", text: "#ffffff" },
+  light: { panel: "#f0f2f6", band: "#e2e6ed", character: "#ffffff", utility: "#eceff4", toolbar: "#f4f6f9", border: "#c4cbd6", bandBorder: "#b0b9c8", text: "#141820" },
 } as const;
 type Palette = (typeof palettes)[keyof typeof palettes];
 
@@ -35,7 +35,7 @@ export type PictureEditing = {
  *  (`fixed`) are drawn faintly, with the user's rows above the last of
  *  them, where the panel scans them, and the user's columns down the right.
  *  Purely visual unless `editing` is given. */
-export function PanelPicture({ panel, fixed, columns = [], editing, theme, title = "Switchify PC", className = "" }: { panel: CustomPanel; fixed?: PictureCell[][]; columns?: PanelCell[][]; editing?: PictureEditing; theme?: PanelTheme; title?: string; className?: string }) {
+export function PanelPicture({ panel, fixed, columns = [], editing, theme, home = false, title = "Switchify PC", className = "" }: { panel: CustomPanel; fixed?: PictureCell[][]; columns?: PanelCell[][]; editing?: PictureEditing; theme?: PanelTheme; home?: boolean; title?: string; className?: string }) {
   const colours = picturePalette(theme);
   // The name says what is on the panel, row by row, since the tiles are decoration here.
   const label = (cell: PanelCell) => cell.label.trim() || "unlabelled";
@@ -75,7 +75,7 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
   const accessible = editing
     ? { role: "group", "aria-label": `${panel.name} as it will scan: ${description}` }
     : { role: "img", "aria-label": `Picture of ${panel.name}: ${description}` };
-  return <div className={`panel-picture ${className}`.trim()} {...accessible} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
+  return <div className={`panel-picture ${className}`.trim()} data-home={home || undefined} {...accessible} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
     <div className="panel-picture-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-picture-rows">
       {lines.map(line)}

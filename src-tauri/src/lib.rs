@@ -42,6 +42,7 @@ mod prediction;
 mod protocol;
 mod remote_scan;
 mod scan_executor;
+mod scan_home;
 mod scan_host;
 mod scan_items;
 mod scan_keyboard;

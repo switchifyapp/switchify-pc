@@ -946,8 +946,21 @@ mod platform {
         )));
         let font_size = crate::scan_tile::keyboard_font_size(tile) * tile.scale;
         label.setFont(Some(&NSFont::boldSystemFontOfSize(font_size)));
-        let padding = 8.0 * tile.scale;
-        let width = (frame.width - padding * 2.0).max(1.0);
+        let area = if tile
+            .style
+            .is_some_and(|style| style.role.home_icon().is_some())
+        {
+            crate::scan_tile::label_rect(tile)
+        } else {
+            // Preserve the existing full-height labels on other macOS panels.
+            Rect {
+                x: 8.0 * tile.scale,
+                y: 0.0,
+                width: (frame.width - 16.0 * tile.scale).max(1.0),
+                height: frame.height,
+            }
+        };
+        let width = area.width;
         let cell = label.cell().ok_or("Keyboard label is unavailable.")?;
         // A long word shrinks the label, down to a floor, so it fits the key;
         // a word still too wide is split with a hyphen instead of breaking
@@ -973,13 +986,32 @@ mod platform {
         }
         let text = crate::scan_tile::break_long_words(&tile.text, width, measure);
         label.setStringValue(&NSString::from_str(&text));
-        let measured = cell.cellSizeForBounds(NSRect::new(
+        let mut measured = cell.cellSizeForBounds(NSRect::new(
             NSPoint::new(0.0, 0.0),
             NSSize::new(width, f64::MAX),
         ));
-        let height = measured.height.min(frame.height);
+        if tile
+            .style
+            .is_some_and(|style| style.role.home_icon().is_some())
+        {
+            let mut size = font_size * shrink;
+            for _ in 0..12 {
+                if measured.height <= area.height || size <= font_size * 0.6 {
+                    break;
+                }
+                size = (size - font_size * 0.05).max(font_size * 0.6);
+                label.setFont(Some(&NSFont::boldSystemFontOfSize(size)));
+                let text = crate::scan_tile::break_long_words(&tile.text, width, measure);
+                label.setStringValue(&NSString::from_str(&text));
+                measured = cell.cellSizeForBounds(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(width, f64::MAX),
+                ));
+            }
+        }
+        let height = measured.height.min(area.height);
         label.setFrame(NSRect::new(
-            NSPoint::new(padding, (frame.height - height) / 2.0),
+            NSPoint::new(area.x, frame.height - area.y - (area.height + height) / 2.0),
             NSSize::new(width, height),
         ));
         label.setHidden(false);

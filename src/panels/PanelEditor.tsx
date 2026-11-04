@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Play, Plus, Rot
 import { Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
 import { PanelPicture, toolbarAction, type TilePlace } from "./PanelPicture";
+import { HomeTileContent, homePresentation } from "./homePresentation";
 import { actionProblem, chordFromEvent, columnProblems, defaultLabel, describeAction, friendlyKey, maxColumnTiles, maxExtraColumns, maxExtraRows, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
 import type { PanelTheme } from "../scanning/preferences";
 import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell, PictureCell } from "../types";
@@ -218,12 +219,13 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
             {problems.rows && <p className="field-error">{problems.rows}</p>}
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
-            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large panel-picture-editing" editing={{
-              tile: (cell, place) => {
+            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} home={builtin?.kind === "home"} className="panel-picture-large panel-picture-editing" editing={{
+              tile: (cell, place, colours) => {
                 const here = selected?.column === place.column && selected?.row === place.row && selected?.cell === place.cell;
                 const problem = problemOf(place);
                 const where = `${place.column ? "Column" : "Row"} ${place.row + 1}, tile ${place.cell + 1}`;
-                return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
+                const home = builtin?.kind === "home" ? homePresentation(cell.action) : null;
+                return <Button id={tileId(place)} className="panel-editor-tile" style={home ? { color: colours.text, background: home.navigation ? colours.toolbar : colours.character } : undefined} data-home-navigation={home?.navigation} data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{home ? <HomeTileContent action={cell.action} label={cell.label.trim()} /> : cell.label.trim() || <em>No label</em>}</Button>;
               },
               rowTools: (rowIndex) => <>
                 <Button className="icon-button" disabled={draft.rows[rowIndex].length >= maxTilesPerRow} aria-label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} /></Button>

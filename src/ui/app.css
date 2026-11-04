@@ -440,6 +440,10 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .btn.panel-editor-tile[data-selected] { border-color: var(--scan); outline: 2px solid var(--scan); outline-offset: -2px; }
 .btn.panel-editor-tile[data-invalid] { border-color: var(--status-error); }
 .btn.panel-editor-tile em { color: var(--muted); font-style: italic; font-weight: 400; }
+.panel-picture[data-home] .btn.panel-editor-tile { flex-direction: column; gap: 8px; min-height: 88px; font-size: 16px; }
+.panel-picture[data-home] .btn.panel-editor-tile > svg { flex: none; opacity: .8; }
+.panel-picture[data-home] .btn.panel-editor-tile[data-home-navigation="true"] { flex-direction: row; min-height: 64px; }
+.panel-picture[data-home] .btn.panel-editor-tile[data-home-navigation="true"] > svg { width: 18px; height: 18px; }
 
 .panel-editor-picture h2, .panel-grid-editor h2 { margin-bottom: 4px; }
 .panel-inspector { position: sticky; top: 108px; max-height: calc(100dvh - 124px); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }

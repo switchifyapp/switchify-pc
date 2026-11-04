@@ -257,11 +257,30 @@ pub struct UpdateContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeIcon {
+    Point,
+    Mouse,
+    Keyboard,
+    Windows,
+    Editing,
+    Browser,
+    Media,
+    Zoom,
+    Settings,
+    Panels,
+    Back,
+    Close,
+    Action,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TileRole {
     Panel,
     Character,
     Utility,
     Toolbar,
+    /// Presentation only: the action identity supplies a shared vector icon.
+    HomeAction(HomeIcon),
+    HomeNavigation(HomeIcon),
     /// The Settings item on the bar along the top of a panel. It is clicked
     /// with the mouse, never scanned.
     MenuBar,
@@ -271,6 +290,14 @@ pub enum TileRole {
     /// word. Drawn as a faint outline so the row reads as a row of slots, but
     /// never highlighted, scanned or clicked.
     Placeholder,
+}
+impl TileRole {
+    pub fn home_icon(self) -> Option<HomeIcon> {
+        match self {
+            Self::HomeAction(icon) | Self::HomeNavigation(icon) => Some(icon),
+            _ => None,
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileStyle {

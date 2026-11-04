@@ -5,6 +5,10 @@ description: Press Select to open Home, a scanning menu of everything Switchify 
 
 Press and release **Select** to open Home. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work. It opens on the display the pointer is on, and moves with the pointer if something moves it to another display while Home is open.
 
+Home's action tiles have an icon above their label. Navigation tiles such as **Switchify**, **My panels** and **Close menu** use a quieter face with a smaller icon beside the label. The highlight still uses your chosen scanner colour and thickness, and the tile order stays the same.
+
+![The scanned Home menu in dark appearance, with icons above the action labels and smaller navigation icons beside Switchify, My panels and Close menu. The blue highlight marks Point.](../../../assets/screenshots/scanned-home.png)
+
 | Item | What it does |
 | --- | --- |
 | **Point** | Start [point scanning](/using/point-scanning/) to choose a spot on screen. |
@@ -20,6 +24,8 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Close menu** | Close Home without doing anything. |
 
 Home and the menus it opens can be rearranged in the [Panels](/using/panels/) section of the Switchify PC window, and put back the way they came. The table above describes them before any change.
+
+Renaming or moving a Home tile keeps its icon tied to its action. A phrase or another action without a specific Home icon uses a general action symbol. Your own panels and the other built-in menus keep their existing appearance.
 
 ## Shut down or restart
 

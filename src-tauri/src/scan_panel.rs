@@ -245,6 +245,25 @@ pub struct Panel {
 
 impl Panel {
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
+        let row_heights: Vec<f64> = self
+            .rows
+            .iter()
+            .map(|row| {
+                if row
+                    .iter()
+                    .any(|key| matches!(key.role, TileRole::HomeAction(_)))
+                {
+                    88.0
+                } else if row
+                    .iter()
+                    .any(|key| matches!(key.role, TileRole::HomeNavigation(_)))
+                {
+                    64.0
+                } else {
+                    56.0
+                }
+            })
+            .collect();
         let preferred_width = self
             .rows
             .iter()
@@ -256,7 +275,7 @@ impl Panel {
             + 32.0;
         let preferred_height = 32.0
             + MENU_BAR_HEIGHT
-            + self.rows.len() as f64 * 56.0
+            + row_heights.iter().sum::<f64>()
             + self.rows.len().saturating_sub(1) as f64 * 8.0;
         let scale = fit_scale(screen, units, self.size, preferred_width, preferred_height);
         let Rect {
@@ -270,7 +289,6 @@ impl Panel {
         let padding = 16.0 * scale;
         let content_width = width - padding * 2.0;
         let gap = 8.0 * scale;
-        let row_height = 64.0 * scale;
         let menu_bar_height = MENU_BAR_HEIGHT * scale;
         let mut frame = Frame::default();
         frame.tiles.push(FrameTile::panel_background(
@@ -329,7 +347,7 @@ impl Panel {
             scale,
             selected: false,
         });
-        let y = y + menu_bar_height + padding;
+        let mut row_y = y + menu_bar_height + padding;
         for (r, row) in self.rows.iter().enumerate() {
             let total_weight: f64 = row.iter().map(|key| key.weight).sum();
             let cell_unit =
@@ -365,9 +383,9 @@ impl Panel {
                     }),
                     rect: Rect {
                         x: left,
-                        y: y + r as f64 * row_height,
+                        y: row_y,
                         width: key_width,
-                        height: (row_height - gap).max(1.0),
+                        height: (row_heights[r] * scale).max(1.0),
                     },
                     scale,
                     selected: !key.hidden
@@ -379,6 +397,7 @@ impl Panel {
                 left += key_width + gap;
                 c += 1;
             }
+            row_y += (row_heights[r] + KEY_GAP) * scale;
         }
         if let Some(message) = &self.message {
             frame.label = Some(message_label(message, frame.tiles[0].rect, screen, scale));
