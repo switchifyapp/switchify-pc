@@ -1,9 +1,10 @@
 import { Button, Input, Select, StatusIcon } from "./ui/controls";
+import { PageIcon } from "./ui/PageIcon";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
-  Copy, Home, Keyboard, KeyRound, LayoutGrid, Plus, Power, RefreshCw, Save, Settings,
+  Copy, Keyboard, KeyRound, Plus, Power, RefreshCw, Save,
   SlidersHorizontal, Smartphone, Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type NavigationTarget, type ProfileExitAction } from "./api";
@@ -27,11 +28,8 @@ import { pageLabels, type FindContext, type Page, type Target } from "./find/ind
 
 type View = Page;
 
-/** The pages, in nav order, with the icon each tile shows. */
-const pages: [Page, ReactNode][] = [
-  ["home", <Home size={24} />], ["switches", <Keyboard size={24} />], ["scanning", <SlidersHorizontal size={24} />], ["panels", <LayoutGrid size={24} />],
-  ["mobile", <Smartphone size={24} />], ["settings", <Settings size={24} />], ["support", <CircleHelp size={24} />],
-];
+/** The pages, in sidebar order. */
+const pages: Page[] = ["home", "switches", "scanning", "panels", "mobile", "settings", "support"];
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
 const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
@@ -869,7 +867,7 @@ export function App() {
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div ref={rootRef} className="app-shell" data-scan={scanning.config.scannerColor} data-thickness={scanning.config.scanPreferences?.thickness ?? "standard"}>
     <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
-      <nav aria-label="Pages">{pages.map(([id, icon]) => <Button key={id} className="tile tile-nav" data-utility={id === "settings" || id === "support" ? id : undefined} data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true">{icon}</span><span>{pageLabels[id]}</span></Button>)}</nav>
+      <nav aria-label="Pages">{pages.map(id => <Button key={id} className="tile tile-nav" data-utility={id === "settings" || id === "support" ? id : undefined} data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true"><PageIcon page={id} /></span><span>{pageLabels[id]}</span></Button>)}</nav>
     </header>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
       <div className="workspace-toolbar"><span className="workspace-location">{query ? "Find settings" : pageLabels[view]}</span><FindTile query={query} onChange={changeQuery} inputRef={findRef} shortcut={state.capabilities.platform === "macos" ? "⌘ K" : "Ctrl K"} /></div>

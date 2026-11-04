@@ -19,7 +19,7 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 
 ## Using the settings window
 
-The pages are in a sidebar on the left. The sidebar and **Find a setting** at the top stay available as you scroll. Settings and Help sit at the bottom of the sidebar. In a very narrow window, the pages move above the workspace. The current page has a red background and a short marker beside it. Scanning choices use your chosen highlight colour.
+The pages are in a sidebar on the left, with an icon beside each name. **Switches** has a round switch with a cable, **Scanning** has a moving line, and **Settings** has sliders. The sidebar and **Find a setting** at the top stay available as you scroll. Settings and Help sit at the bottom of the sidebar. In a very narrow window, the pages move above the workspace. The current page has a red background and a short marker beside it. Chosen settings have a filled background and a checkmark.
 
 Press Ctrl+K on Windows or Command+K on Mac to focus **Find a setting**. You can also press `/` when you are not typing in a field. Settings show their names beside an **On** or **Off** control, and saved switches appear as rows with their edit and remove buttons alongside.
 
