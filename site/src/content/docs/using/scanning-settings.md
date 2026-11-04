@@ -5,6 +5,8 @@ description: Automatic or manual movement, scan rate, pass limit, item scanning 
 
 These settings are on the **Scanning** page. They save as you change them and apply straight away. The row of tiles at the top of the page shows what each section is set to; choose one to go to it, or type what you are looking for in **Find a setting**.
 
+Chosen options in Settings have a filled background and a checkmark. A separate outline shows which control has keyboard focus. The scanner colour still controls the highlight on the scanning panels.
+
 ## Movement
 
 - **Automatic** scanning moves by itself. The rate can be anything from 0.1 to 10 seconds per step, in 0.1 second steps. It needs one switch set to Select.
