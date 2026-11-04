@@ -376,13 +376,16 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   switches: SwitchController;
   suspended: boolean;
 }) {
-  const [requestedStep, setStep] = useState(0);
   const inputAccessRequired = needsInputAccess(state);
+  const [requestedStep, setStep] = useState(() => inputAccessRequired ? 0 : 1);
   const steps = inputAccessRequired ? [0, 1, 2, 3, 4] : [1, 2, 3, 4];
   // Permission can arrive while this guide is open. Move straight to switch
   // setup without renumbering the remaining content or losing saved choices.
   const step = requestedStep === 0 && !inputAccessRequired ? 1 : requestedStep;
   const stepNumber = steps.indexOf(step) + 1;
+  useEffect(() => {
+    if (!inputAccessRequired && requestedStep === 0) setStep(1);
+  }, [inputAccessRequired, requestedStep]);
   const [startupChoice, setStartupChoice] = useState<boolean | null>(state.setup.completed ? state.settings.startWithSystem : null);
   const [diagnosticsChoice, setDiagnosticsChoice] = useState<boolean | null>(state.setup.completed && state.telemetry.consent !== "undecided" ? state.telemetry.consent === "enabled" : null);
   const dialogRef = useRef<HTMLElement>(null);

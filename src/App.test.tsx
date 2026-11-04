@@ -440,6 +440,15 @@ describe("Switchify PC shell", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Add your switch" })).toHaveFocus());
     expect(screen.getByLabelText("Step 1 of 4")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel new switch" })).toBeInTheDocument());
+    act(() => receive?.({ ...structuredClone(browserState), accessibility: "required" }));
+    expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel new switch" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
