@@ -17,6 +17,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Each page lists its sections with their current values at the top, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## Using the settings window
+
+Right-clicking in the Switchify PC window does not open a menu. To copy or paste in a text field, use Ctrl+C or Ctrl+V on Windows, or Command+C or Command+V on Mac.
+
 ## Two ways to connect a switch
 
 **On the computer.** Plug a switch into a switch interface or a USB switch that sends a key. Add it in Settings, press it once so Switchify PC learns the key, and give it an action such as Select. See [Add a switch](/get-started/add-a-switch/).
