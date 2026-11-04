@@ -808,6 +808,8 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const openUpdates = () => {
+    // Find results replace the page, so leave them before heading to Updates.
+    setQuery("");
     if (viewRef.current !== "settings") {
       if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return;
       if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return;

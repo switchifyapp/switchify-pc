@@ -53,7 +53,7 @@ transfers and refunds.
 
 ## Diagnostics
 
-**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** section of Settings shows the same two buttons until you choose. Once you have chosen, the Privacy tab shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.
+**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** section of Settings shows the same two buttons until you choose. Once you have chosen, the Privacy section shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.
 
 Separately, you can **export** a local diagnostics file of up to 500 recent sanitised events at any time, for example to attach to a support email. Nothing is sent unless you send it.
 
