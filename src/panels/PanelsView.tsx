@@ -1,5 +1,6 @@
+import { PageIcon } from "../ui/PageIcon";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, LayoutGrid, Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { Button } from "../ui/controls";
 import { PanelPicture } from "./PanelPicture";
 import { PanelEditor, type BuiltinEditing, type ExtrasEditing } from "./PanelEditor";
@@ -117,7 +118,7 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
     {error && <p className="field-error" role="alert">{error}</p>}
     <section className="panel-group panel-group-yours" data-section="yours" data-setting="your-panels" aria-label="Your panels">
     {panels === null ? <p className="capability-note">Loading your panels...</p>
-      : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>Your first panel starts here</h2><p>Put the actions you use together on one panel. Start with Keyboard, Mouse, Back and Close, then make it your own.</p><Button className="primary" disabled={busy} onClick={() => void create()}>Create your first panel</Button></section>
+      : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><PageIcon page="panels" size={32} /><h2>Your first panel starts here</h2><p>Put the actions you use together on one panel. Start with Keyboard, Mouse, Back and Close, then make it your own.</p><Button className="primary" disabled={busy} onClick={() => void create()}>Create your first panel</Button></section>
       : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
         <Button className="panel-card" data-opener={panel.id} onClick={() => openPanel(panel, panel.id)} aria-label={`${panel.name}, ${tileCount(panel)} tiles`}>
           <PanelPicture panel={panel} theme={theme} />

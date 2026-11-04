@@ -3,21 +3,22 @@
 // changed, and the jump that takes a person to one setting and marks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useSemantic } from "./useSemantic";
-import { Gauge, Keyboard, LayoutGrid, Maximize2, Palette, Search, Smartphone, X } from "lucide-react";
+import { Gauge, Maximize2, Palette, Search, X } from "lucide-react";
+import { PageIcon } from "../ui/PageIcon";
 import { Button } from "../ui/controls";
 import { available, commonTasks, entry, index, pageLabels, searchWithMeaning, sectionLabel, sections, targetOf, type Entry, type FindContext, type Page, type Target } from "./index";
 
 export type Jump = (target: Target) => void;
 
-const taskIcons = { "scan-rate": Gauge, colour: Palette, "switch-list": Keyboard, "panel-size": Maximize2, pairing: Smartphone, "your-panels": LayoutGrid };
+const taskIcons = { "scan-rate": <Gauge size={24} />, colour: <Palette size={24} />, "switch-list": <PageIcon page="switches" />, "panel-size": <Maximize2 size={24} />, pairing: <PageIcon page="mobile" />, "your-panels": <PageIcon page="panels" /> };
 
 /** A tile that takes you to one setting, showing where it is and what it is set to. */
 export function JumpTile({ e, ctx, jump, task, raised }: { e: Entry; ctx: FindContext; jump: Jump; task?: string; raised?: boolean }) {
   const value = e.value(ctx);
   const where = `${pageLabels[e.page]}, ${sectionLabel(e.page, e.section)}`;
-  const Icon = task ? taskIcons[e.id as keyof typeof taskIcons] : undefined;
+  const icon = task ? taskIcons[e.id as keyof typeof taskIcons] : undefined;
   return <Button className={raised ? "tile tile-jump tile-raised" : "tile tile-jump"} onClick={() => jump(targetOf(e))} aria-label={`${task ?? e.label}, ${where}${value ? `, ${value}` : ""}`}>
-    <span className="task-heading">{Icon && <span className="task-icon" aria-hidden="true"><Icon size={24} /></span>}<span className="tile-title">{task ?? e.label}</span></span>
+    <span className="task-heading">{icon && <span className="task-icon" aria-hidden="true">{icon}</span>}<span className="tile-title">{task ?? e.label}</span></span>
     {task && <span className="tile-note">{e.label}</span>}
     <span className="tile-value-line" aria-hidden="true">{value ?? "Loading…"}</span>
     <span className="tile-where" aria-hidden="true">{where}</span>

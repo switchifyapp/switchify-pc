@@ -1,5 +1,6 @@
+import { PageIcon } from "../ui/PageIcon";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CircleUserRound, LockKeyhole, MailCheck, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import { CircleUserRound, LockKeyhole, MailCheck, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, AppSettings, SyncView } from "../types";
@@ -43,7 +44,7 @@ function AccountPairingRow({ settings, onChange }: { settings: AppSettings; onCh
   const headingId = useId();
   const noteId = useId();
   return <article data-setting="auto-approve">
-    <StatusIcon><Smartphone size={19} /></StatusIcon>
+    <StatusIcon><PageIcon page="mobile" size={19} /></StatusIcon>
     <div><h3 id={headingId}>Approve phones on this account automatically</h3><p id={noteId}>A phone signed in to this account pairs with this computer without comparing codes. Turn this off if other people share the account.</p></div>
     <Toggle labelledBy={headingId} describedBy={noteId} checked={settings.autoApproveAccountDevices} onChange={(value) => onChange({ ...settings, autoApproveAccountDevices: value })} />
   </article>;

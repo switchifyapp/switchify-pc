@@ -1,3 +1,4 @@
+import { PageIcon } from "../ui/PageIcon";
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
 import type { DemoPlatform } from "../help/demonstrations";
@@ -5,7 +6,7 @@ import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, switchKeyLabel,
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Keyboard, Smartphone, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
   actions,
@@ -346,7 +347,7 @@ function CaptureDialog({ name, platform, onCancel }: { name: string; platform?: 
         aria-describedby={bodyId}
         tabIndex={-1}
       >
-        <Keyboard size={40} aria-hidden="true" />
+        <PageIcon page="switches" size={40} />
         <h2 id={titleId}>Press and release your switch</h2>
         <p id={bodyId}>
           Learning your switch for {name}. Nothing else responds until a switch
@@ -727,7 +728,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         )}
         {!hasSwitches && !draft ? (
           <div className="empty-state switch-empty">
-            <Keyboard size={28} aria-hidden="true" />
+            <PageIcon page="switches" size={28} />
             <h3>No switches yet</h3>
             <p>
               Choose Add switch, then press the switch you use to choose
@@ -759,7 +760,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   data-open={open || undefined}
                 >
                   <div className="switch-row-summary">
-                    <Keyboard size={20} aria-hidden="true" />
+                    <PageIcon page="switches" size={20} />
                     <div>
                       <h3>{name}</h3>
                       <p>On this computer</p>
@@ -843,7 +844,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   data-open={open || undefined}
                 >
                   <div className="switch-row-summary">
-                    <Smartphone size={20} aria-hidden="true" />
+                    <PageIcon page="mobile" size={20} />
                     <div>
                       <h3>{name}</h3>
                       <p>Remote forwarding slot {index + 1}</p>
@@ -903,7 +904,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
             {draft && (
               <article className="switch-row" data-open>
                 <div className="switch-row-summary">
-                  {draftSlot === null ? <Keyboard size={20} aria-hidden="true" /> : <Smartphone size={20} aria-hidden="true" />}
+                  {draftSlot === null ? <PageIcon page="switches" size={20} /> : <PageIcon page="mobile" size={20} />}
                   <div>
                     <h3>{draftSlot === null ? "New switch" : "New remote switch"}</h3>
                     <p>

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Page } from "../find/index";
 
-// Sidebar family: a 24-unit grid, rounded ends and one shared stroke weight.
+// Shared page family: a 24-unit grid, rounded ends and one stroke weight.
 // Keep the shapes tied to the page rather than to the input method it accepts.
 const drawings: Record<Page, ReactNode> = {
   home: <path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z" />,
@@ -13,7 +13,7 @@ const drawings: Record<Page, ReactNode> = {
   support: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 .4c0 1.8-2.5 2-2.5 4M12 17h.01" /></>,
 };
 
-/** Decorative companion to the sidebar's visible page label. */
-export function PageIcon({ page }: { page: Page }) {
-  return <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{drawings[page]}</svg>;
+/** Decorative companion to visible text naming a page, device or task. */
+export function PageIcon({ page, size = 24 }: { page: Page; size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{drawings[page]}</svg>;
 }

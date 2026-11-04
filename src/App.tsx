@@ -3,9 +3,9 @@ import { PageIcon } from "./ui/PageIcon";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  Accessibility, Bluetooth, ChevronRight, CircleHelp, Download,
-  Copy, Keyboard, KeyRound, Plus, Power, RefreshCw, Save,
-  SlidersHorizontal, Smartphone, Trash2, Wrench, X,
+  Accessibility, Bluetooth, ChevronRight, Download,
+  Copy, KeyRound, Plus, Power, RefreshCw, Save,
+  Trash2, Wrench, X,
 } from "lucide-react";
 import { api, type NavigationTarget, type ProfileExitAction } from "./api";
 import type { AccountView, AppSettings, AppState, PendingPairing, SwitchProfile, UpdateState } from "./types";
@@ -73,7 +73,7 @@ function HomeView({ state, switches, scanning, navigate, ctx, jump, recent, onDi
   return <div className="view home-view">
     <PageHead title="Switchify PC" blurb="Control your computer with switches." />
     <section className="connection-band status-hero" data-tone={tone} aria-labelledby="home-status-title">
-      <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><Keyboard size={26} /></StatusIcon>
+      <StatusIcon ok={ready ? true : tone === "attention" ? false : undefined}><PageIcon page="switches" size={26} /></StatusIcon>
       <div><h2 id="home-status-title">{title}</h2><p role="status">{message}</p></div>
       {released
         ? <Button className="primary" onClick={() => onReleaseSwitchKeys(false)}>Resume listening</Button>
@@ -84,9 +84,9 @@ function HomeView({ state, switches, scanning, navigate, ctx, jump, recent, onDi
     <h2 id="home-health-heading">Your setup</h2>
     <section className="status-list" aria-label="Switch control status">
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon ok={released ? undefined : hasSelect}><Keyboard size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved. {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
-      <article><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`}. {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
-      <article><StatusIcon ok={mobileConnected || undefined}><Smartphone size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
+      <article><StatusIcon ok={released ? undefined : hasSelect}><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved. {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
+      <article><StatusIcon><PageIcon page="scanning" size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`}. {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
+      <article><StatusIcon ok={mobileConnected || undefined}><PageIcon page="mobile" size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
     </section>
     </section>
     <RecentlyChanged ctx={ctx} jump={jump} recent={recent} />
@@ -116,8 +116,8 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
   return <div className="subview" data-section="devices" data-setting="devices"><header className="section-header"><div><h2>Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
-    {state.pairedDevices.length === 0 ? <div className="empty-state"><Smartphone size={28} /><h3>No paired devices</h3><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
-      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><Smartphone size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
+    {state.pairedDevices.length === 0 ? <div className="empty-state"><PageIcon page="mobile" size={28} /><h3>No paired devices</h3><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
+      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><PageIcon page="mobile" size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
   </div>;
 }
 
@@ -323,7 +323,7 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".section-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
   return <div className="subview" data-section="profiles" data-setting="profiles"><header className="section-header"><div><h2>Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
-    <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><SlidersHorizontal size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
+    <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
   </div>;
@@ -348,18 +348,18 @@ function SupportView({ state, switches, busy, perform, openSetup, openUpdates, c
     <SectionStrip page="support" ctx={ctx} jump={jump} />
     <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><header className="section-header" data-setting="setup-guide"><div><h2 id="support-setup-heading">Setup</h2><p>The three things a working setup needs.</p></div><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button></header><div className="task-list" aria-label="Setup status">
       <article data-setting="input-access"><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
-      <article><StatusIcon><Keyboard size={19} /></StatusIcon><div><h3>Local switches</h3><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "switches" })}>Open Switches</Button></article>
+      <article><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Local switches</h3><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "switches" })}>Open Switches</Button></article>
       <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Optional mobile connection</h3><p>{bluetoothLabels[state.bluetooth]}. Open Mobile for pairing and forwarding profiles.</p></div><Button className="secondary" onClick={() => jump({ page: "mobile", section: "pairing" })}>Open Mobile</Button></article>
     </div></section>
     <section className="subview" data-section="fix" aria-labelledby="support-fix-heading"><header className="section-header"><div><h2 id="support-fix-heading">Fix a problem</h2><p>Checks and tools for when something is not working.</p></div></header><div className="task-list" aria-label="Troubleshooting actions">
       <article data-setting="bluetooth"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth connection</h3><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
       <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
-      <article data-setting="not-recognised"><StatusIcon><Keyboard size={19} /></StatusIcon><div><h3>Switch not recognized</h3><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "practice", setting: "practice" })}>Test switches</Button></article>
+      <article data-setting="not-recognised"><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Switch not recognized</h3><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "practice", setting: "practice" })}>Test switches</Button></article>
       <article><StatusIcon><RefreshCw size={19} /></StatusIcon><div><h3>Application update</h3><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
       <article data-setting="diagnostics"><StatusIcon><Download size={19} /></StatusIcon><div><h3>Diagnostics</h3><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
       <article className="diagnostic-detail"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Recent Bluetooth changes</h3><p>{state.diagnostics.recentBluetooth.length > 0 ? state.diagnostics.recentBluetooth.map((event) => event.status).join(", then ") : "No Bluetooth changes recorded yet"}</p></div></article>
       <article className="diagnostic-detail"><StatusIcon><Power size={19} /></StatusIcon><div><h3>Last disconnect</h3><p>{state.diagnostics.lastDisconnect ? `${state.diagnostics.lastDisconnect.detail ?? state.diagnostics.lastDisconnect.status}` : "No disconnect recorded yet"}</p></div></article>
-      <article className="diagnostic-detail"><StatusIcon><CircleHelp size={19} /></StatusIcon><div><h3>Recent errors</h3><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(". ") : "No recent errors"}</p></div></article>
+      <article className="diagnostic-detail"><StatusIcon><PageIcon page="support" size={19} /></StatusIcon><div><h3>Recent errors</h3><p>{state.diagnostics.recentErrors.length > 0 ? state.diagnostics.recentErrors.map((event) => event.detail ?? event.status).join(". ") : "No recent errors"}</p></div></article>
     </div></section>
     <AlsoSee page="support" ctx={ctx} jump={jump} />
   </div>;
@@ -482,7 +482,7 @@ function PairingDialog({ requests, connectedDeviceName, busy, error, approve, re
   };
 
   return <div className="modal-backdrop"><section ref={dialogRef} className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title" tabIndex={-1} onKeyDown={trapFocus}>
-    <header><Smartphone size={26} /><div><h2 id="pairing-title">Pairing requests</h2><p>Confirm each code matches Switchify for mobile.</p>{connectedDeviceName && <p className="pairing-connection">Connected to {connectedDeviceName}</p>}</div><span>{requests.length}</span></header>
+    <header><PageIcon page="mobile" size={26} /><div><h2 id="pairing-title">Pairing requests</h2><p>Confirm each code matches Switchify for mobile.</p>{connectedDeviceName && <p className="pairing-connection">Connected to {connectedDeviceName}</p>}</div><span>{requests.length}</span></header>
     {error && <p className="dialog-error" role="alert">{error}</p>}
     <div className="pairing-list" aria-label="Pending pairing requests">
       {requests.map((request, index) => {
