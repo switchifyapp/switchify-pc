@@ -815,10 +815,12 @@ export function App() {
   jumpRef.current = jump;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (event.defaultPrevented || event.isComposing || target?.closest('[role="dialog"], [role="alertdialog"], .capture-dialog')) return;
       const shortcut = event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
       const slash = event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey;
       if (!shortcut && !slash) return;
-      if (slash && (event.target as HTMLElement | null)?.closest("input, select, textarea, [contenteditable]")) return;
+      if (slash && target?.closest("input, select, textarea, [contenteditable]")) return;
       event.preventDefault();
       findRef.current?.focus();
     };
