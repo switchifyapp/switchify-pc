@@ -98,7 +98,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       <Button type="button" className="text-button" onClick={() => setArea('shared')}><span aria-hidden="true">←</span> Back to scanning settings</Button>
       <h2 ref={heading} tabIndex={-1}>{names[area]}</h2><p>{descriptions[area]} Change any value to customise it; other settings follow the shared defaults.</p>
     </header>}
-    {area === 'shared' && <section className="scanner-areas" aria-label="Scanning modes" data-section="areas"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key !== config.controlMode ? 'Open with a switch or scanned control' : opensHome ? 'Used last' : 'Select starts here'}</span></Button>)}</div></section>}
+    {area === 'shared' && <section className="scanner-areas" aria-label="Point and Mouse" data-section="areas"><div className="scanner-area-cards">{(['point', 'mouse'] as const).map(key => <Button type="button" className="scanner-area-card" data-area={key} key={key} aria-label={`Customise ${names[key].toLowerCase()}`} onClick={() => openArea(key)}><strong>{names[key]}<ChevronRight size={22} aria-hidden="true" /></strong><span>{descriptions[key]}</span><span className="scanner-area-status" data-current={key === config.controlMode}>{key !== config.controlMode ? 'Open with a switch or scanned control' : opensHome ? 'Used last' : 'Select starts here'}</span></Button>)}</div></section>}
     {area === 'shared' && <SettingGroup section="starting" setting="select-starts" title="Starting" description="">
       <OptionGroup<NonNullable<PointScanConfig['startWith']>>
         legend="Select starts"
@@ -273,7 +273,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     </div>
     </SettingGroup>
     {area === 'shared' && <section className="scanner-areas" aria-labelledby="scanner-areas-title" data-section="advanced" data-setting="advanced">
-      <header><h2 id="scanner-areas-title">Advanced panel settings</h2><p>Menus and Keyboard can use different scan settings from the shared defaults.</p></header>
+      <header><h2 id="scanner-areas-title">Menus and keyboard</h2><p>Menus and Keyboard can use different scan settings from the shared defaults.</p></header>
       <div className="scanner-area-cards">{(['menu', 'keyboard'] as const).map(key => {
         const options = areaOptions(config, key);
         // Row groups are part of the item scanning setting, not one of their own.

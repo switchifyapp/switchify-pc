@@ -68,7 +68,8 @@ export function RecentlyChanged({ ctx, jump, recent }: { ctx: FindContext; jump:
 
 /** The Find tile: a search box in the nav row. */
 export function FindTile({ query, onChange, inputRef }: { query: string; onChange: (q: string) => void; inputRef: RefObject<HTMLInputElement | null> }) {
-  return <div className={query ? "tile tile-find tile-chosen" : "tile tile-find"} role="search">
+  // The whole tile is the target: a press anywhere on it focuses the box.
+  return <div className={query ? "tile tile-find tile-chosen" : "tile tile-find"} role="search" onClick={() => inputRef.current?.focus()}>
     <Search size={24} aria-hidden="true" />
     <input ref={inputRef} type="search" aria-label="Find a setting" value={query} placeholder="Find a setting" onChange={(e) => onChange(e.target.value)} autoComplete="off" />
     {query && <Button className="find-clear" aria-label="Clear search" onClick={() => { onChange(""); inputRef.current?.focus(); }}><X size={22} aria-hidden="true" /></Button>}
@@ -77,9 +78,11 @@ export function FindTile({ query, onChange, inputRef }: { query: string; onChang
 
 export function FindResults({ query, ctx, jump }: { query: string; ctx: FindContext; jump: Jump }) {
   const hits = search(query, ctx);
+  const title = hits.length ? `${hits.length} ${hits.length === 1 ? "setting matches" : "settings match"} “${query}”` : `Nothing matches “${query}”`;
   return <div className="view">
+    <p className="sr-only" role="status" aria-live="polite">{title}</p>
     <header className="page-header"><div>
-      <h1>{hits.length ? `${hits.length} ${hits.length === 1 ? "setting matches" : "settings match"} “${query}”` : `Nothing matches “${query}”`}</h1>
+      <h1>{title}</h1>
       <p>{hits.length ? "Choose one to go straight to it." : "Try another word, such as speed, colour, phone or switch. Common tasks on Home may help too."}</p>
     </div></header>
     <div className="grid" role="list" aria-label="Matching settings">
@@ -98,7 +101,7 @@ export function useRecent(ctx: FindContext | null): string[] {
     const now = Object.fromEntries(index.map((e) => [e.id, e.value(ctx)]));
     if (last.current) {
       // A value arriving for the first time is loading, not a change.
-      const changed = index.filter((e) => last.current![e.id] != null && now[e.id] != null && now[e.id] !== last.current![e.id]).map((e) => e.id);
+      const changed = index.filter((e) => !e.status && last.current![e.id] != null && now[e.id] != null && now[e.id] !== last.current![e.id]).map((e) => e.id);
       if (changed.length) setRecent((r) => [...changed, ...r.filter((id) => !changed.includes(id))].slice(0, 4));
     }
     last.current = now;

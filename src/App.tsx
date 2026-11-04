@@ -423,7 +423,7 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
         <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</Button>}</article>
       </div>}
       {step === 1 && <SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
-      {step === 2 && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Mouse settings.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
+      {step === 2 && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Scanning, Mouse pointer.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
       {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><Button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</Button><Button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</Button></div><Demonstration kind="startup" /></div>}
       {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><Button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</Button><Button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</Button></div><a className="setup-privacy" href="https://www.theswitchify.app/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
@@ -561,7 +561,9 @@ export function App() {
   useEffect(() => {
     if (!updateFailure) { announcedUpdateFailure.current = null; setUpdateNotice(""); return; }
     if (updatesShown) { announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text }; setUpdateNotice(""); return; }
-    if (view !== "settings") return;
+    // Find's results replace the page without changing the view, so they are
+    // the one time the Updates section is off screen while on Settings.
+    if (view !== "settings" || query) return;
     const announced = announcedUpdateFailure.current;
     if (updateFailure.key !== announced?.key) {
       announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text };
@@ -572,7 +574,7 @@ export function App() {
       announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text };
       setUpdateNotice("");
     }
-  }, [updateFailure, updatesShown, view]);
+  }, [updateFailure, updatesShown, view, query]);
   const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileExitRequest, setProfileExitRequest] = useState<ProfileExitAction | null>(null);
@@ -793,7 +795,7 @@ export function App() {
   };
   useArrival(rootRef, arrival, () => setArrival(null));
   // A new page starts at its top; a jump scrolls to its own target instead.
-  useEffect(() => { if (!arrival) document.scrollingElement?.scrollTo?.({ top: 0 }); }, [view, query]);
+  useEffect(() => { if (!arrival && !focusUpdates) document.scrollingElement?.scrollTo?.({ top: 0 }); }, [view, query]);
   jumpRef.current = jump;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

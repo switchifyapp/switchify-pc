@@ -45,6 +45,8 @@ export type Entry = {
   related?: string[];
   /** Whether the setting exists on this computer. */
   when?: (ctx: FindContext) => boolean;
+  /** Reports state rather than holding a choice, so a change is never the user's. */
+  status?: true;
 };
 
 export type Section = { id: string; label: string; when?: (ctx: FindContext) => boolean };
@@ -62,10 +64,10 @@ export const sections: Record<Page, Section[]> = {
   home: [],
   switches: [{ id: "switches", label: "Your switches" }, { id: "hold", label: "Hold timing" }, { id: "practice", label: "Practice" }],
   scanning: [
-    { id: "starting", label: "Select starts" }, { id: "areas", label: "Point and Mouse" }, { id: "movement", label: "Movement" }, { id: "after", label: "After a selection" },
+    { id: "starting", label: "Starting" }, { id: "areas", label: "Point and Mouse" }, { id: "movement", label: "Movement" }, { id: "after", label: "After a selection" },
     { id: "appearance", label: "Appearance" }, { id: "advanced", label: "Menus and keyboard" }, { id: "pointer", label: "Mouse pointer" },
   ],
-  panels: [{ id: "yours", label: "Your panels" }, { id: "builtin", label: "Built-in menus" }],
+  panels: [{ id: "yours", label: "Your panels" }, { id: "builtin", label: "Built-in menus", when: (c) => c.builtins.length > 0 }],
   mobile: [
     { id: "connection", label: "Connection" }, { id: "pairing", label: "Pairing" }, { id: "devices", label: "Paired devices" }, { id: "profiles", label: "Switch Forwarding" },
     { id: "cursor", label: "Cursor overlay", when: (c) => c.state.capabilities.cursorOverlay },
@@ -83,7 +85,7 @@ export const index: Entry[] = [
     value: (c) => c.bindings ? (c.bindings.length ? c.bindings.map((b) => `${b.name || b.key}: ${actions[b.pressAction]}`).join(". ") : "None yet") : null, related: ["hold-interval", "movement", "practice"] },
   { id: "hold-interval", label: "Hold action interval", words: ["hold", "long press", "hold timing", "emergency exit", "escape", "reset"], page: "switches", section: "hold",
     value: (c) => c.holdIntervalMs == null ? null : seconds(c.holdIntervalMs), related: ["switch-list", "scan-rate"] },
-  { id: "practice", label: "Test switches", words: ["practice", "try", "check my switch", "working", "safe"], page: "switches", section: "practice",
+  { id: "practice", label: "Test switches", words: ["practice", "try", "check my switch", "working", "safe"], page: "switches", section: "practice", status: true,
     value: () => "Try your saved switches safely", related: ["switch-list", "not-recognised"] },
   // Scanning
   { id: "select-starts", label: "Select starts", words: ["home menu", "first press", "start", "last mode", "what select opens"], page: "scanning", section: "starting",
@@ -129,14 +131,14 @@ export const index: Entry[] = [
   // Panels
   { id: "your-panels", label: "Your panels", words: ["custom panel", "new panel", "build", "edit panel", "try it", "my panels", "phrase", "tiles"], page: "panels", section: "yours",
     value: (c) => c.panels ? (c.panels.map((p) => p.name).join(", ") || "None yet") : null, related: ["builtin-menus", "panel-size"] },
-  { id: "builtin-menus", label: "Built-in menus and panels", words: ["home menu", "editing", "browser", "rearrange", "reset", "order of tiles", "menu tiles", "more actions", "keyboard rows"], page: "panels", section: "builtin",
+  { id: "builtin-menus", label: "Built-in menus and panels", words: ["home menu", "editing", "browser", "rearrange", "reset", "order of tiles", "menu tiles", "more actions", "keyboard rows"], page: "panels", section: "builtin", when: (c) => c.builtins.length > 0,
     value: (c) => { const n = c.builtins.filter((b) => b.override).length; return n ? `${n} rearranged` : "None rearranged"; }, related: ["your-panels", "select-starts"] },
   // Mobile
-  { id: "connection", label: "Mobile connection", words: ["phone", "tablet", "bluetooth", "android", "remote", "connect", "disconnect"], page: "mobile", section: "connection",
+  { id: "connection", label: "Mobile connection", words: ["phone", "tablet", "bluetooth", "android", "remote", "connect", "disconnect"], page: "mobile", section: "connection", status: true,
     value: (c) => c.state.bluetooth === "connected" ? `Connected to ${c.state.connectedDeviceName ?? "a mobile device"}` : bluetoothWords[c.state.bluetooth], related: ["pairing", "devices", "overlay"] },
-  { id: "pairing", label: "Connect your mobile", words: ["pair", "code", "approve", "steps", "set up phone", "google play", "install", "qr"], page: "mobile", section: "pairing",
+  { id: "pairing", label: "Connect your mobile", words: ["pair", "code", "approve", "steps", "set up phone", "google play", "install", "qr"], page: "mobile", section: "pairing", status: true,
     value: () => "Three steps, and the app on Google Play", related: ["connection", "devices", "auto-approve"] },
-  { id: "devices", label: "Paired devices", words: ["trusted", "forget", "remove phone", "my phone", "last connected"], page: "mobile", section: "devices",
+  { id: "devices", label: "Paired devices", words: ["trusted", "forget", "remove phone", "my phone", "last connected"], page: "mobile", section: "devices", status: true,
     value: (c) => `${c.state.pairedDevices.length} paired`, related: ["pairing", "auto-approve"] },
   { id: "profiles", label: "Switch Forwarding profiles", words: ["forwarding", "profile", "remote switches", "map", "phone switches", "forward"], page: "mobile", section: "profiles",
     value: (c) => c.profiles ? `${c.profiles.length} ${c.profiles.length === 1 ? "profile" : "profiles"}` : null, related: ["switch-list", "connection"] },
@@ -153,22 +155,22 @@ export const index: Entry[] = [
     value: (c) => c.settings ? `Scanned keyboard ${c.settings.scanKeyRepeatEnabled ? "on" : "off"}, held keys ${c.settings.keyRepeatEnabled ? "on" : "off"}` : null, related: ["repeat"] },
   { id: "privacy", label: "Anonymous diagnostics", words: ["telemetry", "privacy", "share", "data", "analytics", "error reports", "don't share"], page: "settings", section: "privacy",
     value: (c) => ({ undecided: "Not decided yet", enabled: "Sharing", disabled: "Not sharing" })[c.state.telemetry.consent], related: ["diagnostics"] },
-  { id: "updates", label: "Updates", words: ["version", "new version", "check for updates", "install", "download", "what version", "update"], page: "settings", section: "updates",
+  { id: "updates", label: "Updates", words: ["version", "new version", "check for updates", "install", "download", "what version", "update"], page: "settings", section: "updates", status: true,
     value: (c) => `Switchify PC ${c.state.version}, ${({ unconfigured: "updates unavailable in this build", idle: "automatic checks on", checking: "checking", available: "an update is available", downloading: "downloading", readyToInstall: "ready to install", applying: "installing", current: "up to date", failed: "the last check failed", cancelled: "download cancelled" })[c.state.updater.status]}`, related: ["about", "startup"] },
-  { id: "licence", label: "Licence", words: ["license", "buy", "trial", "key", "pay", "purchase", "activate", "days left", "expired", "transfer"], page: "settings", section: "licence",
+  { id: "licence", label: "Licence", words: ["license", "buy", "trial", "key", "pay", "purchase", "activate", "days left", "expired", "transfer"], page: "settings", section: "licence", status: true,
     value: (c) => c.state.licence?.configured ? c.state.licence.message : "Not needed in this build", related: ["account", "about"] },
-  { id: "about", label: "About Switchify PC", words: ["version", "source code", "credits", "open source", "guide", "licence"], page: "settings", section: "about",
+  { id: "about", label: "About Switchify PC", words: ["version", "source code", "credits", "open source", "guide", "licence"], page: "settings", section: "about", status: true,
     value: (c) => `Switchify PC ${c.state.version}`, related: ["updates"] },
   { id: "account", label: "Account and settings sync", words: ["sign in", "sign out", "email", "sync", "other computers", "cloud", "log in", "delete account"], page: "settings", section: "account", when: (c) => c.account?.available !== false,
     value: (c) => c.account ? (c.account.signedIn ? `Signed in as ${c.account.email}` : c.account.pendingEmail ? "Waiting for your code" : "Not signed in") : null, related: ["auto-approve", "licence"] },
   { id: "auto-approve", label: "Approve phones on this account automatically", words: ["auto approve", "pairing", "same account", "without codes"], page: "settings", section: "account", when: (c) => c.account?.signedIn === true,
     value: (c) => c.settings ? (c.settings.autoApproveAccountDevices ? "On" : "Off") : null, related: ["account", "pairing"] },
   // Help
-  { id: "input-access", label: "Input access", words: ["accessibility", "permission", "allow", "not working", "cannot control", "macos", "system settings"], page: "support", section: "setup",
+  { id: "input-access", label: "Input access", words: ["accessibility", "permission", "allow", "not working", "cannot control", "macos", "system settings"], page: "support", section: "setup", status: true,
     value: (c) => ({ granted: "Ready", required: "Permission required", unavailable: "Unavailable on this system" })[c.state.accessibility], related: ["switch-list", "not-recognised"] },
-  { id: "not-recognised", label: "Switch not recognized", words: ["not working", "no response", "interface", "keyboard mode", "reserved key", "switch does nothing", "troubleshooting"], page: "support", section: "fix",
+  { id: "not-recognised", label: "Switch not recognized", words: ["not working", "no response", "interface", "keyboard mode", "reserved key", "switch does nothing", "troubleshooting"], page: "support", section: "fix", status: true,
     value: () => "Use a switch interface in keyboard mode", related: ["switch-list", "practice", "input-access"] },
-  { id: "diagnostics", label: "Export diagnostics", words: ["logs", "report a problem", "support", "errors", "recent errors", "health", "bluetooth changes"], page: "support", section: "fix",
+  { id: "diagnostics", label: "Export diagnostics", words: ["logs", "report a problem", "support", "errors", "recent errors", "health", "bluetooth changes"], page: "support", section: "fix", status: true,
     value: (c) => c.state.diagnostics.recentErrors.length ? `${c.state.diagnostics.recentErrors.length} recent errors` : "No recent errors", related: ["privacy", "updates"] },
 ];
 
@@ -187,7 +189,6 @@ export function search(query: string, ctx: FindContext): Entry[] {
     let total = 0;
     for (const t of terms) {
       if (label.startsWith(t)) total += 6;
-      else if (e.words.includes(t)) total += 5;
       else if (e.words.includes(t)) total += 5;
       else if (label.includes(t)) total += 4;
       else if (e.words.some((w) => w.startsWith(t))) total += 3;

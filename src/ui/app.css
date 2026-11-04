@@ -238,7 +238,7 @@ button.tile:disabled { cursor: default; opacity: .55; }
 .tile-find input { flex: 1; min-width: 0; min-height: 56px; font: inherit; font-size: 20px; font-weight: 600; color: var(--text); background: transparent; border: 0; outline: none; }
 .tile-find input::placeholder { color: var(--muted); font-weight: 600; }
 .tile-find input::-webkit-search-cancel-button { display: none; }
-.btn.find-clear { min-width: 56px; min-height: 56px; padding: 0; }
+.btn.find-clear { min-width: 64px; min-height: 64px; padding: 0; }
 
 main { min-width: 0; flex: 1; }
 .licence-banner-wrap { width: min(100%, 1760px); margin: 0 auto; padding: 20px 20px 0; }
@@ -804,7 +804,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
    chosen state with system colours, and let swatches and the highlight
    sample keep their real colours, since the colour is the choice being made. */
 @media (forced-colors: active) {
-  .btn.tile-nav[data-active="true"], .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .toggle-row:has(input:checked), .color-options label:has(input:checked), .scanner-colours label:has(input:checked), .switch-row[data-open], .tile-find:focus-within, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
+  .btn.tile-nav[data-active="true"], .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .toggle-row:has(input:checked), .color-options label:has(input:checked), .scanner-colours label:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
   /* Focus must still read as focus on the current page's own button. */
   .btn.tile-nav[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .toggle { forced-color-adjust: none; color: CanvasText; }
