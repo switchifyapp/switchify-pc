@@ -24,10 +24,10 @@ Download the latest release from [GitHub releases](https://github.com/switchifya
 Version 1.4.0 introduces a full 30-day trial and purchase licences for one
 computer. If you upgrade from an earlier free release, your trial starts when
 you first open the licensing-enabled app. You can see the days remaining in
-**Settings → Licence**.
+the **Licence** section of Settings.
 
 To continue after the trial, import your purchase email's licence attachment
-or paste its key on that page. First activation needs an internet connection;
+or paste its key in that section. First activation needs an internet connection;
 a Switchify account is not required. Each successful licence check then allows
 up to 30 days offline. If that allowance ends, reconnect and choose **Check
 licence now**. Settings and licence entry stay available when control is locked.
@@ -58,9 +58,19 @@ You can skip the guide with **Skip setup for now** and reopen it later from Help
 
 Home shows **Ready** when Switchify PC is waiting for your switches. Press and release your Select switch to open the Home menu.
 
-The pages of the app are listed in the sidebar. In a narrow window the sidebar folds into a **Menu** button at the top that shows the current page; press it to choose another page. Choosing a page, pressing the button again, or clicking elsewhere closes the list.
+The pages of the app are a row of large tiles across the top of the window: Home, Switches, Scanning, Panels, Mobile, Settings and Help. In a narrow window the tiles wrap onto a second row. The current page, a chosen option and a setting that is on are all outlined in your own scanner colour and thickness, so the window looks the way the scan highlight will.
 
-![The Switchify PC Home page showing Ready, with input access ready, one saved switch with Select assigned, automatic scanning, and an optional mobile connection.](../../../assets/screenshots/home.png)
+![The Switchify PC Home page showing Ready, with the page tiles and Find a setting box across the top, input access ready, one saved switch with Select assigned, automatic scanning, an optional mobile connection, and Common tasks below.](../../../assets/screenshots/home.png)
+
+## Finding a setting
+
+- **Find a setting** is the box beside the page tiles. Type a word such as *speed*, *colour*, *phone*, *switch* or *licence* and matching settings appear, each with the page and section it lives in and what it is set to now. Choose one to go straight to it; it is outlined for a moment so you can see where you landed. Pressing **/** puts the cursor in the box.
+- **On this page** is the row of tiles at the top of each page, one per section, showing what each section is set to. Choose one to scroll to that section.
+- **Common tasks** on Home opens the settings people most often look for, such as making scanning slower or faster, changing the highlight colour, adding a switch or making panels bigger.
+- **Recently changed** on Home lists the last settings you changed, so you can find them again. It starts empty each time the app opens.
+- **Also see** at the end of each page lists related settings on other pages.
+
+![Find a setting showing the settings that match the word speed, each with where it lives and its current value.](../../../assets/screenshots/find.png)
 
 ## Keeping it up to date
 

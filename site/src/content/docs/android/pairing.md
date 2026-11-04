@@ -26,7 +26,7 @@ In places, Switchify PC calls the phone **Remote** or **Switchify Remote**, for 
 
 The computer now trusts that device. Switchify PC lists paired devices under **Mobile** > **Paired devices**, where you can **Forget** one at any time.
 
-If both apps are signed in to the same Switchify account, Switchify PC can approve pairing automatically. Turn this on or off on the Account page.
+If both apps are signed in to the same Switchify account, Switchify PC can approve pairing automatically. Turn this on or off in the **Account** section of Settings.
 
 ## While a phone is connected
 

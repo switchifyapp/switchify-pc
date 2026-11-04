@@ -271,7 +271,7 @@ function SwitchEditor({
             ? `Hold ${binding.holdActions
                 .map((a, i) => `${seconds(holdIntervalMs * (i + 1))} for ${actions[a]}`)
                 .join(", ")}. Release to run the action shown.`
-            : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice in Mouse settings instead."}
+            : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
         </p>
         <Button
           type="button"
@@ -683,6 +683,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       <SettingGroup
         title="Your switches"
         description=""
+        section="switches"
+        setting="switch-list"
       >
         <div className="switch-toolbar">
         <p className="setting-note switch-status" role="status">
@@ -951,6 +953,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       </SettingGroup>
       <MoreOptions label="More options">
       <SettingGroup
+        section="hold"
+        setting="hold-interval"
         title="Hold timing"
         description="How long a switch is held before each hold action is offered."
       >

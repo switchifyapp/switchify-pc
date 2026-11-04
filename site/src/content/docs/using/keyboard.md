@@ -17,7 +17,7 @@ Rows of your own tiles can sit just above the bottom row on every page, and colu
 
 ## Layouts
 
-Choose in Settings or from the keyboard's footer:
+Choose under **Keyboard** on the Scanning page (open it from the Menus and keyboard section) or from the keyboard's footer:
 
 - **QWERTY**, the full layout.
 - **Simple QWERTY**, fewer keys per row, with Ctrl, Alt, Space and Windows (Option and Command on a Mac) on a row of their own below the letters.

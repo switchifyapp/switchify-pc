@@ -15,7 +15,7 @@ const chrome = process.env.CHROME_PATH ?? {
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
 const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
-  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor"]);
+  "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor", "find"]);
 fs.mkdirSync(outDir, { recursive: true });
 
 const bridge = (platform) => {
@@ -315,6 +315,9 @@ for (const platform of ["windows", "macos"]) {
   const page = await open("windows");
   await fake(page, (s) => { window.__fake.switches.settings.bindings = [s]; window.__fake.app.setup.completed = true; window.__fake.pushSwitches(); window.__fake.pushApp(); }, headSwitch);
   await shot(page, "home");
+  await page.type('input[aria-label="Find a setting"]', "speed");
+  await shot(page, "find");
+  await click(page, "Clear search");
   await click(page, "Mobile");
   await shot(page, "mobile");
   await fake(page, () => {

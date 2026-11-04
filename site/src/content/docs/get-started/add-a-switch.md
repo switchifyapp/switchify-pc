@@ -17,7 +17,7 @@ Switchify PC sees a switch as a key press or a gamepad button press. Anything th
 
 ## Learn the key
 
-1. Choose **Switches** in the sidebar, then **Add switch**.
+1. Choose the **Switches** tile at the top of the window, then **Add switch**.
 2. Press and release your switch once. The key or gamepad button it sends appears as a badge.
 
    ![The learning dialog: Press and release your switch, with a Cancel capture button.](../../../assets/screenshots/add-switch-waiting.png)
