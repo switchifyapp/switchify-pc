@@ -6,6 +6,7 @@ import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 import { api } from '../api';
 import type { AppSettings } from '../types';
+import type { SettingId } from '../find/index';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
 
@@ -50,7 +51,7 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
     onAreaOpened?.();
   }, [requestedArea]);
   // Where each shared setting lives, so a jump from Find can land on it.
-  const settingIds: Partial<Record<keyof ScanOptions, string>> = area === 'shared' ? { automatic: 'movement', intervalMs: 'scan-rate', nextScan: 'after-selection', direction: 'direction', passLimit: 'pass-limit', pattern: 'item-scanning', color: 'colour', thickness: 'thickness' } : {};
+  const settingIds: Partial<Record<keyof ScanOptions, SettingId>> = area === 'shared' ? { automatic: 'movement', intervalMs: 'scan-rate', nextScan: 'after-selection', direction: 'direction', passLimit: 'pass-limit', pattern: 'item-scanning', color: 'colour', thickness: 'thickness' } : {};
   const names = { point: 'Point scanning', menu: 'Menus', keyboard: 'Keyboard', mouse: 'Mouse scanning' };
   const descriptions = {
     point: 'Choose a place on the screen with a moving line or grid, then choose what to do there.',
