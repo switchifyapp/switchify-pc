@@ -749,3 +749,16 @@ it("learns from typing by default, keeps the choice local and forgets only after
   expect(mocks.invoke).toHaveBeenCalledWith("forget_learned_words");
   expect(await screen.findByText(/will be forgotten in a moment/)).toBeInTheDocument();
 });
+
+it("saves first-item and in-group timing, which start off", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  const first = screen.getByRole("group", { name: "Extra time on the first item" });
+  expect(within(first).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+  const group = screen.getByRole("group", { name: "Inside a row or group" });
+  expect(within(group).getByRole("button", { name: "Same rate" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(within(first).getByRole("button", { name: "1.5 s" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.firstItemMs).toBe(1500));
+  fireEvent.click(within(group).getByRole("button", { name: "Twice as long" }));
+  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.groupRatePercent).toBe(200));
+});

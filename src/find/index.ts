@@ -26,6 +26,9 @@ export type FindContext = {
   scan: PointScanState | null;
   bindings: Binding[] | null;
   holdIntervalMs: number | null;
+  /** Press timing, in milliseconds. Missing or 0 is off. */
+  acceptMs?: number | null;
+  ignoreRepeatMs?: number | null;
   panels: CustomPanel[] | null;
   builtins: BuiltinPanelView[];
   profiles: SwitchProfile[] | null;
@@ -64,7 +67,7 @@ const keyboardLayouts: Record<PointScanConfig["keyboardLayout"], string> = { qwe
 
 export const sections: Record<Page, Section[]> = {
   home: [],
-  switches: [{ id: "switches", label: "Your switches" }, { id: "hold", label: "Hold timing" }, { id: "practice", label: "Practice" }],
+  switches: [{ id: "switches", label: "Your switches" }, { id: "timing", label: "Press timing" }, { id: "hold", label: "Hold timing" }, { id: "practice", label: "Practice" }],
   scanning: [
     { id: "starting", label: "Starting" }, { id: "areas", label: "Point and Mouse" }, { id: "movement", label: "Movement" }, { id: "after", label: "After a selection" },
     { id: "appearance", label: "Appearance" }, { id: "advanced", label: "Menus and keyboard" }, { id: "pointer", label: "Mouse pointer" },
@@ -87,6 +90,10 @@ const catalogue = [
     value: (c) => c.bindings ? (c.bindings.length ? c.bindings.map((b) => `${b.name || b.key}: ${actions[b.pressAction]}`).join(". ") : "None yet") : null, related: ["hold-interval", "movement", "practice"] },
   { id: "hold-interval", label: "Hold action interval", words: ["hold", "long press", "hold timing", "emergency exit", "escape", "reset"], page: "switches", section: "hold",
     value: (c) => c.holdIntervalMs == null ? null : seconds(c.holdIntervalMs), related: ["switch-list", "scan-rate"] },
+  { id: "accept-time", label: "Hold before a press counts", words: ["acceptance time", "tremor", "accidental press", "bump", "too sensitive", "minimum press", "press length", "filter"], page: "switches", section: "timing",
+    value: (c) => c.bindings == null ? null : c.acceptMs ? seconds(c.acceptMs) : "Off", related: ["ignore-repeat", "hold-interval"] },
+  { id: "ignore-repeat", label: "Ignore presses after a press", words: ["debounce", "double press", "double selection", "bounce", "repeat press", "post acceptance delay", "selects twice"], page: "switches", section: "timing",
+    value: (c) => c.bindings == null ? null : c.ignoreRepeatMs ? seconds(c.ignoreRepeatMs) : "Off", related: ["accept-time", "hold-interval"] },
   { id: "practice", label: "Test switches", words: ["practice", "try", "check my switch", "working", "safe"], page: "switches", section: "practice", status: true,
     value: () => "Try your saved switches safely", related: ["switch-list", "not-recognised"] },
   // Scanning
@@ -102,6 +109,10 @@ const catalogue = [
     value: (c) => c.config ? (c.config.automatic ? "Automatic" : "Manual, Next and Previous move the highlight") : null, related: ["scan-rate", "advanced", "switch-list"] },
   { id: "scan-rate", label: "Auto scan rate", words: ["speed", "slower", "faster", "too fast", "too slow", "seconds", "interval", "time on each item", "rate", "step", "tempo", "pace", "dwell time"], page: "scanning", section: "movement",
     value: (c) => c.config ? `Every ${seconds(c.config.blockIntervalMs)}` : null, related: ["movement", "pass-limit", "advanced", "hold-interval"] },
+  { id: "first-item", label: "Extra time on the first item", words: ["first item delay", "reaction time", "start delay", "more time", "first row", "first key"], page: "scanning", section: "movement",
+    value: (c) => c.config ? (c.config.scanPreferences?.firstItemMs ? seconds(c.config.scanPreferences.firstItemMs) : "Off") : null, related: ["scan-rate", "group-rate"] },
+  { id: "group-rate", label: "Inside a row or group", words: ["slower in groups", "item speed", "row speed", "second level", "in group rate", "slower inside"], page: "scanning", section: "movement",
+    value: (c) => { if (!c.config) return null; const p = c.config.scanPreferences?.groupRatePercent ?? 100; return p === 100 ? "Same rate" : p === 150 ? "1.5 times as long" : "Twice as long"; }, related: ["scan-rate", "first-item", "item-scanning"] },
   { id: "after-selection", label: "After a selection", words: ["keep scanning", "wait for select", "after a click", "start again from", "where i selected", "beginning"], page: "scanning", section: "after",
     value: (c) => { if (!c.config) return null; const o = sharedOptions(c.config); return `${o.nextScan === "standard" ? "Usual for each scanner" : o.nextScan === "wait" ? "Wait for Select" : "Keep scanning"}. Start from ${o.startFrom === "standard" ? "the usual place" : o.startFrom === "selection" ? "where I selected" : "the beginning"}`; }, related: ["pass-limit", "item-scanning"] },
   { id: "direction", label: "Initial direction", words: ["forward", "reverse", "backwards", "order"], page: "scanning", section: "after",

@@ -1,6 +1,6 @@
 ---
 title: Add a switch
-description: Connect a jack or USB switch, let Switchify PC learn its key or gamepad button, and choose what a press and a hold do.
+description: Connect a jack or USB switch, let Switchify PC learn its key or gamepad button, choose what a press and a hold do, and filter out accidental presses.
 ---
 
 Switchify PC sees a switch as a key press or a gamepad button press. Anything that sends a key or a button when you press it will work: a switch interface with a 3.5 mm socket, a USB switch, a keyboard key, or a game controller.
@@ -50,6 +50,15 @@ A switch can also have an ordered list of **hold actions**. Keep the switch down
 Choose **Add hold action** to add one, and use the arrows to change the order. The editor spells out the timing, such as *Hold 1s for Open keyboard, 2s for Pause / resume*.
 
 ![Editing Head switch: a press and release runs Select, and two hold actions, Open keyboard then Pause / resume, are listed in order.](../../../assets/screenshots/switch-editor.png)
+
+## Press timing
+
+If a switch gets pressed by accident, or one press selects twice, change these under **More options** on the Switches page, in **Press timing**. Both are off to begin with.
+
+- **Hold before a press counts**: off, or 0.1 to 1 second. A press released sooner than this does nothing, so a tremor or a brief bump is ignored. Hold actions are only offered once the press counts.
+- **Ignore presses after a press**: off, or 0.25 to 2 seconds. After a press that counts, any switch pressed within this time does nothing. The time starts when you release the switch. This stops a switch that bounces, or a quick second press, from selecting again.
+
+These apply to switches connected to the computer, not to switches forwarded from Switchify Remote. Escape and the emergency stop below still work.
 
 ## Emergency stop
 

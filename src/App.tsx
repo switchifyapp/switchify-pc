@@ -535,7 +535,7 @@ export function App() {
   const rootRef = useRef<HTMLDivElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const ctx = useMemo<FindContext | null>(() => state ? {
-    state, settings, config: scanning.state ? scanning.config : null, scan: scanning.state, bindings: switches.state?.settings.bindings ?? null, holdIntervalMs: switches.state?.settings.holdIntervalMs ?? null,
+    state, settings, config: scanning.state ? scanning.config : null, scan: scanning.state, bindings: switches.state?.settings.bindings ?? null, holdIntervalMs: switches.state?.settings.holdIntervalMs ?? null, acceptMs: switches.state?.settings.acceptMs ?? null, ignoreRepeatMs: switches.state?.settings.ignoreRepeatMs ?? null,
     panels: customPanels.panels, builtins: customPanels.builtins, profiles: view === "mobile" ? profiles : null, account,
   } : null, [state, settings, scanning.config, scanning.state, switches.state, customPanels.panels, customPanels.builtins, profiles, account, view]);
   const recent = useRecent(ctx);

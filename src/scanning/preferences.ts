@@ -23,7 +23,11 @@ export type ScanOptions = {
   startFrom: 'standard' | 'beginning' | 'selection';
 };
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'>
-  & { panelSize?: PanelSize; panelTheme?: PanelTheme } & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom' | 'rowGroups'>> & Record<ScanArea, Partial<ScanOptions>>;
+  & { panelSize?: PanelSize; panelTheme?: PanelTheme;
+    /** Extra time on the first item after scanning starts or enters a group. Shared by every scanner; missing means off. */
+    firstItemMs?: number;
+    /** Each step inside a group, as a percentage of the scan rate. Missing means 100, the same rate. */
+    groupRatePercent?: number } & Partial<Pick<ScanOptions, 'nextScan' | 'startFrom' | 'rowGroups'>> & Record<ScanArea, Partial<ScanOptions>>;
 /** The Item scanning choice, made of `pattern` and `rowGroups`. */
 export type ItemScanning = 'grouped' | 'rowGroups' | 'linear';
 export const itemScanningLabels: Record<ItemScanning, string> = {

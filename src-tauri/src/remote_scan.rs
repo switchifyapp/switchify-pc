@@ -85,6 +85,10 @@ impl Config {
         Settings {
             schema_version: 1,
             hold_interval_ms: interval,
+            // Forwarded presses arrive with Bluetooth delay, which would make
+            // press timing filters unreliable.
+            accept_ms: 0,
+            ignore_repeat_ms: 0,
             bindings: self
                 .slots
                 .iter()

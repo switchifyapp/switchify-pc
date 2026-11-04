@@ -24,6 +24,8 @@ import {
 
 const holdIntervalPresets = [500, 1000, 1500, 2000, 3000] as const;
 const holdIntervalValues = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
+const acceptPresets = [0, 100, 200, 300, 500, 1000];
+const ignoreRepeatPresets = [0, 250, 500, 1000, 2000];
 const newId = "new";
 
 function seconds(ms: number) {
@@ -953,6 +955,37 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
       </SettingGroup>
       <MoreOptions label="More options">
+      <SettingGroup
+        section="timing"
+        title="Press timing"
+        description="Ignore presses that are too short or come too soon after the last one, such as a tremor, a bump or a switch that bounces."
+      >
+        <OptionGroup<number>
+          setting="accept-time"
+          legend="Hold before a press counts"
+          columns="three"
+          disabled={disabled}
+          value={settings.acceptMs ?? 0}
+          onChange={(acceptMs) => controller.update({ ...settings, acceptMs })}
+          options={acceptPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
+          note={{ summary: "A press released sooner than this does nothing. Hold actions are offered once the press counts." }}
+        />
+        <OptionGroup<number>
+          setting="ignore-repeat"
+          legend="Ignore presses after a press"
+          columns="five"
+          disabled={disabled}
+          value={settings.ignoreRepeatMs ?? 0}
+          onChange={(ignoreRepeatMs) => controller.update({ ...settings, ignoreRepeatMs })}
+          options={ignoreRepeatPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
+          note={{ summary: "After a press that counts, any switch pressed within this time does nothing. Timing starts when the switch is released." }}
+        />
+        <p className="setting-note">
+          These apply to switches connected to this computer, not to switches
+          forwarded from Switchify Remote. Escape and holding a switch to reset
+          the scan still work.
+        </p>
+      </SettingGroup>
       <SettingGroup
         section="hold"
         setting="hold-interval"
