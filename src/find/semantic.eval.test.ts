@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // Measures what meaning-based matching adds, on real-sounding queries, so the
 // model size is a decision rather than a guess. Runs only when FIND_EVAL
 // names a directory holding potion-base-* folders (tokenizer.json and
@@ -7,9 +8,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { browserState } from "../api";
 import { defaultPointScanConfig } from "../scanning/useScanning";
-import { embed, similarity, type StaticModel } from "./semantic";
-import { vocabularyFromTokenizerJson } from "./wordpiece";
-import { entryText, index, search, type FindContext } from "./index";
+import { embed, similarity, packModel, unpackModel, type StaticModel } from "./semantic";
+import { tokenise, vocabularyFromTokenizerJson } from "./wordpiece";
+import { available, entryText, index, search, prepareMeaning, searchWithMeaning, meaningFloor, type FindContext } from "./index";
 
 const root = process.env.FIND_EVAL;
 
@@ -42,28 +43,40 @@ function loadModel(dir: string): StaticModel {
   const [size, dims] = header.embeddings.shape;
   const start = 8 + headerLength + header.embeddings.data_offsets[0];
   const vectors = new Float32Array(bytes.buffer.slice(bytes.byteOffset + start, bytes.byteOffset + start + size * dims * 4));
-  return { vocab, dims, vectors, unkId: vocab.get("[UNK]") ?? -1 };
+  return unpackModel(packModel([...vocab.entries()].sort((a, b) => a[1] - b[1]).map(([word]) => word), dims, vectors).buffer as ArrayBuffer);
 }
 
 function context(): FindContext {
   const state = structuredClone(browserState);
-  return { state, settings: state.settings, config: structuredClone(defaultPointScanConfig), scan: null, bindings: [{ id: "space", name: "Space switch", key: "Space", pressAction: "select", holdActions: [] }], holdIntervalMs: 1000, panels: [], builtins: [], profiles: [], account: { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false } };
+  return { state, settings: state.settings, config: structuredClone(defaultPointScanConfig), scan: null, bindings: [{ id: "space", name: "Space switch", key: "Space", pressAction: "select", holdActions: [] }], holdIntervalMs: 1000, panels: [], builtins: [{ kind: "home", name: "Home", default: { id: "home", version: 1, name: "Home", description: "", rows: [] }, override: null }], profiles: [], account: { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false } };
 }
 
 describe.skipIf(!root)("semantic matching", () => {
   for (const name of ["potion-base-2M", "potion-base-4M", "potion-base-8M"]) {
     it(`measures ${name}`, () => {
       const model = loadModel(join(root!, name));
+      // Model2Vec's published encode path drops UNK, adds no special tokens,
+      // mean-pools and L2-normalises. Check against that algorithm with doubles.
+      // https://github.com/MinishLab/model2vec/blob/main/model2vec/model.py
+      for (const text of ["scanning speed", "my scan is too quick", "Connect my phone!"]) {
+        const ids = tokenise(text, model.vocab).filter((id) => id !== model.unkId);
+        const mean = Array.from({ length: model.dims }, (_, d) => ids.reduce((sum, id) => sum + model.vectors[id * model.dims + d], 0) / ids.length);
+        const norm = Math.hypot(...mean);
+        const actual = embed(model, text)!;
+        mean.forEach((value, d) => expect(actual[d]).toBeCloseTo(value / norm, 5));
+      }
+      expect(tokenise("scanning speed", model.vocab)).toEqual([model.vocab.get("scanning"), model.vocab.get("speed")]);
       const ctx = context();
+      const semantic = prepareMeaning(model);
       const vectors = new Map(index.map((e) => [e.id, embed(model, entryText(e))]));
       const rank = (query: string, mode: "keyword" | "semantic" | "both") => {
         const keyword = search(query, ctx).map((e) => e.id);
         if (mode === "keyword") return keyword;
         const q = embed(model, query);
-        const scored = index.map((e) => ({ id: e.id, s: q && vectors.get(e.id) ? similarity(q, vectors.get(e.id)!) : -1 })).sort((a, b) => b.s - a.s);
+        const scored = index.filter((e) => available(e, ctx)).map((e) => ({ id: e.id, s: q && vectors.get(e.id) ? similarity(q, vectors.get(e.id)!) : -1 })).sort((a, b) => b.s - a.s);
         if (mode === "semantic") return scored.map((x) => x.id);
         // Keyword hits first, in keyword order; then anything the meaning adds above a floor.
-        const rest = scored.filter((x) => !keyword.includes(x.id) && x.s >= 0.35).map((x) => x.id);
+        const rest = scored.filter((x) => !keyword.includes(x.id) && x.s >= Number(process.env.FIND_FLOOR ?? meaningFloor)).map((x) => x.id);
         return [...keyword, ...rest];
       };
       const report: Record<string, { at1: number; at3: number; misses: string[] }> = {};
@@ -80,6 +93,7 @@ describe.skipIf(!root)("semantic matching", () => {
       console.log(`\n${name} (${model.dims} dims), ${n} queries`);
       for (const [mode, r] of Object.entries(report)) console.log(`  ${mode.padEnd(8)} top1 ${r.at1}/${n}  top3 ${r.at3}/${n}`);
       console.log("  both misses:\n    " + report.both.misses.join("\n    "));
+      if (!process.env.FIND_FLOOR) for (const [query] of evalQueries) expect(rank(query, "both")).toEqual(searchWithMeaning(query, ctx, semantic).map((e) => e.id));
       expect(report.both.at3).toBeGreaterThanOrEqual(report.keyword.at3);
     });
   }

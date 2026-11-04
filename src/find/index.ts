@@ -1,3 +1,4 @@
+import { embed, similarity, type StaticModel } from "./semantic";
 // The settings index: one entry per thing a person might look for, with the
 // words they might use for it, where it lives, and what it is set to now.
 // Find, Home's common tasks and recently changed, each page's section strip
@@ -294,3 +295,24 @@ export const commonTasks: { label: string; setting: SettingId }[] = [
 
 /** The text that stands for an entry when matching by meaning: what it is called, what people call it, and where it lives. */
 export const entryText = (e: Entry) => `${e.label}. ${e.words.join(", ")}. ${pageLabels[e.page]}, ${sectionLabel(e.page, e.section)}.`;
+
+/** Cached, static entry vectors. No current values or user data are embedded. */
+export type SemanticIndex = { model: StaticModel; vectors: Map<string, Float32Array | null> };
+export const meaningFloor = 0.35;
+export function prepareMeaning(model: StaticModel): SemanticIndex {
+  return { model, vectors: new Map(index.map((e) => [e.id, embed(model, entryText(e))])) };
+}
+
+/** Preserve every keyword hit and its order, then add available close meanings. */
+export function searchWithMeaning(query: string, ctx: FindContext, semantic?: SemanticIndex): Entry[] {
+  const keyword = search(query, ctx);
+  if (!semantic || !/[\p{L}\p{N}]/u.test(query)) return keyword;
+  const q = embed(semantic.model, query);
+  if (!q) return keyword;
+  const seen = new Set(keyword.map((e) => e.id));
+  const rest = index.filter((e) => !seen.has(e.id) && available(e, ctx)).map((e) => {
+    const v = semantic.vectors.get(e.id);
+    return { e, score: v ? similarity(q, v) : -1 };
+  }).filter(({ score }) => score >= meaningFloor).sort((a, b) => b.score - a.score);
+  return [...keyword, ...rest.map(({ e }) => e)];
+}

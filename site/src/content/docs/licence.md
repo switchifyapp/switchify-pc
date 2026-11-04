@@ -98,6 +98,7 @@ Switchify PC includes work from other projects. Each part keeps its own licence.
   - [The Imagination of Crowds](https://aactext.org/imagine/) AAC sentences by Keith Vertanen and Per Ola Kristensson ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))
   - The spoken part of the [Open American National Corpus](https://anc.org/data/oanc/) by Nancy Ide and Keith Suderman, under its publisher's terms
 - **AI word suggestions**: the [SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) language model by Hugging Face, Apache License 2.0. It runs in switchify-prediction's AI worker, MIT licence.
+- **Finding a setting**: the [Model2Vec potion-base-2M model](https://huggingface.co/minishlab/potion-base-2M) by Minish Lab, MIT licence, with vocabulary from [BAAI bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), MIT licence. Its LICENSE and NOTICE ship beside the bundled find model in the app assets.
 - **Bluetooth on a Mac**: [corebluetooth-rs](https://github.com/doom-fish/corebluetooth-rs), MIT or Apache License 2.0.
 - **Software libraries**: Switchify PC is built with [Tauri](https://tauri.app), [React](https://react.dev) and many open source Rust and JavaScript libraries. Each keeps its own licence.
 
