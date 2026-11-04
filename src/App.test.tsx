@@ -13,6 +13,7 @@ const defaultBrowserSettings = structuredClone(browserState.settings);
 describe("Switchify PC shell", () => {
   beforeEach(() => {
     browserState.accessibility = "required";
+    browserState.capabilities.platform = "windows";
     browserState.settings = structuredClone(defaultBrowserSettings);
     browserState.bluetooth = "initializing";
     browserState.pendingPairings = [];
@@ -108,6 +109,7 @@ describe("Switchify PC shell", () => {
   });
 
   it("blocks setup navigation while a switch draft or save needs attention", async () => {
+    browserState.capabilities.platform = "macos";
     browserState.setup.autoOpenEligible = true;
     const switches = localSwitches();
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
@@ -132,6 +134,7 @@ describe("Switchify PC shell", () => {
     ["capture", "Finish capturing a switch or cancel capture before continuing."],
     ["save", "Wait for your switch changes to finish saving before continuing."],
   ])("explains and preserves navigation guards during %s", async (operation, message) => {
+    browserState.capabilities.platform = "macos";
     browserState.setup.autoOpenEligible = true;
     const switches = localSwitches();
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
@@ -152,6 +155,7 @@ describe("Switchify PC shell", () => {
   });
 
   it("suspends setup for pairing and returns to the same step", async () => {
+    browserState.capabilities.platform = "macos";
     browserState.setup.autoOpenEligible = true;
     const switches = localSwitches();
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
@@ -171,6 +175,7 @@ describe("Switchify PC shell", () => {
   });
 
   it("shows pairing failures inside the active pairing dialog", async () => {
+    browserState.capabilities.platform = "macos";
     browserState.setup.autoOpenEligible = true;
     browserState.pendingPairings = [{ requestId: "one", deviceId: "phone", deviceName: "Phone", verificationCode: "123456", expiresAt: 100 }];
     vi.spyOn(api, "approvePairing").mockRejectedValue(new Error("Pairing failed. Try again."));
@@ -403,7 +408,55 @@ describe("Switchify PC shell", () => {
     } finally { delete browserState.licence; }
   });
 
+  it.each([
+    ["macos", "required", true],
+    ["macos", "granted", false],
+    ["macos", "unavailable", false],
+    ["windows", "required", false],
+    ["windows", "granted", false],
+  ] as const)("shows input setup only where actionable: %s %s", async (platform, permission, visible) => {
+    browserState.capabilities.platform = platform;
+    browserState.accessibility = permission;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.queryByRole("heading", { name: "Input access" }) !== null).toBe(visible);
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    expect(screen.queryAllByRole("heading", { name: "Input access" }).length).toBe(visible ? 2 : 0);
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    await screen.findByRole("dialog", { name: visible ? "Input access" : "Add your switch" });
+    expect(screen.getByLabelText(`Step 1 of ${visible ? 5 : 4}`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+  });
+
+  it("continues to switch setup when a Mac grants permission while the guide is open", async () => {
+    browserState.capabilities.platform = "macos";
+    browserState.setup.autoOpenEligible = true;
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
+    let receive: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async handler => { receive = handler; return () => undefined; });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Input access" });
+    act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Add your switch" })).toHaveFocus());
+    expect(screen.getByLabelText("Step 1 of 4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel new switch" })).toBeInTheDocument());
+    act(() => receive?.({ ...structuredClone(browserState), accessibility: "required" }));
+    expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel new switch" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
+    act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
+  });
+
   it("renders the connection and permission state", async () => {
+    browserState.capabilities.platform = "macos";
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
     expect(screen.getByText("Input access")).toBeInTheDocument();
@@ -411,6 +464,7 @@ describe("Switchify PC shell", () => {
   });
 
   it("opens setup once for a fresh unpaired user and persists dismissal", async () => {
+    browserState.capabilities.platform = "macos";
     browserState.setup = { shown: false, completed: false, autoOpenEligible: true };
     const markShown = vi.spyOn(api, "markSetupShown");
     render(<App />);
@@ -515,6 +569,7 @@ describe("Switchify PC shell", () => {
 
   it("clears a cancelled pairing request from the setup guide runtime event", async () => {
     let stateHandler: ((state: typeof browserState) => void) | undefined;
+    browserState.capabilities.platform = "macos";
     browserState.setup = { shown: false, completed: false, autoOpenEligible: true };
     browserState.pendingPairings = [
       { requestId: "pair-cancelled", deviceId: "android-1", deviceName: "Galaxy", verificationCode: "063781", expiresAt: 1 },
@@ -1245,7 +1300,8 @@ describe("Switchify PC shell", () => {
     browserState.capabilities.platform = originalPlatform;
   });
 
-  it("updates accessibility to Ready from the runtime event", async () => {
+  it("hides input access after permission arrives from the runtime event", async () => {
+    browserState.capabilities.platform = "macos";
     let stateHandler: ((state: typeof browserState) => void) | undefined;
     const listener = vi.spyOn(api, "onState").mockImplementation(async (handler) => {
       stateHandler = handler;
@@ -1254,7 +1310,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     stateHandler?.({ ...structuredClone(browserState), accessibility: "granted" });
-    expect(await screen.findByText("Ready")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Input access" })).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Open Accessibility Settings" })).not.toBeInTheDocument();
     listener.mockRestore();
   });

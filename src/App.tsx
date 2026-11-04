@@ -1,5 +1,6 @@
 import { Button, Input, Select, StatusIcon } from "./ui/controls";
 import { PageIcon } from "./ui/PageIcon";
+import { needsInputAccess } from "./inputAccess";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
@@ -83,7 +84,7 @@ function HomeView({ state, switches, scanning, navigate, ctx, jump, recent, onDi
     <section className="home-health" aria-labelledby="home-health-heading">
     <h2 id="home-health-heading">Your setup</h2>
     <section className="status-list" aria-label="Switch control status">
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div>{state.accessibility === "required" && <Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button>}</article>
+      {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} /></div><Button className="text-button" onClick={onAccessibility}>Open Accessibility Settings</Button></article>}
       <article><StatusIcon ok={released ? undefined : hasSelect}><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Saved switches</h3><p>{saved.length} saved. {released ? "Listening paused" : hasSelect ? "Select assigned" : "Select action needed"}</p></div>{saved.length > 0 && <Button className="text-button" onClick={() => onReleaseSwitchKeys(!released)}>{released ? "Resume listening" : "Pause listening"}</Button>}</article>
       <article><StatusIcon><PageIcon page="scanning" size={19} /></StatusIcon><div><h3>Scanning</h3><p>{selectOpensHome(scanning.config) ? "Select opens Home" : `Select starts ${lastModeName(scanning.config)}`}. {areaOptions(scanning.config, scanning.config.controlMode).automatic ? "Automatic" : "Manual"}</p></div><Button className="text-button" onClick={() => navigate("scanning")}>Change scanning</Button></article>
       <article><StatusIcon ok={mobileConnected || undefined}><PageIcon page="mobile" size={19} /></StatusIcon><div><h3>Mobile connection (optional)</h3><p>{mobileConnected ? state.connectedDeviceName ?? bluetoothLabels.connected : bluetoothLabels[state.bluetooth]}</p></div>{mobileConnected ? <Button className="secondary" onClick={onDisconnect}>Disconnect</Button> : <Button className="text-button" onClick={() => navigate("mobile")}>Connect mobile</Button>}</article>
@@ -346,14 +347,14 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
 function SupportView({ state, switches, busy, perform, openSetup, openUpdates, ctx, jump }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void; ctx: FindContext; jump: Jump }) {
   return <div className="view"><PageHead title="Help" blurb={<>Set up Switchify PC and fix common problems. The full guide is at <a href="https://pc.theswitchify.app" target="_blank" rel="noreferrer">pc.theswitchify.app</a>.</>} />
     <SectionStrip page="support" ctx={ctx} jump={jump} />
-    <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><header className="section-header" data-setting="setup-guide"><div><h2 id="support-setup-heading">Setup</h2><p>The three things a working setup needs.</p></div><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button></header><div className="task-list" aria-label="Setup status">
-      <article data-setting="input-access"><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button>}</article>
+    <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><header className="section-header" data-setting="setup-guide"><div><h2 id="support-setup-heading">Setup</h2><p>Set up your switches and optional mobile connection.</p></div><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button></header><div className="task-list" aria-label="Setup status">
+      {needsInputAccess(state) && <article data-setting="input-access"><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button></article>}
       <article><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Local switches</h3><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "switches" })}>Open Switches</Button></article>
       <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Optional mobile connection</h3><p>{bluetoothLabels[state.bluetooth]}. Open Mobile for pairing and forwarding profiles.</p></div><Button className="secondary" onClick={() => jump({ page: "mobile", section: "pairing" })}>Open Mobile</Button></article>
     </div></section>
     <section className="subview" data-section="fix" aria-labelledby="support-fix-heading"><header className="section-header"><div><h2 id="support-fix-heading">Fix a problem</h2><p>Checks and tools for when something is not working.</p></div></header><div className="task-list" aria-label="Troubleshooting actions">
       <article data-setting="bluetooth"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth connection</h3><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
-      <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" ? <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button> : <Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(false))}><RefreshCw size={16} />Check input access</Button>}</article>
+      {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button></article>}
       <article data-setting="not-recognised"><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Switch not recognized</h3><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "practice", setting: "practice" })}>Test switches</Button></article>
       <article><StatusIcon><RefreshCw size={19} /></StatusIcon><div><h3>Application update</h3><p>Switchify PC {state.version}</p></div><Button className="secondary" onClick={openUpdates}>View updates</Button></article>
       <article data-setting="diagnostics"><StatusIcon><Download size={19} /></StatusIcon><div><h3>Diagnostics</h3><p>Export sanitized health, capability, and recent event data</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.exportDiagnostics)}><Download size={16} />Export</Button></article>
@@ -375,7 +376,16 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   switches: SwitchController;
   suspended: boolean;
 }) {
-  const [step, setStep] = useState(0);
+  const inputAccessRequired = needsInputAccess(state);
+  const [requestedStep, setStep] = useState(() => inputAccessRequired ? 0 : 1);
+  const steps = inputAccessRequired ? [0, 1, 2, 3, 4] : [1, 2, 3, 4];
+  // Permission can arrive while this guide is open. Move straight to switch
+  // setup without renumbering the remaining content or losing saved choices.
+  const step = requestedStep === 0 && !inputAccessRequired ? 1 : requestedStep;
+  const stepNumber = steps.indexOf(step) + 1;
+  useEffect(() => {
+    if (!inputAccessRequired && requestedStep === 0) setStep(1);
+  }, [inputAccessRequired, requestedStep]);
   const [startupChoice, setStartupChoice] = useState<boolean | null>(state.setup.completed ? state.settings.startWithSystem : null);
   const [diagnosticsChoice, setDiagnosticsChoice] = useState<boolean | null>(state.setup.completed && state.telemetry.consent !== "undecided" ? state.telemetry.consent === "enabled" : null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -416,12 +426,12 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   };
 
   return <div className="modal-backdrop setup-backdrop" hidden={suspended} inert={suspended}><section ref={dialogRef} className="setup-dialog" data-switch-step={step === 1} role={capturing ? undefined : "dialog"} aria-modal={capturing ? undefined : true} aria-labelledby="setup-title" tabIndex={-1} onKeyDown={trapFocus}>
-    <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${step + 1} of 5`}>{step + 1} / 5</strong></header>
-    <div className="setup-progress" aria-hidden="true">{titles.map((title, index) => <span key={title} data-active={index <= step} />)}</div>
+    <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${stepNumber} of ${steps.length}`}>{stepNumber} / {steps.length}</strong></header>
+    <div className="setup-progress" aria-hidden="true">{steps.map(index => <span key={titles[index]} data-active={index <= step} />)}</div>
     {error && <div className="dialog-error" role="alert">{error}</div>}
     <div className="setup-content">
       {step === 0 && <div className="setup-statuses">
-        <article><StatusIcon ok={state.accessibility === "granted"}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div>{state.accessibility === "required" && <Button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</Button>}</article>
+        {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</Button></article>}
       </div>}
       {step === 1 && <SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
       {step === 2 && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Scanning, Mouse pointer.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
@@ -429,7 +439,7 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
       {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health and sanitized errors help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><Button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</Button><Button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</Button></div><a className="setup-privacy" href="https://www.theswitchify.app/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
     <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
-    <footer><Button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</Button>{step === 1 && <Button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</Button>}<span /><Button className="secondary" disabled={busy || switchBusy || step === 0} onClick={() => setStep((current) => current - 1)}>Back</Button><Button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep((current) => current + 1)}>{step === 4 ? "Finish" : "Next"}</Button></footer>
+    <footer><Button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</Button>{step === 1 && <Button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</Button>}<span /><Button className="secondary" disabled={busy || switchBusy || stepNumber === 1} onClick={() => setStep(step - 1)}>Back</Button><Button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep(step + 1)}>{step === 4 ? "Finish" : "Next"}</Button></footer>
   </section></div>;
 }
 

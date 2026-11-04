@@ -242,7 +242,6 @@ for (const platform of ["windows", "macos"]) {
   await click(page, "Open setup guide");
   await shot(page, `setup-input-access-${platform}`, ".setup-dialog");
   if (platform === "windows") {
-    await click(page, "Next");
     await shot(page, "setup-add-switch-empty", ".setup-dialog");
     await fake(page, (s) => { window.__fake.switches.settings.bindings = [s]; window.__fake.pushSwitches(); }, headSwitch);
     await shot(page, "setup-add-switch-saved", ".setup-dialog");
