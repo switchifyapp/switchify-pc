@@ -46,7 +46,10 @@ describe("the index matches the rendered app", () => {
         if (e.page !== page || !available(e, ctx)) continue;
         if (e.area) {
           const names = { point: "point scanning", mouse: "mouse scanning", menu: "menus", keyboard: "keyboard" };
-          fireEvent.click(screen.getByRole("button", { name: `Customise ${names[e.area]}`, hidden: true }));
+          // Menus and Keyboard sit inside More options, opened as a person would.
+          const card = screen.getByRole("button", { name: `Customise ${names[e.area]}`, hidden: true });
+          if (card.closest("[hidden]")) fireEvent.click(card.closest(".more-options")!.querySelector<HTMLButtonElement>(".more-options-toggle")!);
+          fireEvent.click(screen.getByRole("button", { name: `Customise ${names[e.area]}` }));
           await screen.findByRole("button", { name: "Back to scanning settings" });
         }
         await waitFor(() => expect(document.querySelector(`[data-setting="${e.id}"]`), `${page} setting ${e.id}`).not.toBeNull());
@@ -56,6 +59,16 @@ describe("the index matches the rendered app", () => {
         }
       }
     }
+  });
+
+  it("marks the settings that only a signed-in account shows", async () => {
+    const signedIn = { available: true, signedIn: true, email: "me@example.com", pendingEmail: null, keychainUnavailable: false };
+    vi.spyOn(api, "accountStatus").mockResolvedValue(signedIn);
+    vi.spyOn(api, "account").mockResolvedValue(signedIn);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await open("settings");
+    await waitFor(() => expect(document.querySelector(`[data-setting="auto-approve"]`)).not.toBeNull());
   });
 
   it("gives every page in the nav an entry in the index", () => {

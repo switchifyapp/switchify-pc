@@ -211,10 +211,10 @@ for (const group of synonymGroups) for (const word of group) canonical.set(word,
 
 /** Lower case, one plural stripped, then its synonym group's first word. */
 export function normalise(word: string): string {
-  const w = word.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const w = word.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "");
   if (!w) return "";
   if (canonical.has(w)) return canonical.get(w)!;
-  const stem = w.endsWith("ies") && w.length > 4 ? w.slice(0, -3) + "y" : w.endsWith("es") && w.length > 4 && /[sxz]es$|[cs]hes$/.test(w) ? w.slice(0, -2) : w.endsWith("s") && !w.endsWith("ss") && w.length > 3 ? w.slice(0, -1) : w;
+  const stem = w.endsWith("ies") && w.length > 4 ? w.slice(0, -3) + "y" : w.endsWith("es") && w.length > 4 && /(ss|x|zz|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.endsWith("s") && !w.endsWith("ss") && w.length > 3 ? w.slice(0, -1) : w;
   return canonical.get(stem) ?? stem;
 }
 const tokens = (text: string) => text.split(/[^a-zA-Z0-9]+/).map(normalise).filter(Boolean);
@@ -222,7 +222,7 @@ const tokens = (text: string) => text.split(/[^a-zA-Z0-9]+/).map(normalise).filt
 /** Within one edit (a typo, a missing or extra letter, two swapped letters) of each other. Short words must match exactly. */
 export function close(a: string, b: string): boolean {
   if (a === b) return true;
-  if (a.length < 4 || Math.abs(a.length - b.length) > 1) return false;
+  if (Math.min(a.length, b.length) < 4 || Math.abs(a.length - b.length) > 1) return false;
   let i = 0;
   while (i < a.length && i < b.length && a[i] === b[i]) i++;
   if (a.length === b.length) {
@@ -264,24 +264,24 @@ export function search(query: string, ctx: FindContext): Entry[] {
     let total = 0;
     for (const [i, t] of terms.entries()) {
       const typed = raw[i];
-      if (label.startsWith(typed) || labelTokens[0] === t) total += 6;
+      if (label.startsWith(typed)) total += 6;
       else if (labelTokens.includes(t) || wordTokens.includes(t)) total += 5;
       else if (label.includes(typed) || phrases.some((p) => p.includes(typed))) total += 4;
       else if (labelTokens.some((w) => w.startsWith(t)) || wordTokens.some((w) => w.startsWith(t))) total += 3;
       else if (labelTokens.some((w) => close(t, w)) || wordTokens.some((w) => close(t, w)) || rawTokens.some((w) => close(typed, w))) total += 2;
       else if (haystackTokens.includes(t) || haystack.some((h) => h.includes(typed))) total += 1;
       else return 0;
-      // The word as typed, not a synonym or a stem, breaks ties.
-      if (phrases.includes(typed) || e.label.toLowerCase().split(/[^a-z0-9]+/).includes(typed)) total += 1;
+      // The word as typed, not a synonym or a stem, breaks ties within a tier.
+      if (phrases.includes(typed) || e.label.toLowerCase().split(/[^a-z0-9]+/).includes(typed)) total += 0.25;
     }
     // On a tie, the settings people most often come for rank first.
-    return total + (commonTasks.some((task) => task.setting === e.id) ? 0.5 : 0);
+    return total + (commonTasks.some((task) => task.setting === e.id) ? 0.1 : 0);
   };
   return index.filter((e) => available(e, ctx)).map((e) => ({ e, s: score(e) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.e);
 }
 
 /** The tasks people most often come for, each pointing at the exact setting. */
-export const commonTasks: { label: string; setting: string }[] = [
+export const commonTasks: { label: string; setting: SettingId }[] = [
   { label: "Make scanning slower or faster", setting: "scan-rate" },
   { label: "Change the highlight colour", setting: "colour" },
   { label: "Add or change a switch", setting: "switch-list" },

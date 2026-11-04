@@ -23,6 +23,7 @@ describe("the settings index", () => {
     }
     expect(new Set(index.map((e) => e.id)).size).toBe(index.length);
     for (const task of commonTasks) expect(entry(task.setting)).toBeDefined();
+    for (const e of index) for (const id of e.related ?? []) expect(index.map((other) => other.id), `${e.id} relates to ${id}`).toContain(id);
   });
 
   it("ranks a label match above a word match above a value match", () => {
@@ -84,6 +85,12 @@ describe("forgiving matching", () => {
     expect(search("qzx", ctx)).toEqual([]);
     expect(normalise("Colours")).toBe("colour");
     expect(normalise("switches")).toBe("switch");
+    expect(normalise("sizes")).toBe("size");
+    expect(normalise("phrases")).toBe("phrase");
+    expect(normalise("boxes")).toBe("box");
+    expect(normalise("naïve")).toBe("naive");
+    expect(close("keyy", "key")).toBe(false);
+    expect(search("keys", ctx)[0].id).toBe("key-repeat");
     expect(close("speed", "speeed")).toBe(true);
     expect(close("speed", "sepe")).toBe(false);
     expect(close("red", "rad")).toBe(false);
