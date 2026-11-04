@@ -265,8 +265,9 @@ impl<T: Clone> ItemScanner<T> {
     }
     /// How long the highlight stays on the current item, given the scan rate.
     fn step_ms(&self, period: u64) -> u64 {
-        // Items inside a row or group, and the slot that leaves it, take the
-        // group rate; rows and the groups of a long row keep the scan rate.
+        // Items in a group of leaves, and that group's leave slot, take the
+        // group rate; rows, a long row's groups and the slot leaving a long
+        // row keep the scan rate.
         let step = if self.nav.among_leaves() {
             period.saturating_mul(u64::from(self.options.group_rate_percent)) / 100
         } else {

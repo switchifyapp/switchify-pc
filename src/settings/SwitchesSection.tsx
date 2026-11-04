@@ -975,7 +975,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           value={settings.acceptMs ?? 0}
           onChange={(acceptMs) => controller.update({ ...settings, acceptMs })}
           options={acceptPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
-          note={{ summary: "A press released sooner than this does nothing. Hold action timing starts once the press counts, so each hold action takes this much longer, and the hold that resets the scan can too. The times below show the result." }}
+          note={{ summary: "A press released sooner than this does nothing. Hold action timing starts once the press counts, so each hold action takes this much longer, and the hold that resets the scan can too. Each switch and the reset hold below show the resulting times." }}
         />
         <OptionGroup<number>
           setting="ignore-repeat"
