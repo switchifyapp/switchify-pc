@@ -792,6 +792,8 @@ export function App() {
     setArrival(target);
   };
   useArrival(rootRef, arrival, () => setArrival(null));
+  // A new page starts at its top; a jump scrolls to its own target instead.
+  useEffect(() => { if (!arrival) document.scrollingElement?.scrollTo?.({ top: 0 }); }, [view, query]);
   jumpRef.current = jump;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
