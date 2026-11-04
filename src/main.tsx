@@ -4,6 +4,8 @@ import { App } from "./App";
 import { isModifierOverlayRoute, ModifierOverlay } from "./ModifierOverlay";
 import "./styles.css";
 
+document.addEventListener("contextmenu", (event) => event.preventDefault(), { capture: true });
+
 const modifierOverlay = isModifierOverlayRoute(window.location.search);
 if (modifierOverlay) document.documentElement.classList.add("modifier-overlay-document");
 
