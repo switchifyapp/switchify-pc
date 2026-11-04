@@ -105,6 +105,9 @@ jobs:
           cargo audit --file src-tauri/startup-launcher/Cargo.lock
           cargo audit --file tools/updater-signature-verifier/Cargo.lock
 
+      - name: Fetch find model
+        run: node scripts/fetch-find-model.mjs
+
       - name: Validate frontend at release tag
         run: |
           npm run lint

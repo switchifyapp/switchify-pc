@@ -1,8 +1,8 @@
-import { useSemantic } from "./useSemantic";
 // Finding things: the Find tile and its results, the section strip at the
 // top of each page, the Also see links, Home's common tasks and recently
 // changed, and the jump that takes a person to one setting and marks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useSemantic } from "./useSemantic";
 import { Search, X } from "lucide-react";
 import { Button } from "../ui/controls";
 import { available, commonTasks, entry, index, pageLabels, searchWithMeaning, sectionLabel, sections, targetOf, type Entry, type FindContext, type Page, type Target } from "./index";

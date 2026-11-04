@@ -33,6 +33,8 @@ export async function acquire(target, manifest, fetcher = fetch) {
   const start = 8 + length + tensor.data_offsets[0];
   const rows = new Float32Array(bytes.buffer.slice(bytes.byteOffset + start, bytes.byteOffset + start + vocab.size * manifest.dims * 4));
   const words = [...vocab.entries()].sort((a, b) => a[1] - b[1]).map(([word]) => word);
+  // Row i of the matrix is token i, so the ids must be exactly 0..n-1.
+  words.forEach((word, i) => { if (vocab.get(word) !== i) throw new Error('Find model vocabulary ids are not contiguous'); });
   const files = { 'find-model.bin': packModel(words, manifest.dims, rows) };
   for (const name of ['LICENSE', 'NOTICE']) files[name] = await readFile(new URL(`./find-model.${name}`, import.meta.url));
   for (const [name, data] of Object.entries(files)) {

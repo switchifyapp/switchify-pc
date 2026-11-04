@@ -9,7 +9,7 @@ const isPunctuation = (ch: string) => /[\p{P}\p{S}]/u.test(ch);
 
 /** The words and punctuation marks of a text, lower-cased with accents removed. */
 export function pretokenise(text: string): string[] {
-  const clean = text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const clean = text.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase();
   const out: string[] = [];
   let word = "";
   for (const ch of clean) {
