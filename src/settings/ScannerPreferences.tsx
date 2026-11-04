@@ -1,7 +1,7 @@
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { lastModeName, mouseRepeatStopInstruction, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
+import { lastModeName, mouseRepeatStopInstruction, scannerColors, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, lightPanels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
 import { SettingGroup, Toggle, OptionGroup } from './controls';
 import { api } from '../api';
@@ -263,10 +263,10 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       setting="panel-theme" legend="Panel theme" columns="three" disabled={disabled} value={settings.panelTheme ?? 'system'}
       options={[{ value: 'system', label: 'Match system' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]}
       onChange={panelTheme => update('scanPreferences', { ...settings, panelTheme })}
-      note={{ summary: 'Colours the keyboard, the mouse panel, Home and the action menus. Match system follows your computer\'s light or dark setting. On light panels the scanner colour is a deeper shade so it stays easy to see, and white becomes dark grey.' }}
+      note={{ summary: 'Colours the keyboard, the mouse panel, Home and the action menus. Match system follows your computer\'s light or dark setting. On light panels the scanner colour is a deeper shade so it stays easy to see.' }}
     />}
     {field('color', 'Scanner colour', locked => <fieldset disabled={locked}><legend>Scanner colour</legend><div className="scanner-colours">
-      {(['red', 'green', 'blue', 'yellow', 'white'] as const).map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}
+      {scannerColors.map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}
     </div></fieldset>)}
     {field('thickness', 'Highlight thickness', locked => <OptionGroup<ScanOptions['thickness']> legend="Highlight thickness" disabled={locked} value={effective.thickness} options={(['thin', 'standard', 'thick'] as const).map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) }))} onChange={value => change('thickness', value)} />)}
     <div className={`scanner-sample ${effective.color}${lightPanels(settings.panelTheme) ? ' light' : ''}`} role="img" aria-label={`${effective.color} scanner highlight sample`}>

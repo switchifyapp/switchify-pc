@@ -92,6 +92,7 @@ pub struct Overrides {
     /// Missing beside an area's own pattern means no row groups, as an area's
     /// pattern chosen before row groups existed meant.
     pub row_groups: Option<bool>,
+    #[serde(deserialize_with = "deserialize_color_override")]
     pub color: Option<ScannerColor>,
     pub thickness: Option<Thickness>,
     pub next_scan: Option<NextScan>,
@@ -202,12 +203,31 @@ impl Preferences {
                 && local
                     .row_groups
                     .unwrap_or(local.pattern.is_none() && self.row_groups),
-            color: local.color.unwrap_or(color),
+            color: scanning_color(local.color.unwrap_or(color)),
             thickness: local.thickness.unwrap_or(self.thickness),
             next_scan: local.next_scan.unwrap_or(self.next_scan),
             start_from: local.start_from.unwrap_or(self.start_from),
         }
     }
+}
+// White remains a valid cursor-overlay colour. Legacy scanning settings use
+// blue instead, without discarding the rest of their saved preferences.
+fn scanning_color(color: ScannerColor) -> ScannerColor {
+    if color == ScannerColor::White {
+        ScannerColor::Blue
+    } else {
+        color
+    }
+}
+pub fn deserialize_scanner_color<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ScannerColor, D::Error> {
+    ScannerColor::deserialize(deserializer).map(scanning_color)
+}
+fn deserialize_color_override<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<ScannerColor>, D::Error> {
+    Option::<ScannerColor>::deserialize(deserializer).map(|color| color.map(scanning_color))
 }
 pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
