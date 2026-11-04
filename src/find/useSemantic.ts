@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { prepareMeaning, type SemanticIndex } from "./index";
 import { unpackModel } from "./semantic";
 
-const assets = import.meta.glob<string>("./model/find-model.bin", { query: "?url", import: "default", eager: true });
+// No type argument here: Vite only rewrites the plain call form.
+const assets = import.meta.glob("./model/find-model.bin", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 const modelUrl: string | undefined = Object.values(assets)[0];
 /** Whether this build carries the model at all; tests that need a fetch skip without it. */
 export const hasModelAsset = !!modelUrl;
