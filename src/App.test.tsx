@@ -941,7 +941,7 @@ describe("Switchify PC shell", () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });
       fireEvent.change(find(), { target: { value: "zzzq" } });
-      expect(screen.getByRole("heading", { name: "Nothing matches “zzzq”", level: 1 })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Nothing matches “zzzq”", level: 1 })).toBeInTheDocument();
       const list = screen.getByRole("list", { name: "Matching settings" });
       expect(within(list).getAllByRole("button")[0]).toHaveAccessibleName(/^Make scanning slower or faster, Scanning, Movement/);
       fireEvent.click(screen.getByRole("button", { name: "Clear search" }));

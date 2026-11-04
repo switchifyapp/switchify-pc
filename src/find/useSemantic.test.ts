@@ -14,7 +14,8 @@ it.skipIf(!hasModelAsset)("waits for a nonempty query, then shares one load and 
   const hook = renderHook(({ query }) => useSemantic(query), { initialProps: { query: " " } });
   expect(fetcher).not.toHaveBeenCalled();
   hook.rerender({ query: "snail" });
-  await waitFor(() => expect(hook.result.current?.vectors.get("scan-rate")).toBeTruthy());
+  await waitFor(() => expect(hook.result.current.semantic?.vectors.get("scan-rate")).toBeTruthy());
+  expect(hook.result.current.loading).toBe(false);
   hook.rerender({ query: "rate" });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
@@ -22,7 +23,8 @@ it("quietly falls back when fetch is unavailable", async () => {
   vi.stubGlobal("fetch", undefined);
   const { useSemantic } = await import("./useSemantic");
   const hook = renderHook(() => useSemantic("snail"));
-  await waitFor(() => expect(hook.result.current).toBeUndefined());
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.semantic).toBeUndefined();
 });
 it.skipIf(!hasModelAsset)("keeps keyword search when the model cannot be decoded", async () => {
   const fetcher = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) });
@@ -30,5 +32,20 @@ it.skipIf(!hasModelAsset)("keeps keyword search when the model cannot be decoded
   const { useSemantic } = await import("./useSemantic");
   const hook = renderHook(() => useSemantic("rate"));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
-  expect(hook.result.current).toBeUndefined();
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(hook.result.current.semantic).toBeUndefined();
+});
+
+it.skipIf(!hasModelAsset)("reports loading until a delayed model request settles, including failure", async () => {
+  let finish!: (response: { ok: boolean }) => void;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finish = resolve; })));
+  const { useSemantic } = await import("./useSemantic");
+  const hook = renderHook(({ query }) => useSemantic(query), { initialProps: { query: "" } });
+  expect(hook.result.current.loading).toBe(false);
+  hook.rerender({ query: "slow down" });
+  expect(hook.result.current.loading).toBe(true);
+  finish({ ok: false });
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  hook.rerender({ query: "another query" });
+  expect(hook.result.current.loading).toBe(false);
 });

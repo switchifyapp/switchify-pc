@@ -23,14 +23,17 @@ function load(): Promise<SemanticIndex | undefined> {
   })();
 }
 
-export function useSemantic(query: string): SemanticIndex | undefined {
+export function useSemantic(query: string): { semantic: SemanticIndex | undefined; loading: boolean } {
   const [semantic, setSemantic] = useState<SemanticIndex>();
+  const [settled, setSettled] = useState(false);
   const active = !!query.trim();
   useEffect(() => {
     if (!active) return;
     let mounted = true;
-    void load().then((model) => { if (mounted && model) setSemantic(model); });
+    void load().then((model) => {
+      if (mounted) { setSemantic(model); setSettled(true); }
+    });
     return () => { mounted = false; };
   }, [active]);
-  return semantic;
+  return { semantic, loading: active && hasModelAsset && !settled };
 }
