@@ -1,9 +1,9 @@
 // Meaning-based matching for Find a setting, on a static embedding model: a
 // vector per token, averaged over a text and normalised. It runs entirely on
-// this computer in a few microseconds, with no native runtime, so it can run
+// this computer without a native inference runtime, so it can run
 // on every keystroke. Keyword matches still come first; this ranks what the
 // words alone would miss ("my scan is too quick" is Auto scan rate).
-import { tokenise, type Vocabulary } from "./wordpiece";
+import { tokenise, type Vocabulary } from "./wordpiece.ts";
 
 export type StaticModel = {
   vocab: Vocabulary;
@@ -45,11 +45,13 @@ export function similarity(a: Float32Array, b: Float32Array): number {
  *   vocab as UTF-8 words joined by "\n" | f32 scale[vocab] | i8 vector[vocab][dims]
  */
 export function unpackModel(bytes: ArrayBuffer): StaticModel {
+  if (bytes.byteLength < 16) throw new Error("Find model header is truncated");
   const view = new DataView(bytes);
   if (view.getUint32(0, true) !== 0x314d4653) throw new Error("Not a find model file");
   const size = view.getUint32(4, true);
   const dims = view.getUint32(8, true);
   const vocabBytes = view.getUint32(12, true);
+  if (!size || !dims || 16 + vocabBytes + size * 4 + size * dims !== bytes.byteLength) throw new Error("Find model size is invalid");
   const words = new TextDecoder().decode(new Uint8Array(bytes, 16, vocabBytes)).split("\n");
   if (words.length !== size) throw new Error("Find model vocabulary is damaged");
   const vocab: Vocabulary = new Map(words.map((w, i) => [w, i]));

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "prediction-model": "node scripts/fetch-prediction-model.mjs && node scripts/fetch-prediction-neural.mjs",
+    "prediction-model": "node scripts/fetch-prediction-model.mjs && node scripts/fetch-prediction-neural.mjs && node scripts/fetch-find-model.mjs",
     "test": "vitest run && node --test scripts/*.node-test.mjs",
     "lint": "tsc --noEmit",
     "macos:setup-signing": "./scripts/setup-macos-dev-signing.sh",
@@ -31,6 +31,7 @@
     "@tauri-apps/cli": "^2.12.4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.1.2",

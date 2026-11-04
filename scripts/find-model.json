@@ -1,0 +1,29 @@
+{
+  "model": "potion-base-2M",
+  "dims": 64,
+  "url": "https://huggingface.co/minishlab/potion-base-2M/resolve/main",
+  "sources": {
+    "tokenizer.json": {
+      "size": 683666,
+      "sha256": "e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50"
+    },
+    "model.safetensors": {
+      "size": 7559256,
+      "sha256": "f95ffde02ad06f63ae38eb9d400038cd5ccaf8411ec3cb650c6025113f96cbb8"
+    }
+  },
+  "files": {
+    "find-model.bin": {
+      "size": 2227609,
+      "sha256": "92f9a021d615b255df4adbc22fd7b0147e6d7a2df91de74495e941afe3380404"
+    },
+    "LICENSE": {
+      "size": 1127,
+      "sha256": "b9b670fadb3324e2c4878d34e2919983cd6c37fbf2267dd81e9679c2e68de07b"
+    },
+    "NOTICE": {
+      "size": 364,
+      "sha256": "925e2434c86dd7e7ca2fac50c855e81f1f488d1ba3b2c66f83bcb07cd805e4b8"
+    }
+  }
+}

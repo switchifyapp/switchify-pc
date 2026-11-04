@@ -10,7 +10,12 @@ const { version } = JSON.parse(readFileSync(new URL("./package.json", import.met
 
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(version) },
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), {
+    name: "find-model-notices",
+    generateBundle() {
+      for (const name of ["LICENSE", "NOTICE"]) this.emitFile({ type: "asset", fileName: "assets/find-model." + name, source: readFileSync(new URL("./src/find/model/" + name, import.meta.url)) });
+    },
+  }],
   test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"] },
   clearScreen: false,
   server: {
