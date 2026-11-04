@@ -291,3 +291,6 @@ export const commonTasks: { label: string; setting: SettingId }[] = [
   { label: "Connect a phone or tablet", setting: "pairing" },
   { label: "Build a panel for a task", setting: "your-panels" },
 ];
+
+/** The text that stands for an entry when matching by meaning: what it is called, what people call it, and where it lives. */
+export const entryText = (e: Entry) => `${e.label}. ${e.words.join(", ")}. ${pageLabels[e.page]}, ${sectionLabel(e.page, e.section)}.`;
