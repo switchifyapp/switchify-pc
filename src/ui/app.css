@@ -549,9 +549,11 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .segmented.five { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .segmented .btn, .setup-choices .btn { flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 6px; min-height: 120px; padding: 16px; color: var(--text); border-color: var(--border); background: var(--surface); font-size: 20px; font-weight: 600; text-align: left; }
 .setup-choices .btn { min-height: 96px; }
-.segmented .btn::after, .setup-choices .btn::after { content: ""; display: block; width: 100%; min-height: 1.5em; font-size: 16px; font-weight: 500; color: var(--muted); }
+/* The chosen state is drawn, never written: generated text would join the
+   button's accessible name. The tick is a rotated empty box. */
+.segmented .btn::after, .setup-choices .btn::after { content: ""; display: block; width: 9px; height: 16px; margin: 4px 0 2px 2px; border: solid transparent; border-width: 0 3px 3px 0; transform: rotate(45deg); }
 .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 var(--scan-width) var(--scan); }
-.segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { content: "Chosen"; color: var(--text); }
+.segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: var(--text); }
 .segmented .btn:enabled:not(fieldset:disabled *):hover, .setup-choices .btn:enabled:hover { background: var(--surface-muted); border-color: var(--border); }
 
 /* --- Colour pickers ---------------------------------------------------------
