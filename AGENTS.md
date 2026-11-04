@@ -17,7 +17,7 @@ The frozen C# application is not maintained in this repository. Do not reintrodu
 - Any change users can see (a feature, a setting, a menu item, a label, a behaviour) must update the docs site in `site/` in the same pull request. It is served at https://pc.theswitchify.app. Write for switch users and AT professionals in plain language, claim only what the app does, make no accuracy claims for word prediction, and check it builds (see `site/README.md`).
 - Open a draft pull request with the issue-closing reference and validation evidence. Assign the same milestone as the issue.
 - Before handoff, deploy an independent agent that did not implement the change to review the pull request's latest head, and address all actionable findings. If review fixes change the head, repeat the independent review on the new latest head.
-- Make the pull request ready for review and ensure required CI passes.
+- Make the pull request ready for review and normally ensure required CI passes. When the user authorizes a merge, use `gh pr merge --admin` with best judgment and without asking for separate admin permission. Weigh the change's scope, latest-head review, local validation, and CI results; pending CI need not block an admin merge when that evidence is sufficient. Fix known actionable failures before merging.
 - Do not merge without explicit user instruction.
 
 ## Validation
