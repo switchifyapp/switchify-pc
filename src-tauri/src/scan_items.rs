@@ -267,12 +267,7 @@ impl<T: Clone> ItemScanner<T> {
     fn step_ms(&self, period: u64) -> u64 {
         // Items inside a row or group, and the slot that leaves it, take the
         // group rate; rows and the groups of a long row keep the scan rate.
-        let item_in_group = !self.nav.path().is_empty()
-            && !matches!(
-                self.nav.current(),
-                Some(Node::Group { .. } | Node::Branch(_))
-            );
-        let step = if item_in_group {
+        let step = if self.nav.among_leaves() {
             period.saturating_mul(u64::from(self.options.group_rate_percent)) / 100
         } else {
             period
@@ -485,6 +480,39 @@ mod tests {
         scan.handle(Action::Select);
         assert!(!scan.advance(1999, 500));
         assert!(scan.advance(1, 500));
+        assert!(!scan.advance(999, 500));
+        assert!(scan.advance(1, 500));
+    }
+
+    #[test]
+    fn the_slot_leaving_a_long_row_keeps_the_scan_rate_and_a_group_takes_the_group_rate() {
+        let rows = [vec!["a", "b", "c", "d", "e", "f", "g"], vec!["close"]];
+        let options = Resolved {
+            row_groups: true,
+            group_rate_percent: 200,
+            ..Default::default()
+        };
+        let mut scan = ItemScanner::configured_rows(&rows, Policy::MENU, options);
+        scan.handle(Action::Select);
+        let mut steps = 0;
+        while !scan.nav.escaping() {
+            assert!(scan.advance(500, 500));
+            steps += 1;
+            assert!(steps < 10);
+        }
+        assert!(!scan.advance(499, 500));
+        assert!(scan.advance(1, 500));
+        // Inside a group, its leave slot takes the group rate like its keys.
+        scan.restart();
+        scan.handle(Action::Select);
+        scan.handle(Action::Select);
+        let mut steps = 0;
+        while !scan.nav.escaping() {
+            assert!(!scan.advance(999, 500));
+            assert!(scan.advance(1, 500));
+            steps += 1;
+            assert!(steps < 10);
+        }
         assert!(!scan.advance(999, 500));
         assert!(scan.advance(1, 500));
     }
