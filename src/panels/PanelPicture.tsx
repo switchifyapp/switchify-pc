@@ -22,7 +22,7 @@ export function picturePalette(theme: PanelTheme | undefined) {
 export type TilePlace = { row: number; cell: number; column?: true };
 
 /** Makes a picture editable: the user's tiles are drawn by `tile`, every
- *  row and column gets its tools beside it, and the whole thing is a group
+ *  row gets tools beside it and columns get labelled tools below. The whole thing is a group
  *  rather than an image. */
 export type PictureEditing = {
   tile: (cell: PanelCell, place: TilePlace, colours: Palette) => React.ReactNode;
@@ -79,12 +79,11 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
     <div className="panel-picture-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-picture-rows">
       {lines.map(line)}
-      {editing && columns.length > 0 && <div className="panel-picture-line">
-        <div className="panel-picture-row panel-picture-column-tools">
-          <span className="panel-picture-spacer" style={{ flexGrow: keysWeight, flexBasis: 0 }} />
-          {columns.map((column, c) => <span key={c} className="panel-picture-slot" style={{ flexGrow: columnWidth(column), flexBasis: 0 }}>{editing.columnTools(c)}</span>)}
-        </div>
-        <div className="panel-picture-tools" />
+      {editing && columns.length > 0 && <div className="panel-column-toolbars">
+        {columns.map((_, c) => <div key={c} className="panel-column-toolbar" role="group" aria-label={`Column ${c + 1} tools`}>
+          <strong aria-hidden="true">Column {c + 1}</strong>
+          <div className="panel-column-buttons">{editing.columnTools(c)}</div>
+        </div>)}
       </div>}
     </div>
   </div>;

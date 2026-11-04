@@ -22,13 +22,13 @@ To change a panel later, choose its picture in the list. **Delete panel** remove
 
 ## Edit the tiles
 
-The editor draws the panel as it will scan. Choose a tile on it to change it on the right:
+The editor draws the panel as it will scan. Wide pictures scroll sideways while you edit so the tiles stay large enough to choose. Choose a tile on it to change it on the right:
 
 - **Label** is the word or two written on the tile. Keep it short so it fits.
 - **Width** makes a tile two, three or four times as wide as a normal tile. The tiles in a row share the row's width between them.
 - **Action** is what the tile does. Search the list by what you want, for example "copy", "volume" or "new tab", and choose an action. Some actions need a little more: **Press keys** asks you to press the keys on your keyboard, **Type text** asks for the text, and **Open one of my panels** asks which panel.
 
-Beside each row are its tools: add a tile to it, move it up or down, or remove it. **Add row** under the panel adds a row. With a tile chosen, the arrows move it along its row, **Row** moves it to the end of another row or a new one, and **Remove tile** takes it away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
+Beside each row are its tools: add a tile to it, move it up or down, or remove it. Column tools sit below the picture, labelled **Column 1**, **Column 2**, and so on. **Add row** under the panel adds a row. With a tile chosen, the arrows move it along its row, **Row** moves it to the end of another row or a new one, and **Remove tile** takes it away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
 
 If something stops the panel saving, such as a tile with no label or a link to a panel that no longer exists, a note under the buttons says what and where. Choose the note to go to that tile.
 

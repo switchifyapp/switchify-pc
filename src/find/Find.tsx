@@ -3,18 +3,21 @@
 // changed, and the jump that takes a person to one setting and marks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useSemantic } from "./useSemantic";
-import { Search, X } from "lucide-react";
+import { Gauge, Keyboard, LayoutGrid, Maximize2, Palette, Search, Smartphone, X } from "lucide-react";
 import { Button } from "../ui/controls";
 import { available, commonTasks, entry, index, pageLabels, searchWithMeaning, sectionLabel, sections, targetOf, type Entry, type FindContext, type Page, type Target } from "./index";
 
 export type Jump = (target: Target) => void;
 
+const taskIcons = { "scan-rate": Gauge, colour: Palette, "switch-list": Keyboard, "panel-size": Maximize2, pairing: Smartphone, "your-panels": LayoutGrid };
+
 /** A tile that takes you to one setting, showing where it is and what it is set to. */
 export function JumpTile({ e, ctx, jump, task, raised }: { e: Entry; ctx: FindContext; jump: Jump; task?: string; raised?: boolean }) {
   const value = e.value(ctx);
   const where = `${pageLabels[e.page]}, ${sectionLabel(e.page, e.section)}`;
+  const Icon = task ? taskIcons[e.id as keyof typeof taskIcons] : undefined;
   return <Button className={raised ? "tile tile-jump tile-raised" : "tile tile-jump"} onClick={() => jump(targetOf(e))} aria-label={`${task ?? e.label}, ${where}${value ? `, ${value}` : ""}`}>
-    <span className="tile-title">{task ?? e.label}</span>
+    <span className="task-heading">{Icon && <span className="task-icon" aria-hidden="true"><Icon size={24} /></span>}<span className="tile-title">{task ?? e.label}</span></span>
     {task && <span className="tile-note">{e.label}</span>}
     <span className="tile-value-line" aria-hidden="true">{value ?? "Loading…"}</span>
     <span className="tile-where" aria-hidden="true">{where}</span>
@@ -78,18 +81,18 @@ export function FindTile({ query, onChange, inputRef }: { query: string; onChang
 }
 
 export function FindResults({ query, ctx, jump }: { query: string; ctx: FindContext; jump: Jump }) {
-  const semantic = useSemantic(query);
+  const { semantic, loading } = useSemantic(query);
   const hits = searchWithMeaning(query, ctx, semantic);
-  const title = hits.length ? `${hits.length} ${hits.length === 1 ? "setting matches" : "settings match"} “${query}”` : `Nothing matches “${query}”`;
+  const title = hits.length ? `${hits.length} ${hits.length === 1 ? "setting matches" : "settings match"} “${query}”` : loading ? "Finding settings…" : `Nothing matches “${query}”`;
   return <div className="view">
     <p className="sr-only" role="status" aria-live="polite">{title}</p>
     <header className="page-header"><div>
       <h1>{title}</h1>
-      <p>{hits.length ? "Choose one to go straight to it." : "Try another word, such as speed, colour, phone or switch. Common tasks on Home may help too."}</p>
+      <p>{hits.length ? "Choose one to go straight to it." : loading ? "Looking for settings that match what you mean." : "Try another word, such as speed, colour, phone or switch. Common tasks on Home may help too."}</p>
     </div></header>
     <div className="grid" role="list" aria-label="Matching settings">
       {hits.map((e) => <div key={e.id} role="listitem" className="grid-item"><JumpTile e={e} ctx={ctx} jump={jump} /></div>)}
-      {!hits.length && commonTasks.slice(0, 4).map((t) => <div key={t.setting} role="listitem" className="grid-item"><JumpTile e={entry(t.setting)} ctx={ctx} jump={jump} task={t.label} raised /></div>)}
+      {!hits.length && !loading && commonTasks.slice(0, 4).map((t) => <div key={t.setting} role="listitem" className="grid-item"><JumpTile e={entry(t.setting)} ctx={ctx} jump={jump} task={t.label} raised /></div>)}
     </div>
   </div>;
 }

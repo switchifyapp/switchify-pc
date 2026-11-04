@@ -214,7 +214,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
           </form>
           <section ref={rowsRef} tabIndex={-1} className="panel-grid-editor" aria-label="Tiles">
             <h2>As it will scan</h2>
-            <p className="capability-note">{extras ? "Choose one of your tiles to change it. Each row and column has its tools beside it." : "Choose a tile to change it. Each row has its tools beside it."}</p>
+            <p className="capability-note">{extras ? "Choose one of your tiles to change it. Row tools sit beside the picture; labelled column tools sit below it." : "Choose a tile to change it. Each row has its tools beside it."} Wide pictures scroll sideways while you edit.</p>
             {problems.rows && <p className="field-error">{problems.rows}</p>}
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}

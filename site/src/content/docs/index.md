@@ -19,6 +19,12 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 
 ## Using the settings window
 
+The pages are across the top, beside or below **Find a setting**, depending on the window size. The current page has a red background and a short underline. Scanning choices use your chosen highlight colour.
+
+Home shows whether switch control is ready, followed by common tasks such as changing the scan rate or adding a switch. **Your setup** below them shows input access, saved switches, scanning and the optional mobile connection.
+
+Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting.
+
 Right-clicking in the Switchify PC window does not open a menu. To copy or paste in a text field, use Ctrl+C or Ctrl+V on Windows, or Command+C or Command+V on Mac.
 
 ## Two ways to connect a switch
