@@ -828,6 +828,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 }
 @media (max-width: 800px) {
   .app-bar { padding: 12px 12px 0; }
+  .brand { min-height: 0; padding: 0 4px; }
   .brand > div { display: none; }
   .view { padding: 12px; gap: 24px; }
   .licence-banner-wrap { padding: 12px 12px 0; }
