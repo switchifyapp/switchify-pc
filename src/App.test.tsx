@@ -962,6 +962,31 @@ describe("Switchify PC shell", () => {
       expect(startup).toHaveFocus();
     });
 
+    it.each(["ctrlKey", "metaKey"])("focuses Find with the desktop shortcut using %s, including from a field", async (modifier) => {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      const startup = screen.getByRole("checkbox", { name: "Start with system" });
+      startup.focus();
+      fireEvent.keyDown(startup, { key: "k", [modifier]: true });
+      expect(find()).toHaveFocus();
+      startup.focus();
+      startup.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+      fireEvent.keyDown(startup, { key: "k", [modifier]: true });
+      expect(startup).toHaveFocus();
+    });
+
+    it("keeps the Find shortcut inside an open profile dialog", async () => {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Switchify PC" });
+      fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+      fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+      const name = screen.getByRole("textbox", { name: "Profile name" });
+      name.focus();
+      fireEvent.keyDown(name, { key: "k", ctrlKey: true });
+      expect(name).toHaveFocus();
+    });
+
     it("opens the exact setting from a common task on Home", async () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });

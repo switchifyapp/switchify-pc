@@ -117,7 +117,7 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
     {error && <p className="field-error" role="alert">{error}</p>}
     <section className="panel-group panel-group-yours" data-section="yours" data-setting="your-panels" aria-label="Your panels">
     {panels === null ? <p className="capability-note">Loading your panels...</p>
-      : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>No panels yet</h2><p>A panel is a page of tiles that scans like Home. Each tile presses keys, types a phrase, runs an action or opens another panel. Make one and it appears in Home under My panels.</p></section>
+      : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><LayoutGrid size={32} aria-hidden="true" /><h2>Your first panel starts here</h2><p>Put the actions you use together on one panel. Start with Keyboard, Mouse, Back and Close, then make it your own.</p><Button className="primary" disabled={busy} onClick={() => void create()}>Create your first panel</Button></section>
       : <ul className="panel-grid" aria-label="Your panels">{panels.map((panel) => <li key={panel.id}>
         <Button className="panel-card" data-opener={panel.id} onClick={() => openPanel(panel, panel.id)} aria-label={`${panel.name}, ${tileCount(panel)} tiles`}>
           <PanelPicture panel={panel} theme={theme} />

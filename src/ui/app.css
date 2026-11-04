@@ -218,20 +218,22 @@ button.tile:disabled { cursor: default; opacity: .55; }
 .field > .btn { justify-self: start; }
 
 /* --- Shell ------------------------------------------------------------------
-   At smaller widths the brand and Find share a row above navigation. */
-.app-shell { display: flex; flex-direction: column; min-height: 100vh; background: var(--app-background); }
-.app-bar { display: grid; grid-template-columns: 172px minmax(0, 1fr) minmax(240px, 360px); align-items: center; gap: 12px 20px; padding: 18px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+   The sidebar and search stay available as the document scrolls. Keeping
+   document scrolling preserves Find arrivals and keyboard focus behaviour. */
+.app-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; background: var(--app-background); }
+.app-bar { display: flex; flex-direction: column; align-items: stretch; gap: 24px; padding: 24px 16px 16px; border-right: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 0; }
 .brand-mark { display: block; width: 36px; height: 36px; border-radius: 8px; object-fit: contain; }
 .brand strong, .brand small { display: block; }
 .brand strong { color: var(--text); font-size: 22px; font-weight: 800; line-height: 1.2; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1; }
-.app-bar nav { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; min-width: 0; }
-.btn.tile-nav { min-width: 64px; min-height: 64px; flex-direction: row; gap: 8px; padding: 10px 8px; border-color: transparent; background: transparent; font-weight: 700; text-align: center; position: relative; }
+.app-bar nav { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 0; }
+.btn.tile-nav { flex-shrink: 0; min-width: 64px; min-height: 64px; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px 16px; border-color: transparent; background: transparent; font-weight: 700; text-align: left; position: relative; }
+.btn.tile-nav[data-utility="settings"] { margin-top: auto; }
 .btn.tile-nav:hover { background: var(--surface-muted); border-color: transparent; }
 .btn.tile-nav .tile-icon { color: var(--muted); }
 .btn.tile-nav[data-active="true"] { color: var(--brand-label); background: var(--brand-container); }
-.btn.tile-nav[data-active="true"]::after { content: ""; position: absolute; bottom: 5px; left: calc(50% - 10px); width: 20px; height: 3px; border-radius: 3px; background: currentColor; }
+.btn.tile-nav[data-active="true"]::after { content: ""; position: absolute; top: calc(50% - 12px); left: 0; width: 4px; height: 24px; border-radius: 3px; background: currentColor; }
 .btn.tile-nav[data-active="true"] .tile-icon { color: inherit; }
 
 .tile-find { min-height: 64px; flex-direction: row; align-items: center; gap: 10px; padding: 0 12px; cursor: text; color: var(--muted); background: var(--app-background); border-radius: var(--radius-control); }
@@ -241,11 +243,11 @@ button.tile:disabled { cursor: default; opacity: .55; }
 .tile-find input::placeholder { color: var(--muted); font-weight: 600; }
 .tile-find input::-webkit-search-cancel-button { display: none; }
 .btn.find-clear { min-width: 64px; min-height: 64px; padding: 0; }
-@media (max-width: 1460px) {
-  .app-bar { grid-template-columns: minmax(172px, 1fr) minmax(240px, 420px); gap: 8px 20px; padding: 12px 20px; }
-  .app-bar nav { grid-column: 1 / -1; grid-row: 2; }
-  .app-bar > .tile-find { grid-column: 2; grid-row: 1; }
-}
+.workspace-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 88px; padding: 12px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.workspace-toolbar .tile-find { width: min(100%, 440px); }
+.workspace-location { font-size: 16px; font-weight: 700; color: var(--muted); }
+.find-shortcut { flex: none; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 4px 8px; font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.4; white-space: nowrap; color: var(--muted); }
+.app-shell :is([data-section], [data-setting]) { scroll-margin-top: 108px; }
 
 main { min-width: 0; flex: 1; }
 .licence-banner-wrap { width: min(100%, 1760px); margin: 0 auto; padding: 20px 20px 0; }
@@ -264,8 +266,8 @@ main { min-width: 0; flex: 1; }
 }
 .view { width: min(100%, 1440px); margin: 0 auto; padding: 32px 28px 48px; display: flex; flex-direction: column; gap: 28px; container: page / inline-size; }
 .page-header, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; }
-.page-header h1 { font-size: 40px; line-height: 1.15; font-weight: 800; letter-spacing: -0.025em; }
-.page-header { border-left: 5px solid var(--brand); padding-left: 18px; }
+.page-header h1 { font-size: 34px; line-height: 1.2; font-weight: 800; letter-spacing: -0.025em; }
+.page-header { padding-bottom: 4px; }
 .page-header p, .section-header p { max-width: 64ch; margin-top: 4px; color: var(--muted); }
 .section-header { flex-wrap: wrap; margin-bottom: 12px; }
 
@@ -277,11 +279,11 @@ main { min-width: 0; flex: 1; }
    The strip at the top of a page: one tile per section with its current
    values, so you can see before you scroll. Jump tiles take you to one
    setting, showing where it lives and what it is set to. */
-.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
-.btn.tile-strip { min-height: 80px; padding: 12px 14px; gap: 4px; align-items: flex-start; justify-content: flex-start; border: 0; border-radius: var(--radius-control); background: transparent; }
+.strip { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 0 0 16px; border-bottom: 1px solid var(--border); }
+.btn.tile-strip { min-height: 64px; padding: 10px 16px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .btn.tile-strip:hover { background: var(--surface-muted); }
-.strip-label { font-size: 18px; font-weight: 700; }
-.strip-values { font-size: 15px; font-weight: 500; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.strip-label { font-size: 16px; font-weight: 600; }
+.strip-values { display: none; }
 .group { display: flex; flex-direction: column; gap: 12px; }
 .group-note { color: var(--muted); max-width: 70ch; }
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -357,6 +359,7 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .empty-state { display: grid; justify-items: center; border: 1px dashed var(--border-strong); border-radius: var(--radius-card); padding: 48px 24px; color: var(--muted); text-align: center; background: var(--surface-muted); }
 .empty-state :is(h2, h3) { margin-top: 14px; color: var(--text); }
 .empty-state p { max-width: 56ch; margin-top: 6px; }
+.empty-state > .btn { margin-top: 20px; }
 
 /* --- Panels -----------------------------------------------------------------
    Each card is a tile showing the panel as the scan draws it, with the name
@@ -439,7 +442,7 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .btn.panel-editor-tile em { color: var(--muted); font-style: italic; font-weight: 400; }
 
 .panel-editor-picture h2, .panel-grid-editor h2 { margin-bottom: 4px; }
-.panel-inspector { position: sticky; top: 0; max-height: 100dvh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }
+.panel-inspector { position: sticky; top: 108px; max-height: calc(100dvh - 124px); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }
 .panel-inspector-empty { color: var(--muted); }
 .panel-inspector-empty h2 { color: var(--text); }
 .tile-inspector .field { margin-top: 16px; }
@@ -455,7 +458,8 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .btn.action-option:hover { background: var(--surface-muted); }
 .btn.action-option[aria-pressed="true"] { box-shadow: inset 4px 0 0 var(--scan); font-weight: 600; }
 .btn.action-option small { color: var(--muted); }
-@media (max-width: 1000px) { .panel-editor-layout { grid-template-columns: 1fr; } .panel-inspector { position: static; } }
+@media (max-width: 1000px) { .panel-editor-layout { grid-template-columns: 1fr; } .panel-inspector { position: static; max-height: none; overflow: visible; } }
+@container page (max-width: 800px) { .panel-editor-layout { grid-template-columns: 1fr; } .panel-inspector { position: static; max-height: none; overflow: visible; } }
 
 .btn.profile-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; justify-content: stretch; gap: 16px; width: 100%; min-height: 120px; border-color: var(--border); border-radius: var(--radius-card); padding: 18px; color: inherit; background: var(--surface); font-weight: 400; text-align: left; }
 .btn.profile-row:hover { background: var(--surface-muted); }
@@ -467,9 +471,12 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 /* --- Settings controls ------------------------------------------------------
    A group is a heading, a note and its controls. Controls are tiles or rows
    of tiles, so a page reads as one grid from top to bottom. */
-.setting-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.setting-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
 .setting-group header p { margin-top: 4px; color: var(--muted); line-height: 1.5; max-width: 70ch; }
 .setting-group header:has(p:empty) p { display: none; }
+@container page (min-width: 900px) {
+  .settings-view > .setting-group { grid-template-columns: minmax(180px, 1fr) minmax(0, 2.5fr); gap: 32px; }
+}
 .setting-group:focus-visible { outline: 3px solid var(--focus); outline-offset: 6px; border-radius: var(--radius-card); }
 .setting-controls { display: grid; align-content: start; gap: 12px; }
 /* A lone action in a group keeps its own width instead of spanning it. */
@@ -508,21 +515,19 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .update-controls progress { width: 100%; accent-color: var(--scan); }
 .update-controls > span { font-variant-numeric: tabular-nums; }
 
-/* A toggle is one tile that reads On or Off in a big word. The native
-   checkbox stays in the tree for keyboard and assistive tech; the word is
-   drawn by the hidden-from-AT track, so it never joins the label's name. */
-.toggle-row { display: flex; flex-direction: column; gap: 8px; min-height: 120px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 18px; background: var(--surface); font-size: 18px; cursor: pointer; }
+/* Toggle rows keep the setting and state together. The native checkbox
+   retains its label and keyboard operation; the visible state is decorative. */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 12px 16px; background: var(--surface); font-size: 18px; cursor: pointer; }
 .toggle-row:hover { background: var(--surface-muted); }
-.toggle-row > span:first-child { font-size: 21px; font-weight: 600; line-height: 1.3; }
+.toggle-row > span:first-child { font-size: 18px; font-weight: 600; line-height: 1.4; }
 .toggle-row input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.toggle { display: block; margin-top: auto; font-size: 40px; font-weight: 800; line-height: 1.1; color: var(--muted); }
+.toggle { display: flex; align-items: center; justify-content: center; flex: none; min-width: 64px; min-height: 40px; border: 1px solid var(--border-strong); border-radius: 20px; padding: 6px 12px; font-size: 16px; font-weight: 800; line-height: 1.1; color: var(--muted); background: var(--surface-muted); }
 .toggle::after { content: "Off"; }
-.toggle-row input:checked + .toggle { color: var(--text); }
+.toggle-row input:checked + .toggle { color: var(--on-brand); border-color: var(--brand); background: var(--brand); }
 .toggle-row input:checked + .toggle::after { content: "On"; }
-.toggle-row:has(input:checked) { box-shadow: inset 0 0 0 var(--scan-width) var(--scan); }
 .toggle-row:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 .toggle-row[data-disabled="true"] { cursor: default; opacity: 0.55; }
-.setting-controls > .toggle-row, .repeat-settings > .toggle-row, .overlay-options > .toggle-row { max-width: 420px; }
+.setting-controls > .toggle-row, .repeat-settings > .toggle-row, .overlay-options > .toggle-row { width: 100%; }
 
 .pointer-speed, .repeat-options fieldset, .overlay-options fieldset, .scanner-preferences fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
 .pointer-speed { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 18px; background: var(--surface); }
@@ -571,7 +576,7 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .scanner-preferences legend, .repeat-options legend, .overlay-options legend, .setting-controls fieldset > legend { margin-bottom: 8px; padding: 0; color: var(--text); font-size: 18px; font-weight: 600; }
 .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; width: 100%; min-width: 0; margin: 0; }
 .segmented.five { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-.segmented .btn, .setup-choices .btn { flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 6px; min-height: 120px; padding: 16px; color: var(--text); border-color: var(--border); background: var(--surface); font-size: 20px; font-weight: 600; text-align: left; }
+.segmented .btn, .setup-choices .btn { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; min-height: 64px; padding: 12px 16px; color: var(--text); border-color: var(--border); background: var(--surface); font-size: 18px; font-weight: 600; text-align: left; }
 .setup-choices .btn { min-height: 96px; }
 /* The chosen state is drawn, never written: generated text would join the
    button's accessible name. The tick is a rotated empty box. */
@@ -609,24 +614,28 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .switch-empty { padding: 40px 24px; }
 .switch-empty h3 { margin-top: 12px; color: var(--text); }
 .switch-empty .switch-list-actions { justify-content: center; margin-top: 20px; }
-.switch-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.switch-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .switch-list > .more-options { grid-column: 1 / -1; }
-.switch-row { display: flex; flex-direction: column; min-height: 220px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); container-type: inline-size; }
+.switch-row { display: flex; flex-direction: column; min-height: 96px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); container-type: inline-size; }
 .switch-row[data-open] { grid-column: 1 / -1; min-height: 0; box-shadow: inset 0 0 0 var(--scan-width) var(--scan); }
 /* The key is what a person recognises a switch by, so it leads the tile.
    It moves visually only; DOM and focus order are unchanged, so Edit still
    comes before Remove. Every saved tile has a badge, so the icon is hidden on
    all of them and the text says whether a switch is local or remote. */
-.switch-row-summary { display: flex; flex: 1; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 10px 12px; padding: 18px; }
+.switch-row-summary { display: flex; flex: 1; align-items: center; gap: 10px 16px; padding: 16px; }
 .switch-row-summary > svg { flex: none; color: var(--muted); }
 .switch-row-summary:has(> .key-badge) > svg { display: none; }
-.switch-row-summary > div { flex: 1 1 100%; min-width: 0; }
+.switch-row-summary > div { flex: 1; min-width: 0; }
 .switch-row-summary h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .switch-row-summary p { margin-top: 2px; color: var(--muted); overflow-wrap: anywhere; }
-.switch-row-summary > .key-badge { order: -1; flex-basis: 100%; justify-content: flex-start; min-height: 48px; border: 0; padding: 0; background: transparent; font: 800 40px/1.1 "Manrope Variable", Manrope, system-ui, sans-serif; }
-.switch-row-summary > .btn { flex: none; margin-top: auto; }
+.switch-row-summary > .key-badge { order: -1; flex: none; justify-content: center; min-width: 88px; max-width: 160px; min-height: 64px; padding: 8px 12px; overflow: hidden; text-overflow: ellipsis; background: var(--surface-muted); font-size: 20px; }
+.switch-row-summary > .btn { flex: none; margin-top: 0; }
 .switch-row-summary > .btn.secondary { margin-left: 0; }
 .switch-row-summary > .btn.icon-button { margin-left: auto; }
+@container (max-width: 560px) {
+  .switch-row-summary { flex-wrap: wrap; }
+  .switch-row-summary > div { flex: 1 1 calc(100% - 192px); }
+}
 .key-badge { display: inline-flex; align-items: center; min-height: 26px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 9px; background: var(--surface-muted); font: 600 16px/1 ui-monospace, Consolas, monospace; white-space: nowrap; }
 .key-badge[data-unavailable] { border-color: var(--status-error); color: var(--status-error); background: var(--status-error-soft); }
 .switch-row-summary > .key-badge[data-unavailable] { color: var(--status-error); }
@@ -832,6 +841,8 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   /* Focus must still read as focus on the current page's own button. */
   .btn.tile-nav[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .toggle { forced-color-adjust: none; color: CanvasText; }
+  .toggle-row input:checked + .toggle { color: HighlightText; background: Highlight; border-color: Highlight; }
+  .toggle-row input:not(:checked) + .toggle { color: CanvasText; background: Canvas; border-color: CanvasText; }
   .toggle-row[data-disabled="true"] .toggle { color: GrayText; }
   .color-swatch, .scanner-sample { forced-color-adjust: none; }
   /* A white or yellow swatch would vanish on a light Canvas without an edge. */
@@ -843,18 +854,17 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 }
 
 /* --- Responsive --------------------------------------------------------------- */
-@media (max-width: 1100px) {
+@container page (max-width: 1050px) {
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@container page (max-width: 560px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1050px) { .app-shell { grid-template-columns: 192px minmax(0, 1fr); } .app-bar { padding: 16px 12px; } .workspace-toolbar { padding: 12px 24px; } }
 @media (max-width: 900px) {
-  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .btn.tile-nav { flex-direction: column; gap: 4px; font-size: 16px; padding: 8px 4px 12px; }
   .scan-rate-stepper { grid-template-columns: 72px minmax(0, 1fr) 72px; }
 }
 @media (max-width: 800px) {
   .app-bar { padding: 12px; }
   .brand { min-height: 0; padding: 0 4px; }
-  .brand > div { display: none; }
   .view { padding: 12px; gap: 24px; }
   .licence-banner-wrap { padding: 12px 12px 0; }
   .error-banner, .update-banner { margin: 12px 12px 0; }
@@ -864,15 +874,22 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .profile-row > span:not(.status-icon) { display: none; }
 }
 @media (max-width: 680px) {
-  .app-bar { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; }
-  .brand { gap: 0; }
-  .brand > div { display: none; }
-  .app-bar nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .page-header h1 { font-size: 32px; }
   .page-header { padding-left: 12px; }
   .profile-dialog > footer > span { flex-basis: 100%; height: 0; }
   .update-banner { grid-template-columns: auto 1fr; }
   .update-banner .btn.text-button { grid-column: 2; justify-self: start; padding-left: 0; }
+}
+@media (max-width: 760px) {
+  .app-shell { display: flex; flex-direction: column; }
+  .app-bar { position: static; height: auto; gap: 12px; border-right: 0; border-bottom: 1px solid var(--border); overflow: visible; }
+  .app-bar nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .btn.tile-nav { justify-content: center; flex-direction: column; gap: 4px; font-size: 16px; padding: 8px; }
+  .btn.tile-nav[data-utility="settings"] { margin-top: 0; }
+  .workspace-toolbar { padding: 12px; }
+  .workspace-location { display: none; }
+  .workspace-toolbar .tile-find { width: 100%; }
+  .setting-group { padding: 18px; }
 }
 @media (max-width: 480px) {
   .grid, .strip { grid-template-columns: minmax(0, 1fr); }
@@ -911,7 +928,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .sync-details dt { font-size: 15px; font-weight: 600; }
 .sync-details dd { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
 /* A switch on its own at the end of a row. */
-.toggle-row.toggle-bare { position: relative; min-height: 0; flex-direction: row; align-items: center; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.toggle-row.toggle-bare { position: relative; min-width: 64px; min-height: 64px; flex-direction: row; align-items: center; border: 0; padding: 0; background: transparent; box-shadow: none; }
 .toggle-row.toggle-bare .toggle { margin-top: 0; font-size: 24px; }
 /* Deleting the account sits apart from routine controls, under its own label. */
 .account-remove { display: grid; gap: 12px; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 24px; }
