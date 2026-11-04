@@ -1,6 +1,7 @@
 import { Button, Input } from "../ui/controls";
 import type { AppSettings } from "../types";
 import { useId, useState, type ReactNode, type Ref } from "react";
+import type { SettingId } from "../find/index";
 
 // With labelledBy, the row's own heading (and optional description) names
 // the switch, which then sits alone at the end of the row.
@@ -15,7 +16,7 @@ export function Toggle({ checked, disabled = false, label, labelledBy, described
 
 // `section` names the group for the page strip and Find; `setting` marks it as
 // the home of one indexed setting, so a jump can land on it.
-export function SettingGroup({ title, description, children, id, sectionRef, focusable = false, section, setting }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean; section?: string; setting?: string }) {
+export function SettingGroup({ title, description, children, id, sectionRef, focusable = false, section, setting }: { title: string; description: string; children: ReactNode; id?: string; sectionRef?: Ref<HTMLElement>; focusable?: boolean; section?: string; setting?: SettingId }) {
   const headingId = id ? `${id}-heading` : undefined;
   return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId} data-section={section} data-setting={setting}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
@@ -48,7 +49,7 @@ export function OptionGroup<T extends string | number>({ legend, options, value,
   disabled: boolean;
   columns?: "three" | "four" | "five";
   note?: NoteProps;
-  setting?: string;
+  setting?: SettingId;
 }) {
   const noteId = useId();
   const group = <fieldset disabled={disabled} aria-describedby={note ? noteId : undefined} data-setting={setting}><legend>{legend}</legend><div className={columns ? `segmented compact ${columns}` : "segmented compact"}>

@@ -64,7 +64,7 @@ The pages of the app are a row of large tiles across the top of the window: Home
 
 ## Finding a setting
 
-- **Find a setting** is the box beside the page tiles. Type a word such as *speed*, *colour*, *phone*, *switch* or *licence* and matching settings appear, each with the page and section it lives in and what it is set to now. Choose one to go straight to it; it is outlined for a moment so you can see where you landed. Pressing **/** puts the cursor in the box.
+- **Find a setting** is the box beside the page tiles. Type a word such as *speed*, *colour*, *phone*, *switch* or *licence* and matching settings appear, each with the page and section it lives in and what it is set to now. Spelling does not have to be exact, and everyday words work: *phones*, *colr* or *quicker* still find the setting. Choose one to go straight to it; it is outlined for a moment so you can see where you landed. Pressing **/** puts the cursor in the box.
 - **On this page** is the row of tiles at the top of each page, one per section, showing what each section is set to. Choose one to scroll to that section.
 - **Common tasks** on Home opens the settings people most often look for, such as making scanning slower or faster, changing the highlight colour, adding a switch or making panels bigger.
 - **Recently changed** on Home lists the last settings you changed, so you can find them again. It starts empty each time the app opens.

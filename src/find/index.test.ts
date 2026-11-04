@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { browserState } from "../api";
 import { defaultPointScanConfig } from "../scanning/useScanning";
-import { available, commonTasks, entry, index, search, sections, type FindContext } from "./index";
+import { available, close, commonTasks, entry, index, normalise, search, sections, type FindContext } from "./index";
 
 function context(overrides: Partial<FindContext> = {}): FindContext {
   const state = structuredClone(browserState);
@@ -63,5 +63,29 @@ describe("the settings index", () => {
     expect(entry("movement").value(ctx)).toBe("Automatic");
     expect(entry("account").value(ctx)).toBe("Not signed in");
     expect(entry("devices").value(ctx)).toBe("0 paired");
+  });
+});
+
+describe("forgiving matching", () => {
+  it("accepts synonyms, plurals and a one-letter typo", () => {
+    const ctx = context();
+    expect(search("color", ctx)[0].id).toBe("colour");
+    expect(search("colr", ctx).map((e) => e.id)).toContain("colour");
+    expect(search("phones", ctx).map((e) => e.id)).toContain("connection");
+    expect(search("tablet", ctx).map((e) => e.id)).toContain("connection");
+    expect(search("quicker", ctx)[0].id).toBe("scan-rate");
+    expect(search("license", ctx)[0].id).toBe("licence");
+    expect(search("swtich", ctx).map((e) => e.id)).toContain("switch-list");
+    expect(search("bluetooth", ctx).map((e) => e.id)).toContain("bluetooth");
+  });
+
+  it("keeps short words exact so one letter cannot match everything", () => {
+    const ctx = context();
+    expect(search("qzx", ctx)).toEqual([]);
+    expect(normalise("Colours")).toBe("colour");
+    expect(normalise("switches")).toBe("switch");
+    expect(close("speed", "speeed")).toBe(true);
+    expect(close("speed", "sepe")).toBe(false);
+    expect(close("red", "rad")).toBe(false);
   });
 });

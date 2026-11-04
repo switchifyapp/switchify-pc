@@ -34,7 +34,7 @@ export type Entry = {
   id: string;
   label: string;
   /** Other words people use for it, lower case. */
-  words: string[];
+  words: readonly string[];
   page: Page;
   section: string;
   /** A scanning area the setting is inside, opened before jumping. */
@@ -42,7 +42,7 @@ export type Entry = {
   /** What it is set to now, in words, or null while unknown. */
   value: (ctx: FindContext) => string | null;
   /** Ids of settings people often want next. */
-  related?: string[];
+  related?: readonly string[];
   /** Whether the setting exists on this computer. */
   when?: (ctx: FindContext) => boolean;
   /** Reports state rather than holding a choice, so a change is never the user's. */
@@ -79,9 +79,9 @@ export const sections: Record<Page, Section[]> = {
   support: [{ id: "setup", label: "Setup" }, { id: "fix", label: "Fix a problem" }],
 };
 
-export const index: Entry[] = [
+const catalogue = [
   // Switches
-  { id: "switch-list", label: "Your switches", words: ["key", "button", "gamepad", "add switch", "remove", "select", "next", "previous", "assign", "learn", "space", "enter", "remote switch"], page: "switches", section: "switches",
+  { id: "switch-list", label: "Your switches", words: ["key", "button", "gamepad", "add switch", "remove", "select", "next", "previous", "assign", "learn", "space", "enter", "remote switch", "usb switch", "jack", "interface", "controller", "name", "edit"], page: "switches", section: "switches",
     value: (c) => c.bindings ? (c.bindings.length ? c.bindings.map((b) => `${b.name || b.key}: ${actions[b.pressAction]}`).join(". ") : "None yet") : null, related: ["hold-interval", "movement", "practice"] },
   { id: "hold-interval", label: "Hold action interval", words: ["hold", "long press", "hold timing", "emergency exit", "escape", "reset"], page: "switches", section: "hold",
     value: (c) => c.holdIntervalMs == null ? null : seconds(c.holdIntervalMs), related: ["switch-list", "scan-rate"] },
@@ -98,7 +98,7 @@ export const index: Entry[] = [
     value: (c) => c.config ? (c.config.radarSpeed == null ? "Follows line speed" : `${c.config.radarSpeed + 1} of 5`) : null, related: ["pointer-speed", "repeat"] },
   { id: "movement", label: "Automatic or manual scanning", words: ["auto", "manual", "step", "moves on its own", "next moves"], page: "scanning", section: "movement",
     value: (c) => c.config ? (c.config.automatic ? "Automatic" : "Manual, Next and Previous move the highlight") : null, related: ["scan-rate", "advanced", "switch-list"] },
-  { id: "scan-rate", label: "Auto scan rate", words: ["speed", "slower", "faster", "too fast", "too slow", "seconds", "interval", "time on each item", "rate"], page: "scanning", section: "movement",
+  { id: "scan-rate", label: "Auto scan rate", words: ["speed", "slower", "faster", "too fast", "too slow", "seconds", "interval", "time on each item", "rate", "step", "tempo", "pace", "dwell time"], page: "scanning", section: "movement",
     value: (c) => c.config ? `Every ${seconds(c.config.blockIntervalMs)}` : null, related: ["movement", "pass-limit", "advanced", "hold-interval"] },
   { id: "after-selection", label: "After a selection", words: ["keep scanning", "wait for select", "after a click", "start again from", "where i selected", "beginning"], page: "scanning", section: "after",
     value: (c) => { if (!c.config) return null; const o = sharedOptions(c.config); return `${o.nextScan === "standard" ? "Usual for each scanner" : o.nextScan === "wait" ? "Wait for Select" : "Keep scanning"}. Start from ${o.startFrom === "standard" ? "the usual place" : o.startFrom === "selection" ? "where I selected" : "the beginning"}`; }, related: ["pass-limit", "item-scanning"] },
@@ -108,7 +108,7 @@ export const index: Entry[] = [
     value: (c) => { if (!c.config) return null; const n = sharedOptions(c.config).passLimit; return n ? `${n} ${n === 1 ? "pass" : "passes"}` : "Unlimited"; }, related: ["scan-rate"] },
   { id: "item-scanning", label: "Item scanning", words: ["pattern", "groups", "rows", "linear", "one item at a time", "row groups", "group scanning"], page: "scanning", section: "after",
     value: (c) => c.config ? itemScanningLabels[itemScanning(sharedOptions(c.config))] : null, related: ["advanced", "direction"] },
-  { id: "colour", label: "Scanner colour", words: ["color", "highlight colour", "red", "green", "blue", "yellow", "white", "outline"], page: "scanning", section: "appearance",
+  { id: "colour", label: "Scanner colour", words: ["color", "highlight colour", "red", "green", "blue", "yellow", "white", "outline", "see the highlight", "contrast", "visible"], page: "scanning", section: "appearance",
     value: (c) => c.config ? cap(c.config.scannerColor) : null, related: ["thickness", "overlay-colour", "panel-theme"] },
   { id: "thickness", label: "Highlight thickness", words: ["thin", "thick", "line", "border", "width", "hard to see"], page: "scanning", section: "appearance",
     value: (c) => c.config ? cap(sharedOptions(c.config).thickness) : null, related: ["colour", "panel-size"] },
@@ -134,7 +134,7 @@ export const index: Entry[] = [
   { id: "builtin-menus", label: "Built-in menus and panels", words: ["home menu", "editing", "browser", "rearrange", "reset", "order of tiles", "menu tiles", "more actions", "keyboard rows"], page: "panels", section: "builtin", when: (c) => c.builtins.length > 0,
     value: (c) => { const n = c.builtins.filter((b) => b.override).length; return n ? `${n} rearranged` : "None rearranged"; }, related: ["your-panels", "select-starts"] },
   // Mobile
-  { id: "connection", label: "Mobile connection", words: ["phone", "tablet", "bluetooth", "android", "remote", "connect", "disconnect"], page: "mobile", section: "connection", status: true,
+  { id: "connection", label: "Mobile connection", words: ["phone", "tablet", "bluetooth", "android", "remote", "connect", "disconnect", "pc control", "samsung", "pixel"], page: "mobile", section: "connection", status: true,
     value: (c) => c.state.bluetooth === "connected" ? `Connected to ${c.state.connectedDeviceName ?? "a mobile device"}` : bluetoothWords[c.state.bluetooth], related: ["pairing", "devices", "overlay"] },
   { id: "pairing", label: "Connect your mobile", words: ["pair", "code", "approve", "steps", "set up phone", "google play", "install", "qr"], page: "mobile", section: "pairing", status: true,
     value: () => "Three steps, and the app on Google Play", related: ["connection", "devices", "auto-approve"] },
@@ -172,30 +172,110 @@ export const index: Entry[] = [
     value: () => "Use a switch interface in keyboard mode", related: ["switch-list", "practice", "input-access"] },
   { id: "diagnostics", label: "Export diagnostics", words: ["logs", "report a problem", "support", "errors", "recent errors", "health", "bluetooth changes"], page: "support", section: "fix", status: true,
     value: (c) => c.state.diagnostics.recentErrors.length ? `${c.state.diagnostics.recentErrors.length} recent errors` : "No recent errors", related: ["privacy", "updates"] },
-];
+  { id: "setup-guide", label: "Setup guide", words: ["first run", "walkthrough", "wizard", "getting started", "set up again", "onboarding"], page: "support", section: "setup", status: true,
+    value: (c) => (c.state.setup.completed ? "Finished; open it again any time" : "Not finished yet"), related: ["input-access", "switch-list", "startup"] },
+  { id: "bluetooth", label: "Bluetooth connection", words: ["disconnect", "bluetooth off", "turn on bluetooth", "another switchify pc", "advertising", "nearby"], page: "support", section: "fix", status: true,
+    value: (c) => bluetoothWords[c.state.bluetooth], related: ["connection", "devices"] },
+] as const satisfies readonly Entry[];
 
-export const entry = (id: string) => index.find((e) => e.id === id)!;
+/** An id the index knows, so a component can only mark itself as a setting that exists. */
+export type SettingId = (typeof catalogue)[number]["id"];
+export const index: readonly Entry[] = catalogue;
+
+export const entry = (id: string): Entry => index.find((e) => e.id === id)!;
 export const targetOf = (e: Entry): Target => ({ page: e.page, section: e.section, setting: e.id, area: e.area });
 export const available = (e: Entry, ctx: FindContext) => !e.when || e.when(ctx);
 export const sectionLabel = (page: Page, id: string) => sections[page].find((s) => s.id === id)?.label ?? "";
 
 /** Entries matching a query, best first: a label that starts with the word, then one of the words people use for it, then a label containing it, then anything else that mentions it. */
+/* --- Matching ------------------------------------------------------------
+   Words people use interchangeably. Each group reads as its first word, on
+   both the query and the index, so an entry lists one of them and matches
+   all. Keep groups to everyday words; the index words carry the rest. */
+const synonymGroups: readonly (readonly string[])[] = [
+  ["colour", "color"],
+  ["phone", "tablet", "mobile", "android", "device", "remote"],
+  ["speed", "rate", "interval", "fast", "slow", "faster", "slower", "quick", "quicker", "timing"],
+  ["highlight", "scanner", "outline", "marker"],
+  ["switch", "button", "key"],
+  ["licence", "license", "purchase", "buy", "subscription", "pay"],
+  ["start", "startup", "launch", "boot", "autostart", "login"],
+  ["size", "bigger", "smaller", "larger", "large", "small", "zoom"],
+  ["pair", "pairing", "connect", "connection", "link"],
+  ["forget", "remove", "delete", "unpair"],
+  ["dark", "light", "theme"],
+  ["type", "typing", "keyboard"],
+];
+const canonical = new Map<string, string>();
+for (const group of synonymGroups) for (const word of group) canonical.set(word, group[0]);
+
+/** Lower case, one plural stripped, then its synonym group's first word. */
+export function normalise(word: string): string {
+  const w = word.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!w) return "";
+  if (canonical.has(w)) return canonical.get(w)!;
+  const stem = w.endsWith("ies") && w.length > 4 ? w.slice(0, -3) + "y" : w.endsWith("es") && w.length > 4 && /[sxz]es$|[cs]hes$/.test(w) ? w.slice(0, -2) : w.endsWith("s") && !w.endsWith("ss") && w.length > 3 ? w.slice(0, -1) : w;
+  return canonical.get(stem) ?? stem;
+}
+const tokens = (text: string) => text.split(/[^a-zA-Z0-9]+/).map(normalise).filter(Boolean);
+
+/** Within one edit (a typo, a missing or extra letter, two swapped letters) of each other. Short words must match exactly. */
+export function close(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 4 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    // One substitution, or two neighbours swapped.
+    return a.slice(i + 1) === b.slice(i + 1) || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+  }
+  // One letter missing from the shorter word.
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  return long.slice(i + 1) === short.slice(i);
+}
+
+type Indexed = { labelTokens: string[]; wordTokens: string[]; rawTokens: string[]; phrases: string[] };
+const indexed = new Map<string, Indexed>();
+function indexedOf(e: Entry): Indexed {
+  let done = indexed.get(e.id);
+  if (!done) {
+    const raw = (text: string) => text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+    done = { labelTokens: tokens(e.label), wordTokens: [...new Set(e.words.flatMap(tokens))], rawTokens: [...new Set([e.label, ...e.words].flatMap(raw))], phrases: e.words.map((w) => w.toLowerCase()) };
+    indexed.set(e.id, done);
+  }
+  return done;
+}
+
+/**
+ * Entries matching a query, best first. Every word of the query must match
+ * the entry somewhere: its label, its search words, the page and section it
+ * is on, or its current value. Spelling need not be exact, and a plural or a
+ * synonym counts, so "colr", "phones" and "quicker" all find their setting.
+ */
 export function search(query: string, ctx: FindContext): Entry[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return [];
+  const raw = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!raw.length) return [];
+  const terms = raw.map(normalise).filter(Boolean);
   const score = (e: Entry) => {
+    const { labelTokens, wordTokens, rawTokens, phrases } = indexedOf(e);
     const label = e.label.toLowerCase();
-    const haystack = [label, ...e.words, pageLabels[e.page].toLowerCase(), sectionLabel(e.page, e.section).toLowerCase(), (e.value(ctx) ?? "").toLowerCase()];
+    const haystack = [label, ...phrases, pageLabels[e.page].toLowerCase(), sectionLabel(e.page, e.section).toLowerCase(), (e.value(ctx) ?? "").toLowerCase()];
+    const haystackTokens = tokens(haystack.join(" "));
     let total = 0;
-    for (const t of terms) {
-      if (label.startsWith(t)) total += 6;
-      else if (e.words.includes(t)) total += 5;
-      else if (label.includes(t)) total += 4;
-      else if (e.words.some((w) => w.startsWith(t))) total += 3;
-      else if (haystack.some((h) => h.includes(t))) total += 1;
+    for (const [i, t] of terms.entries()) {
+      const typed = raw[i];
+      if (label.startsWith(typed) || labelTokens[0] === t) total += 6;
+      else if (labelTokens.includes(t) || wordTokens.includes(t)) total += 5;
+      else if (label.includes(typed) || phrases.some((p) => p.includes(typed))) total += 4;
+      else if (labelTokens.some((w) => w.startsWith(t)) || wordTokens.some((w) => w.startsWith(t))) total += 3;
+      else if (labelTokens.some((w) => close(t, w)) || wordTokens.some((w) => close(t, w)) || rawTokens.some((w) => close(typed, w))) total += 2;
+      else if (haystackTokens.includes(t) || haystack.some((h) => h.includes(typed))) total += 1;
       else return 0;
+      // The word as typed, not a synonym or a stem, breaks ties.
+      if (phrases.includes(typed) || e.label.toLowerCase().split(/[^a-z0-9]+/).includes(typed)) total += 1;
     }
-    return total;
+    // On a tie, the settings people most often come for rank first.
+    return total + (commonTasks.some((task) => task.setting === e.id) ? 0.5 : 0);
   };
   return index.filter((e) => available(e, ctx)).map((e) => ({ e, s: score(e) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.e);
 }
