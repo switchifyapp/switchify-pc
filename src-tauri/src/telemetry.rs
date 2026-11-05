@@ -556,6 +556,12 @@ impl TelemetryService {
         tauri::async_runtime::spawn(async move {
             let mut retry_blocked = false;
             loop {
+                // Subscribe before reading what to send, so an opt-out (and
+                // even a quick opt-in after it) during the read cancels it.
+                let mut consent = service.inner.consent_tx.subscribe();
+                if !*consent.borrow_and_update() {
+                    break;
+                }
                 let next = {
                     let data = service
                         .inner
@@ -567,10 +573,6 @@ impl TelemetryService {
                 let Some(next) = next else {
                     break;
                 };
-                let mut consent = service.inner.consent_tx.subscribe();
-                if !*consent.borrow() {
-                    break;
-                }
                 let envelope = match &next {
                     Delivery::SessionOpen {
                         session,
@@ -644,6 +646,11 @@ impl TelemetryService {
     /// opening and queued reports. One retry is pending at a time, and opting
     /// out cancels it.
     fn schedule_retry(&self) {
+        // After an opt-out there is nothing to retry, and counting it would
+        // lengthen the first retry after the next opt-in.
+        if !*self.inner.consent_tx.borrow() {
+            return;
+        }
         if self
             .inner
             .retry_scheduled
@@ -1494,7 +1501,11 @@ mod tests {
             vec![Duration::from_secs(600)],
         );
         service.start("1.6.0", "windows");
-        assert!(wait_until(|| service.inner.retry_scheduled.load(Ordering::Acquire)).await);
+        assert!(
+            wait_until(|| service.inner.retry_scheduled.load(Ordering::Acquire)
+                && service.inner.retry_attempt.load(Ordering::Acquire) == 1)
+            .await
+        );
         service.set_consent(TelemetryConsent::Disabled);
         // The timer is ten minutes long, so only cancellation clears it.
         let cancelled = tokio::time::timeout(Duration::from_secs(5), async {
