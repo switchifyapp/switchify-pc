@@ -8,8 +8,9 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,6 +22,13 @@ use crate::state::{ActivityKind, AppState};
 use crate::storage::replace_file;
 
 const MAX_QUEUED_REPORTS: usize = 20;
+/// Delays before flushing again after a retryable failure; the last repeats.
+const RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_secs(30),
+    Duration::from_secs(120),
+    Duration::from_secs(600),
+    Duration::from_secs(1800),
+];
 const SDK_NAME: &str = "switchify-pc";
 const RELEASE_PREFIX: &str = "switchify-pc@";
 
@@ -236,6 +244,9 @@ struct TelemetryInner {
     config: Option<TelemetryConfig>,
     data: Mutex<TelemetryData>,
     flushing: AtomicBool,
+    retry_scheduled: AtomicBool,
+    retry_attempt: AtomicUsize,
+    retry_delays: Vec<Duration>,
     consent_tx: tokio::sync::watch::Sender<bool>,
     transport: Arc<dyn TelemetryTransport>,
 }
@@ -268,6 +279,16 @@ impl TelemetryService {
         config: Option<TelemetryConfig>,
         transport: Arc<dyn TelemetryTransport>,
     ) -> Self {
+        Self::with_retry_delays(path, consent, config, transport, RETRY_DELAYS.to_vec())
+    }
+
+    fn with_retry_delays(
+        path: PathBuf,
+        consent: TelemetryConsent,
+        config: Option<TelemetryConfig>,
+        transport: Arc<dyn TelemetryTransport>,
+        retry_delays: Vec<Duration>,
+    ) -> Self {
         let disk = (consent == TelemetryConsent::Enabled)
             .then(|| load_disk(&path))
             .flatten();
@@ -291,6 +312,9 @@ impl TelemetryService {
                     session: None,
                 }),
                 flushing: AtomicBool::new(false),
+                retry_scheduled: AtomicBool::new(false),
+                retry_attempt: AtomicUsize::new(0),
+                retry_delays,
                 consent_tx,
                 transport,
             }),
@@ -397,7 +421,24 @@ impl TelemetryService {
         if self.inner.config.is_none() {
             return;
         }
-        let Ok(mut data) = self.inner.data.try_lock() else {
+        // Another thread may hold the lock for a moment (a flush or a disk
+        // write), so try a bounded number of times; a poisoned lock still
+        // holds valid data. If this thread holds it, give up rather than wait.
+        let mut data = None;
+        for _ in 0..200 {
+            match self.inner.data.try_lock() {
+                Ok(guard) => data = Some(guard),
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                    data = Some(poisoned.into_inner());
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+            }
+            break;
+        }
+        let Some(mut data) = data else {
             return;
         };
         let Some(mut report) = create_report(&data, "fatal", "panic", kind) else {
@@ -458,9 +499,10 @@ impl TelemetryService {
     }
 
     /// Opens a release-health session for this launch once consent and the
-    /// build are both known. The flush delivers its opening update ahead of
-    /// queued reports and retries it like them, so a launch that starts
-    /// offline is still counted. It is never written to disk.
+    /// build are both known. The next flush, which callers start, delivers
+    /// its opening update ahead of queued reports and retries it like them,
+    /// so a launch that starts offline is still counted. It is never written
+    /// to disk.
     fn start_session(&self) {
         if self.inner.config.is_none() {
             return;
@@ -484,7 +526,6 @@ impl TelemetryService {
                 init: true,
             });
         }
-        self.flush();
     }
 
     fn flush(&self) {
@@ -575,8 +616,46 @@ impl TelemetryService {
                     }
                 }
                 let _ = persist_locked(&service.inner.path, &data);
+                service.inner.retry_attempt.store(0, Ordering::Release);
             }
-            if service.finish_flush(retry_blocked) {
+            if retry_blocked {
+                service.finish_flush(true);
+                service.schedule_retry();
+            } else if service.finish_flush(false) {
+                service.flush();
+            }
+        });
+    }
+
+    /// After a retryable failure, flushes again after a growing delay, so a
+    /// launch that starts before the network is up still delivers its session
+    /// opening and queued reports. One retry is pending at a time, and opting
+    /// out cancels it.
+    fn schedule_retry(&self) {
+        if self
+            .inner
+            .retry_scheduled
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let attempt = self.inner.retry_attempt.fetch_add(1, Ordering::AcqRel);
+        let delays = &self.inner.retry_delays;
+        let delay = delays[attempt.min(delays.len() - 1)];
+        let service = self.clone();
+        let mut consent = self.inner.consent_tx.subscribe();
+        tauri::async_runtime::spawn(async move {
+            let opted_out = tokio::select! {
+                biased;
+                _ = consent.wait_for(|enabled| !*enabled) => true,
+                _ = tokio::time::sleep(delay) => false,
+            };
+            service
+                .inner
+                .retry_scheduled
+                .store(false, Ordering::Release);
+            if !opted_out {
                 service.flush();
             }
         });
@@ -641,7 +720,9 @@ fn next_delivery(data: &TelemetryData) -> Option<Delivery> {
 /// quotes the whole string, which may be typed text), and so can an `expect`
 /// or `panic!` message built with `format!`.
 fn panic_kind(message: &str) -> &'static str {
-    const KINDS: [(&str, &str); 9] = [
+    // Standard library panic prefixes only, matched at the start so a message
+    // quoting typed text cannot choose the label. Specific entries first.
+    const KINDS: [(&str, &str); 11] = [
         (
             "called `Option::unwrap()` on a `None` value",
             "unwrap on None",
@@ -650,20 +731,25 @@ fn panic_kind(message: &str) -> &'static str {
             "called `Result::unwrap()` on an `Err` value",
             "unwrap on Err",
         ),
-        ("called `Option::expect()`", "expect on None"),
         ("index out of bounds", "index out of bounds"),
         ("byte index", "string index out of range"),
+        ("start byte index", "string index out of range"),
+        ("end byte index", "string index out of range"),
+        ("attempt to divide by zero", "division by zero"),
+        (
+            "attempt to calculate the remainder with a divisor of zero",
+            "division by zero",
+        ),
         ("attempt to", "arithmetic overflow"),
-        ("already borrowed", "RefCell already borrowed"),
         (
             "already mutably borrowed",
             "RefCell already mutably borrowed",
         ),
-        ("PoisonError", "poisoned lock"),
+        ("already borrowed", "RefCell already borrowed"),
     ];
     KINDS
         .iter()
-        .find(|(prefix, _)| message.starts_with(prefix) || message.contains(prefix))
+        .find(|(prefix, _)| message.starts_with(prefix))
         .map_or("panic", |(_, kind)| kind)
 }
 
@@ -961,7 +1047,6 @@ fn persist_locked(path: &Path, data: &TelemetryData) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    use std::sync::atomic::AtomicUsize;
 
     const TEST_DSN: &str = "https://abc123@o1.ingest.de.sentry.io/4500000000000001";
 
@@ -1335,7 +1420,71 @@ mod tests {
             "unwrap on Err"
         );
         assert_eq!(panic_kind("failed to open my private file"), "panic");
+        assert_eq!(panic_kind("word index out of bounds"), "panic");
+        assert_eq!(panic_kind("attempt to divide by zero"), "division by zero");
+        assert_eq!(
+            panic_kind("attempt to add with overflow"),
+            "arithmetic overflow"
+        );
         assert_eq!(panic_kind(""), "panic");
+    }
+
+    #[tokio::test]
+    async fn an_offline_launch_retries_its_session_opening_by_itself() {
+        let transport = Arc::new(FakeTransport::new([SendOutcome::Retry, SendOutcome::Retry]));
+        let path = temp_path();
+        let service = TelemetryService::with_retry_delays(
+            path.clone(),
+            TelemetryConsent::Enabled,
+            TelemetryConfig::from_dsn(TEST_DSN),
+            transport.clone(),
+            vec![Duration::from_millis(10)],
+        );
+        service.start("1.6.0", "windows");
+        // Two failures, then the retry timer delivers it with nothing else
+        // starting a flush.
+        assert!(wait_until(|| transport.sent().len() == 3).await);
+        let sent = transport.sent();
+        assert!(sent
+            .iter()
+            .all(|envelope| lines(envelope)[2]["status"] == "ok"));
+        assert!(
+            wait_until(|| {
+                service
+                    .inner
+                    .data
+                    .lock()
+                    .unwrap()
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| !session.init)
+            })
+            .await
+        );
+        settle().await;
+        assert_eq!(transport.sent().len(), 3);
+        assert_eq!(service.inner.retry_attempt.load(Ordering::Acquire), 0);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn opting_out_cancels_a_pending_retry() {
+        let transport = Arc::new(FakeTransport::new([SendOutcome::Retry]));
+        let path = temp_path();
+        let service = TelemetryService::with_retry_delays(
+            path.clone(),
+            TelemetryConsent::Enabled,
+            TelemetryConfig::from_dsn(TEST_DSN),
+            transport.clone(),
+            vec![Duration::from_millis(200)],
+        );
+        service.start("1.6.0", "windows");
+        assert!(wait_until(|| service.inner.retry_scheduled.load(Ordering::Acquire)).await);
+        service.set_consent(TelemetryConsent::Disabled);
+        assert!(wait_until(|| !service.inner.retry_scheduled.load(Ordering::Acquire)).await);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(transport.sent().len(), 1);
+        assert!(!path.exists());
     }
 
     #[test]

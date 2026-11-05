@@ -57,7 +57,7 @@ transfers and refunds.
 
 When sharing is on, Switchify PC sends reports to [Sentry](https://sentry.io), a service for tracking app problems:
 
-- a note each time the app starts, with its version and whether the computer runs Windows or macOS
+- a note each time the app starts, with its version
 - error messages from the app, with anything that looks like a file path, password or key removed
 - a report if a part of Switchify PC stops with an internal error, giving only the kind of error and the source file and line where it happened
 
