@@ -17,7 +17,7 @@ Switchify PC's Help page has **Setup** and **Fix a problem** sections with the s
 
 Holding any switch for about 4 seconds is the emergency stop; so is Escape. Press Select to start again. The scan also resets after three passes without a selection, and when the display or the window in front changes during a point scan.
 
-When the computer goes to sleep, Switchify PC releases the switch keys and shows **Switches paused while the computer sleeps**. After it wakes, scanning starts again on its own within a few seconds; press Select to begin. If the switches stay quiet after wake, release them, wait a moment and press Select once more, or restart Switchify PC. Sleep also ends a session forwarded from your phone; start forwarding again once the computer is awake.
+When the computer goes to sleep, Switchify PC releases the switch keys and shows **Switches paused while the computer sleeps**. On Windows, it replaces the switch listener after wake so the listener from before sleep cannot leave scanning stuck. Scanning starts again on its own within a few seconds; release your switches, then press and release Select to begin. If Bluetooth recovery failed while the computer woke unattended, Switchify PC tries again when you return. Sleep also ends a session forwarded from your phone; start forwarding again once the computer is awake. If switches still do not respond, restart Switchify PC and report the problem, including whether the computer was asleep or hibernating.
 
 If Home shows **Listening paused** under Saved switches, someone chose **Pause listening** in the tray or menu bar. Choose **Resume listening** there or on Home, or restart Switchify PC.
 

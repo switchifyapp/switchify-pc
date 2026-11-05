@@ -578,35 +578,30 @@ impl Capture {
     /// The computer woke. Scanning re-arms capture on its next tick.
     pub fn resume(&mut self) {
         #[cfg(target_os = "windows")]
-        let failed = self
-            .driver
-            .core
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .worker_failed;
-        #[cfg(target_os = "windows")]
-        match &self.native {
-            Some(native) if failed || native.finished() => {
-                // The worker process, and with it the hook, is gone (a
-                // latched failure always terminates its job): no key is
-                // suppressed, so its last reported ownership is stale.
-                self.native.take();
-                self.driver
-                    .core
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .physical
-                    .clear();
-            }
-            Some(native) => native.resume(),
-            None => {}
+        {
+            resume_after_worker_exit(self.native.take(), &self.driver.core);
         }
+        #[cfg(not(target_os = "windows"))]
         self.driver
             .core
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .resume();
     }
+}
+
+/// Retire the pre-sleep worker even when it has not reported a failure yet.
+/// Its destructor terminates the job and joins the IO thread. Only then can
+/// we clear stale ownership and the failure latch without a late callback
+/// restoring them. Do not hold the core lock while joining that thread.
+#[cfg(any(target_os = "windows", test))]
+fn resume_after_worker_exit<T>(worker: Option<T>, core: &Mutex<Core>) {
+    drop(worker);
+    let mut core = core.lock().unwrap_or_else(|p| p.into_inner());
+    // Also handles wake notifications when the suspend signal was missed.
+    core.suspend();
+    core.physical.clear();
+    core.resume();
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -738,6 +733,64 @@ mod tests {
         assert!(!c.worker_failed);
         c.begin(Mode::Active, 10);
         assert_eq!(c.status.mode, Mode::Active);
+    }
+    #[test]
+    fn wake_retires_a_slow_worker_before_clearing_its_failure_and_owned_keys() {
+        // Fake the IO thread reporting an error as its worker is retired.
+        // No native input adapter is installed by this test.
+        struct SlowWorker(Arc<Mutex<Core>>);
+        impl Drop for SlowWorker {
+            fn drop(&mut self) {
+                let mut core = self
+                    .0
+                    .try_lock()
+                    .expect("retirement must not hold the core lock");
+                core.physical.insert("Space".into());
+                windows_worker_protocol::worker_failed(&mut core);
+            }
+        }
+        let core = Arc::new(Mutex::new(core()));
+        core.lock().unwrap().suspend();
+        assert!(!core.lock().unwrap().worker_failed);
+        resume_after_worker_exit(Some(SlowWorker(core.clone())), &core);
+        let mut core = core.lock().unwrap();
+        assert!(!core.worker_failed);
+        assert!(core.physical.is_empty());
+        assert_eq!(core.status.mode, Mode::Off);
+        let snapshot = windows_worker_protocol::Snapshot {
+            status: Status {
+                generation: core.status.generation + 1,
+                mode: Mode::Active,
+                reason: None,
+            },
+            down: HashSet::new(),
+            owned: vec![],
+            native_lost: false,
+            recovering: false,
+            finished: false,
+            events: vec![],
+        };
+        let generation = snapshot.status.generation;
+        windows_worker_protocol::ready(&mut core, &snapshot, generation, Mode::Active, 60_000)
+            .unwrap();
+        assert!(core.key("Space", true, 60_001));
+        assert!(core.key("Space", false, 60_002));
+        assert_eq!(core.events.len(), 2);
+    }
+    #[test]
+    fn wake_without_a_suspend_signal_stops_the_old_session_before_rearming() {
+        let core = Mutex::new(core());
+        core.lock().unwrap().key("Space", true, 1);
+        resume_after_worker_exit::<()>(None, &core);
+        let core = core.lock().unwrap();
+        assert_eq!(core.status.mode, Mode::Off);
+        assert_eq!(core.status.reason, Some(StopReason::Suspended));
+        assert!(core.physical.is_empty());
+        assert!(!core.worker_failed);
+        assert!(core
+            .events
+            .iter()
+            .all(|event| matches!(event, Event::Stopped { .. })));
     }
     #[test]
     fn learns_only_complete_press_and_escape_cancels() {

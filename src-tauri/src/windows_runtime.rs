@@ -40,7 +40,7 @@ use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
     SharedModel,
 };
-use crate::windows_power::{PowerMonitor, PowerSignal};
+use crate::windows_power::{PowerCycle, PowerMonitor, PowerSignal};
 
 const SERVICE_UUID: GUID = GUID::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
 const RX_UUID: GUID = GUID::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
@@ -558,12 +558,17 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let power_shared = shared.clone();
     let power_lifecycle = lifecycle.clone();
     tauri::async_runtime::spawn(async move {
+        // Radio callbacks mutate the Bluetooth coordinator independently of
+        // sleep. They must never suppress local switch wake recovery.
+        let mut power_cycle = PowerCycle::default();
         while let Some(signal) = power_receiver.recv().await {
+            let new_cycle = power_cycle.accept(signal);
             handle_power_signal(
                 power_app.clone(),
                 power_shared.clone(),
                 power_lifecycle.clone(),
                 signal,
+                new_cycle,
             );
         }
     });
@@ -576,11 +581,26 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     Ok(())
 }
 
+fn bluetooth_resume_generation(
+    lifecycle: &mut RecoveryCoordinator,
+    new_cycle: bool,
+    now: Instant,
+) -> Option<u64> {
+    if new_cycle {
+        lifecycle.resume(now)
+    } else {
+        // A later interactive wake must leave healthy/in-flight recovery
+        // alone, but retry a failed unattended wake when the user returns.
+        lifecycle.recover_from_terminal()
+    }
+}
+
 fn handle_power_signal(
     app: AppHandle,
     shared: SharedModel,
     lifecycle: Arc<Mutex<RecoveryCoordinator>>,
     signal: PowerSignal,
+    new_cycle: bool,
 ) {
     match signal {
         PowerSignal::Suspend => {
@@ -601,14 +621,19 @@ fn handle_power_signal(
                 switches.suspend();
             }
         }
-        PowerSignal::Resume => {
-            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
-                switches.resume();
+        PowerSignal::ResumeAutomatic | PowerSignal::ResumeInteractive => {
+            if new_cycle {
+                if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                    switches.resume();
+                }
             }
-            let generation = lifecycle
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .resume(Instant::now());
+            let generation = bluetooth_resume_generation(
+                &mut lifecycle
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                new_cycle,
+                Instant::now(),
+            );
             if let Some(generation) = generation {
                 reset_transport(&app, &shared, BluetoothState::Initializing);
                 spawn_recovery(app, shared, lifecycle, generation);
@@ -2514,6 +2539,62 @@ fn release_input_session() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn interactive_wake_retries_failed_bluetooth_without_restarting_switch_capture() {
+        use super::{bluetooth_resume_generation, PowerCycle, PowerSignal, RecoveryCoordinator};
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let mut bluetooth = RecoveryCoordinator::default();
+        let mut cycle = PowerCycle::default();
+        cycle.accept(PowerSignal::Suspend);
+        bluetooth.suspend();
+        let automatic = cycle.accept(PowerSignal::ResumeAutomatic);
+        assert!(automatic);
+        let generation = bluetooth_resume_generation(&mut bluetooth, automatic, now).unwrap();
+        assert!(bluetooth.mark_terminal(generation));
+        // The user returns after unattended recovery exhausted its retries.
+        let interactive = cycle.accept(PowerSignal::ResumeInteractive);
+        assert!(
+            !interactive,
+            "the replacement switch listener must stay intact"
+        );
+        let retry =
+            bluetooth_resume_generation(&mut bluetooth, interactive, now + Duration::from_secs(60))
+                .unwrap();
+        assert_ne!(generation, retry);
+        // More interactive notifications cannot interrupt in-flight recovery
+        // or reset a healthy connection and its new mobile session.
+        assert!(
+            bluetooth_resume_generation(&mut bluetooth, false, now + Duration::from_secs(61))
+                .is_none()
+        );
+        assert!(bluetooth.mark_active(retry));
+        assert!(
+            bluetooth_resume_generation(&mut bluetooth, false, now + Duration::from_secs(62))
+                .is_none()
+        );
+        assert!(bluetooth.is_active(retry));
+    }
+    #[test]
+    fn radio_recovery_during_sleep_cannot_suppress_switch_resume_or_duplicate_it() {
+        use super::{PowerCycle, PowerSignal, RecoveryCoordinator};
+        use std::time::Instant;
+        let now = Instant::now();
+        let mut bluetooth = RecoveryCoordinator::default();
+        let mut power_cycle = PowerCycle::default();
+        bluetooth.suspend();
+        assert!(power_cycle.accept(PowerSignal::Suspend));
+        // The real radio-Off callback interrupts the transport, and radio-On
+        // starts recovery before Windows delivers its resume notification.
+        bluetooth.interrupt_terminal();
+        assert!(bluetooth.recover_from_terminal().is_some());
+        assert!(bluetooth.resume(now).is_none());
+        // This independent gate still delivers resume to local switches.
+        assert!(power_cycle.accept(PowerSignal::ResumeAutomatic));
+        assert!(!power_cycle.accept(PowerSignal::ResumeInteractive));
+        power_cycle.accept(PowerSignal::Suspend);
+        assert!(power_cycle.accept(PowerSignal::ResumeAutomatic));
+    }
     use super::{
         advertisement_startup_decision, advertisement_status_needs_recovery,
         pointer_profile_for_display, run_notification_worker, select_notification_bytes,
