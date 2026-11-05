@@ -1,10 +1,18 @@
+//! Opt-in diagnostics reported to Sentry.
+//!
+//! Envelopes are built here from an allowlist rather than by the Sentry SDK,
+//! so nothing the SDK collects by default (host name, device model, IP-derived
+//! context, breadcrumbs, module lists, minidumps of process memory) can reach
+//! a report. Nothing is stored or sent until the user opts in.
+
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
 
@@ -13,7 +21,8 @@ use crate::state::{ActivityKind, AppState};
 use crate::storage::replace_file;
 
 const MAX_QUEUED_REPORTS: usize = 20;
-const SOURCE: &str = "switchify-pc";
+const SDK_NAME: &str = "switchify-pc";
+const RELEASE_PREFIX: &str = "switchify-pc@";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -30,41 +39,85 @@ pub struct TelemetryView {
     pub available: bool,
 }
 
-#[derive(Clone)]
+/// Where envelopes go, derived from a Sentry DSN of the form
+/// `https://<public key>@<host>[/<path>]/<project id>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TelemetryConfig {
-    endpoint: String,
-    api_key: String,
+    envelope_url: String,
+    public_key: String,
 }
 
 impl TelemetryConfig {
     fn from_build() -> Option<Self> {
-        Self::new(
-            option_env!("SWITCHIFY_TELEMETRY_ENDPOINT").unwrap_or_default(),
-            option_env!("TIMBERLOGS_API_KEY").unwrap_or_default(),
-        )
+        Self::from_dsn(option_env!("SENTRY_DSN").unwrap_or_default())
     }
 
-    fn new(endpoint: impl Into<String>, api_key: impl Into<String>) -> Option<Self> {
-        let endpoint = endpoint.into().trim().to_owned();
-        let api_key = api_key.into().trim().to_owned();
-        (endpoint.starts_with("https://") && !api_key.is_empty())
-            .then_some(Self { endpoint, api_key })
+    fn from_dsn(dsn: &str) -> Option<Self> {
+        let rest = dsn.trim().strip_prefix("https://")?;
+        let (credentials, location) = rest.split_once('@')?;
+        // Legacy DSNs carry `key:secret`; only the public key is ever sent.
+        let public_key = credentials.split(':').next()?;
+        let (host, path) = location.split_once('/')?;
+        let path = path.trim_end_matches('/');
+        let (prefix, project) = path.rsplit_once('/').unwrap_or(("", path));
+        let valid_key = !public_key.is_empty()
+            && public_key
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric());
+        let valid_host = !host.is_empty()
+            && host
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || ".-:".contains(character));
+        let valid_prefix = prefix
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "/._-".contains(character));
+        let valid_project =
+            !project.is_empty() && project.chars().all(|character| character.is_ascii_digit());
+        if !(valid_key && valid_host && valid_prefix && valid_project) {
+            return None;
+        }
+        let prefix = if prefix.is_empty() {
+            String::new()
+        } else {
+            format!("/{prefix}")
+        };
+        Some(Self {
+            envelope_url: format!("https://{host}{prefix}/api/{project}/envelope/"),
+            public_key: public_key.to_owned(),
+        })
     }
+}
+
+/// A report waiting to be delivered. Fields from the earlier Timberlogs queue
+/// format that are not listed here are ignored, so a queue written by an older
+/// build still loads and is delivered to Sentry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct QueuedReport {
+    id: String,
+    level: String,
+    message: String,
+    dataset: String,
+    version: String,
+    tags: Vec<String>,
+    timestamp: String,
+    /// `file.rs:line` of a panic: the file name only, never a directory.
+    #[serde(default)]
+    location: Option<String>,
+    /// The release-health session this report ended as crashed.
+    #[serde(default)]
+    crashed_session: Option<SessionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct TelemetryLog {
+struct SessionRecord {
     id: String,
-    level: String,
-    message: String,
-    source: String,
-    environment: String,
-    dataset: String,
-    version: String,
-    tags: Vec<String>,
-    user_id: String,
-    timestamp: String,
+    started_ms: i64,
+    /// True until the session's opening update is known to be delivered, so
+    /// a crashed update sent without it opens the session as well.
+    #[serde(default)]
+    init: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,14 +125,24 @@ struct TelemetryLog {
 struct TelemetryDisk {
     install_id: String,
     #[serde(default)]
-    queue: Vec<TelemetryLog>,
+    queue: Vec<QueuedReport>,
+}
+
+/// The running build, recorded by `start` so later reports, and a session
+/// opened by an opt-in partway through a launch, carry it.
+#[derive(Debug, Clone)]
+struct BuildInfo {
+    version: String,
+    platform: String,
 }
 
 struct TelemetryData {
     consent: TelemetryConsent,
     install_id: Option<String>,
-    queue: Vec<TelemetryLog>,
+    queue: Vec<QueuedReport>,
     last_error: Option<String>,
+    build: Option<BuildInfo>,
+    session: Option<SessionRecord>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +155,7 @@ enum SendOutcome {
 type SendFuture = Pin<Box<dyn Future<Output = SendOutcome> + Send>>;
 
 trait TelemetryTransport: Send + Sync {
-    fn send(&self, config: TelemetryConfig, logs: Vec<TelemetryLog>) -> SendFuture;
+    fn send(&self, config: TelemetryConfig, envelope: String) -> SendFuture;
 }
 
 struct HttpTransport {
@@ -114,24 +177,35 @@ impl HttpTransport {
     fn build_request(
         &self,
         config: TelemetryConfig,
-        logs: Vec<TelemetryLog>,
+        envelope: String,
     ) -> Result<reqwest::Request, reqwest::Error> {
         self.client
-            .post(config.endpoint)
-            .bearer_auth(config.api_key)
-            .json(&serde_json::json!({ "logs": logs }))
+            .post(config.envelope_url)
+            .header(
+                "X-Sentry-Auth",
+                format!(
+                    "Sentry sentry_version=7, sentry_key={}, sentry_client={SDK_NAME}/{}",
+                    config.public_key,
+                    env!("CARGO_PKG_VERSION")
+                ),
+            )
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-sentry-envelope",
+            )
+            .body(envelope)
             .build()
     }
 }
 
 impl TelemetryTransport for HttpTransport {
-    fn send(&self, config: TelemetryConfig, logs: Vec<TelemetryLog>) -> SendFuture {
+    fn send(&self, config: TelemetryConfig, envelope: String) -> SendFuture {
         let client = self.client.clone();
         Box::pin(async move {
             let request = HttpTransport {
                 client: client.clone(),
             }
-            .build_request(config, logs);
+            .build_request(config, envelope);
             let response = match request {
                 Ok(request) => client.execute(request).await,
                 Err(_) => return SendOutcome::Drop,
@@ -176,6 +250,8 @@ impl std::fmt::Debug for TelemetryService {
     }
 }
 
+static PANIC_HOOK: Once = Once::new();
+
 impl TelemetryService {
     pub fn new(path: PathBuf, consent: TelemetryConsent) -> Self {
         Self::with_transport(
@@ -211,6 +287,8 @@ impl TelemetryService {
                     install_id,
                     queue: disk.map_or_else(Vec::new, |disk| disk.queue),
                     last_error: None,
+                    build: None,
+                    session: None,
                 }),
                 flushing: AtomicBool::new(false),
                 consent_tx,
@@ -260,6 +338,7 @@ impl TelemetryService {
             if consent != TelemetryConsent::Enabled {
                 data.install_id = None;
                 data.queue.clear();
+                data.session = None;
             }
             let _ = persist_locked(&self.inner.path, &data);
         }
@@ -267,13 +346,66 @@ impl TelemetryService {
             self.purge();
         } else {
             self.inner.consent_tx.send_replace(true);
+            self.start_session();
             self.flush();
         }
     }
 
+    /// Records the running build, opens this launch's release-health session
+    /// and delivers anything queued earlier, including a panic recorded in
+    /// the previous launch.
     pub fn start(&self, version: &str, platform: &str) {
-        self.report_health("app.startup.completed", version, platform);
+        {
+            let mut data = self
+                .inner
+                .data
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            data.build = Some(BuildInfo {
+                version: safe_label(version),
+                platform: safe_label(platform),
+            });
+        }
+        self.start_session();
         self.flush();
+    }
+
+    /// Records panics from now on, then runs the previous hook so the
+    /// standard panic output is unchanged. Installed once per process.
+    pub fn install_panic_hook(&self) {
+        let service = self.clone();
+        PANIC_HOOK.call_once(move || {
+            let previous = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let message = info.payload_as_str().unwrap_or("Panic without a message.");
+                let location = info
+                    .location()
+                    .map(|location| (location.file(), location.line()));
+                service.record_panic(message, location);
+                previous(info);
+            }));
+        });
+    }
+
+    /// Queues and persists a panic as a fatal event that also ends this
+    /// launch's session as crashed. It runs inside the panic hook, so it never
+    /// waits for the state lock (the panic may have happened while holding
+    /// it) and never sends: the process may be about to end, and the next
+    /// flush or launch delivers the persisted report.
+    fn record_panic(&self, message: &str, location: Option<(&str, u32)>) {
+        if self.inner.config.is_none() {
+            return;
+        }
+        let Ok(mut data) = self.inner.data.try_lock() else {
+            return;
+        };
+        let Some(mut report) = create_report(&data, "fatal", "panic", message) else {
+            return;
+        };
+        report.location = location.map(|(file, line)| safe_location(file, line));
+        report.crashed_session = data.session.take();
+        push_report(&mut data, report);
+        let _ = persist_locked(&self.inner.path, &data);
     }
 
     pub fn observe(&self, state: &AppState) {
@@ -300,77 +432,84 @@ impl TelemetryService {
     }
 
     pub fn report_exception(&self, message: &str, version: &str, platform: &str) {
-        let Some(log) = self.create_log("error", "runtime", message, version, platform) else {
+        if self.inner.config.is_none() {
             return;
-        };
+        }
         {
             let mut data = self
                 .inner
                 .data
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            data.queue.push(log);
-            let excess = data.queue.len().saturating_sub(MAX_QUEUED_REPORTS);
-            if excess > 0 {
-                data.queue.drain(..excess);
+            if data.build.is_none() {
+                data.build = Some(BuildInfo {
+                    version: safe_label(version),
+                    platform: safe_label(platform),
+                });
             }
+            let Some(report) = create_report(&data, "error", "runtime", message) else {
+                return;
+            };
+            push_report(&mut data, report);
             let _ = persist_locked(&self.inner.path, &data);
         }
         self.flush();
     }
 
-    pub fn report_health(&self, name: &str, version: &str, platform: &str) {
+    /// Opens a release-health session for this launch once consent and the
+    /// build are both known. Like the earlier startup ping it is best effort:
+    /// it is not queued, and opting out cancels a request in flight.
+    fn start_session(&self) {
         let Some(config) = self.inner.config.clone() else {
             return;
         };
-        let Some(log) = self.create_log("info", "health", name, version, platform) else {
-            return;
+        let envelope = {
+            let mut data = self
+                .inner
+                .data
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if data.consent != TelemetryConsent::Enabled || data.session.is_some() {
+                return;
+            }
+            let (Some(build), Some(install_id)) = (data.build.clone(), data.install_id.clone())
+            else {
+                return;
+            };
+            let session = SessionRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                started_ms: crate::state::now_ms(),
+                init: true,
+            };
+            let envelope = session_envelope(&session, "ok", &install_id, &build.version);
+            data.session = Some(session);
+            envelope
         };
-        let transport = self.inner.transport.clone();
+        let service = self.clone();
         let mut consent = self.inner.consent_tx.subscribe();
         tauri::async_runtime::spawn(async move {
             if !*consent.borrow() {
                 return;
             }
-            tokio::select! {
+            let outcome = tokio::select! {
                 biased;
                 changed = consent.changed() => {
                     let _ = changed;
+                    None
                 }
-                _ = transport.send(config, vec![log]) => {}
+                outcome = service.inner.transport.send(config, envelope) => Some(outcome),
+            };
+            if outcome == Some(SendOutcome::Sent) {
+                let mut data = service
+                    .inner
+                    .data
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(session) = data.session.as_mut() {
+                    session.init = false;
+                }
             }
         });
-    }
-
-    fn create_log(
-        &self,
-        level: &str,
-        dataset: &str,
-        message: &str,
-        version: &str,
-        platform: &str,
-    ) -> Option<TelemetryLog> {
-        let data = self
-            .inner
-            .data
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if data.consent != TelemetryConsent::Enabled || self.inner.config.is_none() {
-            return None;
-        }
-        let install_id = data.install_id.clone()?;
-        Some(TelemetryLog {
-            id: uuid::Uuid::new_v4().to_string(),
-            level: safe_label(level),
-            message: sanitize_detail(message),
-            source: SOURCE.into(),
-            environment: "production".into(),
-            dataset: safe_label(dataset),
-            version: safe_label(version),
-            tags: vec![safe_label(dataset), safe_label(platform)],
-            user_id: install_id,
-            timestamp: crate::state::now_ms().to_string(),
-        })
     }
 
     fn flush(&self) {
@@ -398,23 +537,24 @@ impl TelemetryService {
                     if data.consent != TelemetryConsent::Enabled {
                         None
                     } else {
-                        data.queue.first().cloned()
+                        data.queue.first().cloned().zip(data.install_id.clone())
                     }
                 };
-                let Some(next) = next else {
+                let Some((next, install_id)) = next else {
                     break;
                 };
                 let mut consent = service.inner.consent_tx.subscribe();
                 if !*consent.borrow() {
                     break;
                 }
+                let envelope = report_envelope(&next, &install_id);
                 let outcome = tokio::select! {
                     biased;
                     changed = consent.changed() => {
                         let _ = changed;
                         None
                     }
-                    outcome = service.inner.transport.send(config.clone(), vec![next.clone()]) => Some(outcome)
+                    outcome = service.inner.transport.send(config.clone(), envelope) => Some(outcome)
                 };
                 let Some(outcome) = outcome else {
                     break;
@@ -457,6 +597,177 @@ impl TelemetryService {
         let _ = std::fs::remove_file(&self.inner.path);
         let _ = std::fs::remove_file(self.inner.path.with_extension("json.tmp"));
     }
+}
+
+fn create_report(
+    data: &TelemetryData,
+    level: &str,
+    dataset: &str,
+    message: &str,
+) -> Option<QueuedReport> {
+    if data.consent != TelemetryConsent::Enabled {
+        return None;
+    }
+    data.install_id.as_ref()?;
+    let build = data.build.clone()?;
+    Some(QueuedReport {
+        id: uuid::Uuid::new_v4().to_string(),
+        level: safe_label(level),
+        message: sanitize_detail(message),
+        dataset: safe_label(dataset),
+        version: build.version,
+        tags: vec![safe_label(dataset), build.platform],
+        timestamp: crate::state::now_ms().to_string(),
+        location: None,
+        crashed_session: None,
+    })
+}
+
+fn push_report(data: &mut TelemetryData, report: QueuedReport) {
+    data.queue.push(report);
+    let excess = data.queue.len().saturating_sub(MAX_QUEUED_REPORTS);
+    if excess > 0 {
+        data.queue.drain(..excess);
+    }
+}
+
+fn environment(version: &str) -> &'static str {
+    if version.contains('-') {
+        "prerelease"
+    } else {
+        "production"
+    }
+}
+
+/// One Sentry envelope holding the report as an event, followed by the
+/// crashed session update when the report ended one. Only the fields listed
+/// here are sent.
+fn report_envelope(report: &QueuedReport, install_id: &str) -> String {
+    let event_id = report.id.replace('-', "");
+    let timestamp_ms = report.timestamp.parse::<i64>().unwrap_or(0);
+    let platform = report
+        .tags
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| "unknown".into());
+    let mut event = json!({
+        "event_id": event_id,
+        "timestamp": timestamp_ms as f64 / 1000.0,
+        "platform": "native",
+        "level": report.level,
+        "logger": report.dataset,
+        "release": format!("{RELEASE_PREFIX}{}", report.version),
+        "environment": environment(&report.version),
+        "user": { "id": install_id },
+        "tags": { "os": platform, "dataset": report.dataset },
+        "contexts": { "os": { "name": platform } },
+        "sdk": { "name": SDK_NAME, "version": env!("CARGO_PKG_VERSION") },
+    });
+    if report.dataset == "panic" {
+        let mut exception = json!({
+            "type": "panic",
+            "value": report.message,
+            "mechanism": { "type": "panic", "handled": false },
+        });
+        if let Some((file, line)) = report
+            .location
+            .as_deref()
+            .and_then(|location| location.rsplit_once(':'))
+        {
+            exception["stacktrace"] = json!({
+                "frames": [{
+                    "filename": file,
+                    "lineno": line.parse::<u32>().unwrap_or(0),
+                    "in_app": true,
+                }],
+            });
+        }
+        event["exception"] = json!({ "values": [exception] });
+    } else {
+        event["logentry"] = json!({ "formatted": report.message });
+    }
+    let mut lines = vec![
+        json!({ "event_id": event_id, "sent_at": rfc3339(crate::state::now_ms()) }).to_string(),
+        json!({ "type": "event" }).to_string(),
+        event.to_string(),
+    ];
+    if let Some(session) = &report.crashed_session {
+        lines.push(json!({ "type": "session" }).to_string());
+        lines.push(session_payload(session, "crashed", install_id, &report.version).to_string());
+    }
+    lines.join("\n") + "\n"
+}
+
+fn session_envelope(
+    session: &SessionRecord,
+    status: &str,
+    install_id: &str,
+    version: &str,
+) -> String {
+    [
+        json!({ "sent_at": rfc3339(crate::state::now_ms()) }).to_string(),
+        json!({ "type": "session" }).to_string(),
+        session_payload(session, status, install_id, version).to_string(),
+    ]
+    .join("\n")
+        + "\n"
+}
+
+fn session_payload(
+    session: &SessionRecord,
+    status: &str,
+    install_id: &str,
+    version: &str,
+) -> serde_json::Value {
+    json!({
+        "sid": session.id,
+        "did": install_id,
+        "init": session.init,
+        "started": rfc3339(session.started_ms),
+        "timestamp": rfc3339(crate::state::now_ms()),
+        "status": status,
+        "errors": u32::from(status == "crashed"),
+        "attrs": {
+            "release": format!("{RELEASE_PREFIX}{version}"),
+            "environment": environment(version),
+        },
+    })
+}
+
+/// Formats Unix milliseconds as an RFC 3339 UTC timestamp.
+fn rfc3339(ms: i64) -> String {
+    let seconds = ms.div_euclid(1000);
+    let millis = ms.rem_euclid(1000);
+    let days = seconds.div_euclid(86_400);
+    let second_of_day = seconds.rem_euclid(86_400);
+    // Civil date from days since the epoch (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
+        second_of_day / 3600,
+        second_of_day % 3600 / 60,
+        second_of_day % 60
+    )
+}
+
+/// The file name and line of a panic. Directories are dropped so neither a
+/// build machine path nor a Cargo registry path under a home folder leaves.
+fn safe_location(file: &str, line: u32) -> String {
+    let name = file.rsplit(['/', '\\']).next().unwrap_or_default();
+    format!("{}:{line}", safe_label(name))
 }
 
 fn safe_label(value: &str) -> String {
@@ -518,19 +829,31 @@ fn load_disk(path: &Path) -> Option<TelemetryDisk> {
     if uuid::Uuid::parse_str(&disk.install_id).is_err() {
         return None;
     }
+    disk.queue
+        .retain(|report| uuid::Uuid::parse_str(&report.id).is_ok());
     if disk.queue.len() > MAX_QUEUED_REPORTS {
         disk.queue = disk.queue.split_off(disk.queue.len() - MAX_QUEUED_REPORTS);
     }
-    for log in &mut disk.queue {
-        log.level = safe_label(&log.level);
-        log.message = sanitize_detail(&log.message);
-        log.source = SOURCE.into();
-        log.environment = "production".into();
-        log.dataset = safe_label(&log.dataset);
-        log.version = safe_label(&log.version);
-        log.tags = log.tags.iter().take(8).map(|tag| safe_label(tag)).collect();
-        log.user_id = disk.install_id.clone();
-        log.timestamp = safe_label(&log.timestamp);
+    for report in &mut disk.queue {
+        report.level = safe_label(&report.level);
+        report.message = sanitize_detail(&report.message);
+        report.dataset = safe_label(&report.dataset);
+        report.version = safe_label(&report.version);
+        report.tags = report
+            .tags
+            .iter()
+            .take(8)
+            .map(|tag| safe_label(tag))
+            .collect();
+        report.timestamp = safe_label(&report.timestamp);
+        report.location = report.location.as_deref().map(|location| {
+            let (file, line) = location.rsplit_once(':').unwrap_or((location, "0"));
+            safe_location(file, line.parse().unwrap_or(0))
+        });
+        report.crashed_session = report
+            .crashed_session
+            .take()
+            .filter(|session| uuid::Uuid::parse_str(&session.id).is_ok());
     }
     Some(disk)
 }
@@ -563,9 +886,11 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicUsize;
 
+    const TEST_DSN: &str = "https://abc123@o1.ingest.de.sentry.io/4500000000000001";
+
     struct FakeTransport {
         outcomes: Mutex<VecDeque<SendOutcome>>,
-        sent: Mutex<Vec<TelemetryLog>>,
+        sent: Mutex<Vec<String>>,
     }
 
     impl FakeTransport {
@@ -575,11 +900,15 @@ mod tests {
                 sent: Mutex::new(Vec::new()),
             }
         }
+
+        fn sent(&self) -> Vec<String> {
+            self.sent.lock().unwrap().clone()
+        }
     }
 
     impl TelemetryTransport for FakeTransport {
-        fn send(&self, _config: TelemetryConfig, logs: Vec<TelemetryLog>) -> SendFuture {
-            self.sent.lock().unwrap().extend(logs);
+        fn send(&self, _config: TelemetryConfig, envelope: String) -> SendFuture {
+            self.sent.lock().unwrap().push(envelope);
             let outcome = self
                 .outcomes
                 .lock()
@@ -597,7 +926,7 @@ mod tests {
     }
 
     impl TelemetryTransport for BlockingTransport {
-        fn send(&self, _config: TelemetryConfig, _logs: Vec<TelemetryLog>) -> SendFuture {
+        fn send(&self, _config: TelemetryConfig, _envelope: String) -> SendFuture {
             let started = self.started.clone();
             let release = self.release.clone();
             let delivered = self.delivered.clone();
@@ -610,22 +939,34 @@ mod tests {
         }
     }
 
+    fn temp_path() -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("switchify-telemetry-{}", uuid::Uuid::new_v4()))
+            .join("telemetry.json")
+    }
+
     fn test_service(
         consent: TelemetryConsent,
-        transport: Arc<FakeTransport>,
+        transport: Arc<dyn TelemetryTransport>,
     ) -> (TelemetryService, PathBuf) {
-        let path = std::env::temp_dir()
-            .join(format!("switchify-telemetry-{}", uuid::Uuid::new_v4()))
-            .join("telemetry.json");
+        let path = temp_path();
         (
             TelemetryService::with_transport(
                 path.clone(),
                 consent,
-                TelemetryConfig::new("https://telemetry.example.test", "test-key"),
+                TelemetryConfig::from_dsn(TEST_DSN),
                 transport,
             ),
             path,
         )
+    }
+
+    /// Parses an envelope into its JSON lines.
+    fn lines(envelope: &str) -> Vec<Value> {
+        envelope
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
     }
 
     async fn settle() {
@@ -650,10 +991,32 @@ mod tests {
     async fn nothing_is_stored_or_sent_before_opt_in() {
         let transport = Arc::new(FakeTransport::new([]));
         let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
+        service.start("1.0.0", "macos");
         service.report_exception("failure", "1.0.0", "macos");
+        service.record_panic("boom", Some(("src/lib.rs", 1)));
         settle().await;
         assert!(!path.exists());
-        assert!(transport.sent.lock().unwrap().is_empty());
+        assert!(transport.sent().is_empty());
+    }
+
+    #[tokio::test]
+    async fn opting_in_partway_through_a_launch_opens_one_session() {
+        let transport = Arc::new(FakeTransport::new([]));
+        let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
+        service.start("1.6.0", "windows");
+        service.set_consent(TelemetryConsent::Enabled);
+        service.set_consent(TelemetryConsent::Enabled);
+        assert!(wait_until(|| transport.sent().len() == 1).await);
+        settle().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        let envelope = lines(&sent[0]);
+        assert_eq!(envelope[1]["type"], "session");
+        assert_eq!(envelope[2]["status"], "ok");
+        assert_eq!(envelope[2]["init"], true);
+        assert_eq!(envelope[2]["attrs"]["release"], "switchify-pc@1.6.0");
+        assert_eq!(envelope[2]["attrs"]["environment"], "production");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[tokio::test]
@@ -669,7 +1032,7 @@ mod tests {
         assert!(
             wait_until(|| {
                 !service.inner.flushing.load(Ordering::Acquire)
-                    && transport.sent.lock().unwrap().len() == 1
+                    && transport.sent().len() == 1
                     && load_disk(&path).is_some_and(|disk| disk.queue.len() == 1)
             })
             .await,
@@ -688,20 +1051,22 @@ mod tests {
                 .is_empty();
             queue_empty
                 && !service.inner.flushing.load(Ordering::Acquire)
-                && transport.sent.lock().unwrap().len() >= 3
+                && transport.sent().len() >= 3
         })
         .await;
         assert!(
             flushed,
             "the successful flush should persist an empty queue (sent={}, flushing={}, queued={:?})",
-            transport.sent.lock().unwrap().len(),
+            transport.sent().len(),
             service.inner.flushing.load(Ordering::Acquire),
             load_disk(&path).map(|disk| disk.queue.len())
         );
         let second_disk = load_disk(&path).unwrap();
         assert_eq!(second_disk.install_id, first_disk.install_id);
         assert!(second_disk.queue.is_empty());
-        assert!(transport.sent.lock().unwrap().len() >= 3);
+        for envelope in transport.sent() {
+            assert_eq!(lines(&envelope)[2]["user"]["id"], first_disk.install_id);
+        }
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -715,14 +1080,16 @@ mod tests {
         assert!(path.exists());
         service.set_consent(TelemetryConsent::Disabled);
         assert!(!path.exists());
-        let sent_before = transport.sent.lock().unwrap().len();
+        let sent_before = transport.sent().len();
         service.report_exception("another failure", "1.0.0", "windows");
+        service.record_panic("boom", None);
         settle().await;
-        assert_eq!(transport.sent.lock().unwrap().len(), sent_before);
+        assert_eq!(transport.sent().len(), sent_before);
+        assert!(!path.exists());
     }
 
     #[tokio::test]
-    async fn opt_out_cancels_a_prepared_health_request() {
+    async fn opt_out_cancels_a_prepared_session_request() {
         let started = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
         let delivered = Arc::new(AtomicUsize::new(0));
@@ -731,17 +1098,9 @@ mod tests {
             release: release.clone(),
             delivered: delivered.clone(),
         });
-        let path = std::env::temp_dir()
-            .join(format!("switchify-telemetry-{}", uuid::Uuid::new_v4()))
-            .join("telemetry.json");
-        let service = TelemetryService::with_transport(
-            path.clone(),
-            TelemetryConsent::Enabled,
-            TelemetryConfig::new("https://telemetry.example.test", "test-key"),
-            transport,
-        );
+        let (service, path) = test_service(TelemetryConsent::Enabled, transport);
         let started_signal = started.notified();
-        service.report_health("app.healthy", "1.0.0", "macos");
+        service.start("1.0.0", "macos");
         started_signal.await;
         service.set_consent(TelemetryConsent::Disabled);
         release.notify_waiters();
@@ -765,9 +1124,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queue_is_bounded_and_health_failures_are_not_queued() {
-        // One Retry per exception flush plus one for the health send, so the
-        // fake can never run dry and start answering Sent mid-test.
+    async fn queue_is_bounded_and_session_failures_are_not_queued() {
+        // One Retry per exception flush plus one for the session, so the fake
+        // can never run dry and start answering Sent mid-test.
         let transport = Arc::new(FakeTransport::new(std::iter::repeat_n(
             SendOutcome::Retry,
             MAX_QUEUED_REPORTS + 3,
@@ -777,12 +1136,132 @@ mod tests {
         for index in 0..(MAX_QUEUED_REPORTS + 2) {
             service.report_exception(&format!("failure {index}"), "1.0.0", "macos");
         }
-        service.report_health("app.healthy", "1.0.0", "macos");
+        service.start("1.0.0", "macos");
         settle().await;
         let disk = load_disk(&path).unwrap();
         assert_eq!(disk.queue.len(), MAX_QUEUED_REPORTS);
         assert_eq!(disk.queue.first().unwrap().message, "failure 2");
-        assert!(disk.queue.iter().all(|log| log.dataset == "runtime"));
+        assert!(disk.queue.iter().all(|report| report.dataset == "runtime"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_panic_is_persisted_and_sent_with_the_crashed_session() {
+        // The session opening fails, so the crashed update must open it.
+        let transport = Arc::new(FakeTransport::new([SendOutcome::Retry]));
+        let (service, path) = test_service(TelemetryConsent::Enabled, transport.clone());
+        service.start("1.6.0-rc.1", "windows");
+        settle().await;
+        service.record_panic(
+            "index out of bounds at C:\\Users\\Owen\\secret.txt",
+            Some(("C:\\Users\\Owen\\.cargo\\registry\\src\\scan_menu.rs", 42)),
+        );
+        let disk = load_disk(&path).unwrap();
+        let report = disk.queue.first().unwrap();
+        assert_eq!(report.level, "fatal");
+        assert_eq!(report.location.as_deref(), Some("scan_menu.rs:42"));
+        assert!(report.crashed_session.as_ref().unwrap().init);
+
+        // The next launch delivers it.
+        let next = Arc::new(FakeTransport::new([]));
+        let relaunched = TelemetryService::with_transport(
+            path.clone(),
+            TelemetryConsent::Enabled,
+            TelemetryConfig::from_dsn(TEST_DSN),
+            next.clone(),
+        );
+        relaunched.start("1.6.0-rc.1", "windows");
+        assert!(wait_until(|| next.sent().len() == 2).await);
+        let envelope = next
+            .sent()
+            .into_iter()
+            .find(|envelope| envelope.contains("\"exception\""))
+            .unwrap();
+        assert!(!envelope.contains("Owen"));
+        assert!(!envelope.contains("Users"));
+        let parsed = lines(&envelope);
+        assert_eq!(parsed[1]["type"], "event");
+        let exception = &parsed[2]["exception"]["values"][0];
+        assert_eq!(exception["mechanism"]["handled"], false);
+        assert_eq!(
+            exception["stacktrace"]["frames"][0]["filename"],
+            "scan_menu.rs"
+        );
+        assert_eq!(parsed[2]["environment"], "prerelease");
+        assert_eq!(parsed[3]["type"], "session");
+        assert_eq!(parsed[4]["status"], "crashed");
+        assert_eq!(parsed[4]["init"], true);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn envelopes_carry_only_the_allowlisted_fields() {
+        let report = QueuedReport {
+            id: uuid::Uuid::new_v4().to_string(),
+            level: "error".into(),
+            message: "Bluetooth stopped".into(),
+            dataset: "runtime".into(),
+            version: "1.6.0".into(),
+            tags: vec!["runtime".into(), "macos".into()],
+            timestamp: "1700000000123".into(),
+            location: None,
+            crashed_session: None,
+        };
+        let parsed = lines(&report_envelope(&report, "install-id"));
+        assert_eq!(parsed.len(), 3);
+        let event = parsed[2].as_object().unwrap();
+        let mut keys = event.keys().map(String::as_str).collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "contexts",
+                "environment",
+                "event_id",
+                "level",
+                "logentry",
+                "logger",
+                "platform",
+                "release",
+                "sdk",
+                "tags",
+                "timestamp",
+                "user"
+            ]
+        );
+        assert_eq!(event["user"], json!({ "id": "install-id" }));
+        assert_eq!(event["contexts"], json!({ "os": { "name": "macos" } }));
+        assert_eq!(event["logentry"]["formatted"], "Bluetooth stopped");
+        assert_eq!(event["timestamp"], 1_700_000_000.123);
+        assert_eq!(parsed[0]["event_id"], event["event_id"]);
+    }
+
+    #[test]
+    fn a_timberlogs_queue_from_an_earlier_build_still_loads() {
+        let path = temp_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let install_id = uuid::Uuid::new_v4().to_string();
+        let old = json!({
+            "installId": install_id,
+            "queue": [{
+                "id": uuid::Uuid::new_v4().to_string(),
+                "level": "error",
+                "message": "Bluetooth stopped",
+                "source": "switchify-pc",
+                "environment": "production",
+                "dataset": "runtime",
+                "version": "1.5.2",
+                "tags": ["runtime", "windows"],
+                "userId": install_id,
+                "timestamp": "1700000000000",
+            }],
+        });
+        std::fs::write(&path, old.to_string()).unwrap();
+        let disk = load_disk(&path).unwrap();
+        assert_eq!(disk.install_id, install_id);
+        assert_eq!(disk.queue.len(), 1);
+        assert_eq!(disk.queue[0].message, "Bluetooth stopped");
+        assert!(disk.queue[0].crashed_session.is_none());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -809,35 +1288,73 @@ mod tests {
     }
 
     #[test]
-    fn configuration_requires_https_endpoint_and_a_key() {
-        assert!(TelemetryConfig::new("", "key").is_none());
-        assert!(TelemetryConfig::new("http://example.test", "key").is_none());
-        assert!(TelemetryConfig::new("https://example.test", "").is_none());
-        assert!(TelemetryConfig::new("https://example.test", "key").is_some());
+    fn dsn_parsing_requires_https_a_key_and_a_numeric_project() {
+        assert_eq!(
+            TelemetryConfig::from_dsn(TEST_DSN),
+            Some(TelemetryConfig {
+                envelope_url: "https://o1.ingest.de.sentry.io/api/4500000000000001/envelope/"
+                    .into(),
+                public_key: "abc123".into(),
+            })
+        );
+        assert_eq!(
+            TelemetryConfig::from_dsn("https://key:secret@sentry.example.test/base/7")
+                .unwrap()
+                .envelope_url,
+            "https://sentry.example.test/base/api/7/envelope/"
+        );
+        assert_eq!(
+            TelemetryConfig::from_dsn("https://key:secret@sentry.example.test/7")
+                .unwrap()
+                .public_key,
+            "key"
+        );
+        for invalid in [
+            "",
+            "http://key@sentry.example.test/7",
+            "https://sentry.example.test/7",
+            "https://@sentry.example.test/7",
+            "https://key@sentry.example.test/",
+            "https://key@sentry.example.test/project",
+            "https://key@sentry.example.test?x=/7",
+        ] {
+            assert!(TelemetryConfig::from_dsn(invalid).is_none(), "{invalid}");
+        }
     }
 
     #[test]
-    fn http_transport_uses_bearer_auth_and_the_logs_envelope() {
+    fn http_transport_uses_the_sentry_auth_header_and_envelope_body() {
         let transport = HttpTransport::default();
-        let config = TelemetryConfig::new("https://example.test/logs", "test-key").unwrap();
-        let log = TelemetryLog {
-            id: "report-id".into(),
-            level: "info".into(),
-            message: "healthy".into(),
-            source: SOURCE.into(),
-            environment: "production".into(),
-            dataset: "health".into(),
-            version: "1.0.0".into(),
-            tags: vec!["health".into()],
-            user_id: uuid::Uuid::new_v4().to_string(),
-            timestamp: "1".into(),
-        };
-        let request = transport.build_request(config, vec![log]).unwrap();
+        let config = TelemetryConfig::from_dsn(TEST_DSN).unwrap();
+        let request = transport
+            .build_request(config, "{}\n{\"type\":\"session\"}\n{}\n".into())
+            .unwrap();
         assert_eq!(
-            request.headers()[reqwest::header::AUTHORIZATION],
-            "Bearer test-key"
+            request.url().as_str(),
+            "https://o1.ingest.de.sentry.io/api/4500000000000001/envelope/"
         );
-        let body = request.body().unwrap().as_bytes().unwrap();
-        assert!(std::str::from_utf8(body).unwrap().contains("\"logs\""));
+        let auth = request.headers()["X-Sentry-Auth"].to_str().unwrap();
+        assert!(auth.starts_with("Sentry sentry_version=7, sentry_key=abc123,"));
+        assert_eq!(
+            request.headers()[reqwest::header::CONTENT_TYPE],
+            "application/x-sentry-envelope"
+        );
+    }
+
+    #[test]
+    fn timestamps_are_rfc3339_utc() {
+        assert_eq!(rfc3339(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(rfc3339(1_700_000_000_123), "2023-11-14T22:13:20.123Z");
+        assert_eq!(rfc3339(951_782_400_000), "2000-02-29T00:00:00.000Z");
+    }
+
+    #[test]
+    fn panic_locations_keep_only_the_file_name() {
+        assert_eq!(safe_location("src/scan_menu.rs", 12), "scan_menu.rs:12");
+        assert_eq!(
+            safe_location("C:\\Users\\Someone\\a b\\lib.rs", 3),
+            "lib.rs:3"
+        );
+        assert_eq!(safe_location("", 3), "unknown:3");
     }
 }

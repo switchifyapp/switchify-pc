@@ -25,7 +25,6 @@ Configure these environment secrets:
 | `APPLE_API_ISSUER` | App Store Connect API issuer UUID |
 | `APPLE_API_KEY` | App Store Connect API key ID |
 | `APPLE_API_PRIVATE_KEY` | Complete contents of the downloaded `.p8` file |
-| `TIMBERLOGS_API_KEY` | Production telemetry API key |
 | `TAURI_SIGNING_PRIVATE_KEY` | Password-protected Tauri updater private key |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the updater private key |
 
@@ -35,7 +34,7 @@ Configure these environment variables:
 | --- | --- |
 | `APPLE_SIGNING_IDENTITY` | Full `Developer ID Application: … (TEAMID)` identity |
 | `APPLE_TEAM_ID` | Apple Developer team ID from the identity |
-| `TIMBERLOGS_ENDPOINT` | Production HTTPS telemetry endpoint |
+| `SENTRY_DSN` | Sentry DSN for opt-in diagnostics (`https://…`); the Windows job reads it too |
 | `SWITCHIFY_SUPABASE_URL` | Supabase project URL for accounts and settings sync (HTTPS) |
 | `SWITCHIFY_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (public, `sb_publishable_…`) |
 
