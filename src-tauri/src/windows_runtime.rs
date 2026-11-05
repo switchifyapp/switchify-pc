@@ -40,7 +40,7 @@ use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
     SharedModel,
 };
-use crate::windows_power::{PowerMonitor, PowerSignal};
+use crate::windows_power::{PowerCycle, PowerMonitor, PowerSignal};
 
 const SERVICE_UUID: GUID = GUID::from_u128(0x7a78f7e8_1d6d_4d92_9ef0_1f89d3db21f4);
 const RX_UUID: GUID = GUID::from_u128(0x7a78f7e9_1d6d_4d92_9ef0_1f89d3db21f4);
@@ -560,13 +560,15 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     tauri::async_runtime::spawn(async move {
         // Radio callbacks mutate the Bluetooth coordinator independently of
         // sleep. They must never suppress local switch wake recovery.
-        let mut switch_lifecycle = RecoveryCoordinator::default();
+        let mut power_cycle = PowerCycle::default();
         while let Some(signal) = power_receiver.recv().await {
+            if !power_cycle.accept(signal) {
+                continue;
+            }
             handle_power_signal(
                 power_app.clone(),
                 power_shared.clone(),
                 power_lifecycle.clone(),
-                &mut switch_lifecycle,
                 signal,
             );
         }
@@ -580,23 +582,14 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     Ok(())
 }
 
-fn resume_switch_capture(lifecycle: &mut RecoveryCoordinator, now: Instant, resume: impl FnOnce()) {
-    if let Some(generation) = lifecycle.resume(now) {
-        resume();
-        lifecycle.mark_active(generation);
-    }
-}
-
 fn handle_power_signal(
     app: AppHandle,
     shared: SharedModel,
     lifecycle: Arc<Mutex<RecoveryCoordinator>>,
-    switch_lifecycle: &mut RecoveryCoordinator,
     signal: PowerSignal,
 ) {
     match signal {
         PowerSignal::Suspend => {
-            switch_lifecycle.suspend();
             lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -614,15 +607,10 @@ fn handle_power_signal(
                 switches.suspend();
             }
         }
-        PowerSignal::Resume => {
-            // Coalesce automatic and interactive wake signals separately
-            // from Bluetooth, which may already be recovering after a
-            // radio change while the computer was asleep.
-            resume_switch_capture(switch_lifecycle, Instant::now(), || {
-                if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
-                    switches.resume();
-                }
-            });
+        PowerSignal::ResumeAutomatic | PowerSignal::ResumeInteractive => {
+            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                switches.resume();
+            }
             let generation = lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2534,30 +2522,23 @@ fn release_input_session() {
 mod tests {
     #[test]
     fn radio_recovery_during_sleep_cannot_suppress_switch_resume_or_duplicate_it() {
-        use super::{resume_switch_capture, RecoveryCoordinator};
-        use std::{
-            cell::Cell,
-            time::{Duration, Instant},
-        };
+        use super::{PowerCycle, PowerSignal, RecoveryCoordinator};
+        use std::time::Instant;
         let now = Instant::now();
         let mut bluetooth = RecoveryCoordinator::default();
-        let mut switches = RecoveryCoordinator::default();
+        let mut power_cycle = PowerCycle::default();
         bluetooth.suspend();
-        switches.suspend();
+        assert!(power_cycle.accept(PowerSignal::Suspend));
         // The real radio-Off callback interrupts the transport, and radio-On
         // starts recovery before Windows delivers its resume notification.
         bluetooth.interrupt_terminal();
         assert!(bluetooth.recover_from_terminal().is_some());
         assert!(bluetooth.resume(now).is_none());
-        let resumes = Cell::new(0);
-        let resume = || resumes.set(resumes.get() + 1);
-        resume_switch_capture(&mut switches, now, resume);
-        assert_eq!(resumes.get(), 1);
-        resume_switch_capture(&mut switches, now + Duration::from_millis(100), resume);
-        assert_eq!(resumes.get(), 1);
-        switches.suspend();
-        resume_switch_capture(&mut switches, now + Duration::from_millis(200), resume);
-        assert_eq!(resumes.get(), 2);
+        // This independent gate still delivers resume to local switches.
+        assert!(power_cycle.accept(PowerSignal::ResumeAutomatic));
+        assert!(!power_cycle.accept(PowerSignal::ResumeInteractive));
+        power_cycle.accept(PowerSignal::Suspend);
+        assert!(power_cycle.accept(PowerSignal::ResumeAutomatic));
     }
     use super::{
         advertisement_startup_decision, advertisement_status_needs_recovery,

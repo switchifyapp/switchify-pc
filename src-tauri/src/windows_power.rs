@@ -22,7 +22,38 @@ use windows::Win32::UI::WindowsAndMessaging::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerSignal {
     Suspend,
-    Resume,
+    ResumeAutomatic,
+    ResumeInteractive,
+}
+
+/// Windows sends automatic resume for every wake, including unattended
+/// wakes. Interactive resume follows when the user returns, possibly much
+/// later. Keep that pair in one cycle instead of using a time window.
+#[derive(Default)]
+pub struct PowerCycle {
+    resumed: bool,
+}
+
+impl PowerCycle {
+    pub fn accept(&mut self, signal: PowerSignal) -> bool {
+        match signal {
+            PowerSignal::Suspend => {
+                self.resumed = false;
+                true
+            }
+            PowerSignal::ResumeAutomatic => {
+                // Automatic resume starts a new wake even if Windows did
+                // not deliver the preceding suspend notification.
+                self.resumed = true;
+                true
+            }
+            PowerSignal::ResumeInteractive => {
+                let first = !self.resumed;
+                self.resumed = true;
+                first
+            }
+        }
+    }
 }
 
 pub struct PowerMonitor {
@@ -177,10 +208,10 @@ unsafe extern "system" fn window_proc(
 fn map_power_message(value: u32) -> Option<PowerSignal> {
     match value {
         PBT_APMSUSPEND => Some(PowerSignal::Suspend),
-        PBT_APMRESUMEAUTOMATIC
-        | PBT_APMRESUMESUSPEND
-        | PBT_APMRESUMECRITICAL
-        | PBT_APMRESUMESTANDBY => Some(PowerSignal::Resume),
+        PBT_APMRESUMEAUTOMATIC => Some(PowerSignal::ResumeAutomatic),
+        PBT_APMRESUMESUSPEND | PBT_APMRESUMECRITICAL | PBT_APMRESUMESTANDBY => {
+            Some(PowerSignal::ResumeInteractive)
+        }
         _ => None,
     }
 }
@@ -195,14 +226,51 @@ mod tests {
             map_power_message(PBT_APMSUSPEND),
             Some(PowerSignal::Suspend)
         );
+        assert_eq!(
+            map_power_message(PBT_APMRESUMEAUTOMATIC),
+            Some(PowerSignal::ResumeAutomatic)
+        );
         for message in [
-            PBT_APMRESUMEAUTOMATIC,
             PBT_APMRESUMESUSPEND,
             PBT_APMRESUMECRITICAL,
             PBT_APMRESUMESTANDBY,
         ] {
-            assert_eq!(map_power_message(message), Some(PowerSignal::Resume));
+            assert_eq!(
+                map_power_message(message),
+                Some(PowerSignal::ResumeInteractive)
+            );
         }
         assert_eq!(map_power_message(0), None);
+    }
+
+    #[test]
+    fn interactive_resume_does_not_restart_an_automatic_wake_even_much_later() {
+        let mut cycle = PowerCycle::default();
+        assert!(cycle.accept(PowerSignal::Suspend));
+        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
+        // No clock is consulted: interactive wake is part of this cycle
+        // whether it arrives in milliseconds or hours.
+        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+        assert!(cycle.accept(PowerSignal::Suspend));
+        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
+    }
+
+    #[test]
+    fn automatic_resume_recovers_when_suspend_or_interaction_was_missed() {
+        let mut cycle = PowerCycle::default();
+        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
+        // Another unattended sleep/wake with no delivered suspend signal.
+        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
+        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+    }
+
+    #[test]
+    fn interactive_resume_alone_recovers_once_per_observed_sleep() {
+        let mut cycle = PowerCycle::default();
+        assert!(cycle.accept(PowerSignal::ResumeInteractive));
+        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+        cycle.accept(PowerSignal::Suspend);
+        assert!(cycle.accept(PowerSignal::ResumeInteractive));
     }
 }
