@@ -53,7 +53,15 @@ transfers and refunds.
 
 ## Diagnostics
 
-**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** section of Settings shows the same two buttons until you choose. Once you have chosen, the Privacy section shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time. When sharing is on, reports never include typed text, device names or file paths.
+**Anonymous diagnostics are off until you turn them on.** The setup guide asks you to choose **Share diagnostics** or **Don't share**. If you skipped that, the **Privacy** section of Settings shows the same two buttons until you choose. Once you have chosen, the Privacy section shows a single **Share anonymous diagnostic data** switch so you can change your mind at any time.
+
+When sharing is on, Switchify PC sends reports to [Sentry](https://sentry.io), a service for tracking app problems:
+
+- a note each time the app starts, with its version
+- error messages from the app, with anything that looks like a file path, password or key removed
+- a report if a part of Switchify PC stops with an internal error, giving only the kind of error and the source file and line where it happened
+
+Each report carries a random number made for this installation, not your name, account or computer name. Reports never include typed text, device names or file paths. Turning sharing off deletes the random number and any reports still waiting to be sent.
 
 Separately, you can **export** a local diagnostics file of up to 500 recent sanitised events at any time, for example to attach to a support email. Nothing is sent unless you send it.
 

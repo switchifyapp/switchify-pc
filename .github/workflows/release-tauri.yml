@@ -144,7 +144,7 @@ jobs:
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
+      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       SWITCHIFY_LICENCE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_PUBLIC_KEYS }}
       SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS }}
       SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
@@ -189,7 +189,6 @@ jobs:
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
@@ -199,8 +198,8 @@ jobs:
             echo 'APPLE_SIGNING_IDENTITY must be a Developer ID Application identity for APPLE_TEAM_ID.' >&2
             exit 1
           fi
-          for required_name in APPLE_API_ISSUER APPLE_API_KEY TIMBERLOGS_API_KEY \
-            SWITCHIFY_TELEMETRY_ENDPOINT TAURI_SIGNING_PRIVATE_KEY \
+          for required_name in APPLE_API_ISSUER APPLE_API_KEY SENTRY_DSN \
+            TAURI_SIGNING_PRIVATE_KEY \
             TAURI_SIGNING_PRIVATE_KEY_PASSWORD SWITCHIFY_UPDATER_PUBLIC_KEY \
             SWITCHIFY_SUPABASE_URL SWITCHIFY_SUPABASE_PUBLISHABLE_KEY; do
             if [[ -z "${!required_name:-}" ]]; then
@@ -208,6 +207,12 @@ jobs:
               exit 1
             fi
           done
+          # Mirrors TelemetryConfig::from_dsn in src-tauri/src/telemetry.rs.
+          sentry_dsn_pattern='^https://[A-Za-z0-9]+(:[^@/]*)?@[A-Za-z0-9.:-]+/([A-Za-z0-9._/-]*/)?[0-9]+/?$'
+          if [[ ! "$SENTRY_DSN" =~ $sentry_dsn_pattern ]]; then
+            echo 'SENTRY_DSN must be an https:// Sentry DSN, or diagnostics ship disabled.' >&2
+            exit 1
+          fi
           if [[ "$SWITCHIFY_SUPABASE_URL" != https://* ]]; then
             echo 'SWITCHIFY_SUPABASE_URL must use https://, or accounts ship disabled.' >&2
             exit 1
@@ -271,7 +276,6 @@ jobs:
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles app,dmg --target aarch64-apple-darwin --config src-tauri/tauri.release.generated.json
@@ -345,7 +349,7 @@ jobs:
       RELEASE_REF: ${{ needs.prepare.outputs.commit }}
       SWITCHIFY_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
       SWITCHIFY_CERTUM_CERT_THUMBPRINT: ${{ vars.CERTUM_CERT_THUMBPRINT }}
-      SWITCHIFY_TELEMETRY_ENDPOINT: ${{ vars.TIMBERLOGS_ENDPOINT }}
+      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       SWITCHIFY_LICENCE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_PUBLIC_KEYS }}
       SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS: ${{ vars.SWITCHIFY_LICENCE_LEASE_PUBLIC_KEYS }}
       SWITCHIFY_SUPABASE_URL: ${{ vars.SWITCHIFY_SUPABASE_URL }}
@@ -390,23 +394,25 @@ jobs:
       - name: Verify Windows release configuration
         shell: powershell
         env:
-          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           foreach ($name in @(
             'SWITCHIFY_UPDATER_PUBLIC_KEY',
             'SWITCHIFY_CERTUM_CERT_THUMBPRINT',
-            'SWITCHIFY_TELEMETRY_ENDPOINT',
+            'SENTRY_DSN',
             'SWITCHIFY_SUPABASE_URL',
             'SWITCHIFY_SUPABASE_PUBLISHABLE_KEY',
-            'TIMBERLOGS_API_KEY',
             'TAURI_SIGNING_PRIVATE_KEY',
             'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'
           )) {
             if (-not [Environment]::GetEnvironmentVariable($name)) {
               throw "Missing Windows release configuration: $name"
             }
+          }
+          # Mirrors TelemetryConfig::from_dsn in src-tauri/src/telemetry.rs.
+          if ($env:SENTRY_DSN -cnotmatch '^https://[A-Za-z0-9]+(:[^@/]*)?@[A-Za-z0-9.:-]+/([A-Za-z0-9._/-]*/)?[0-9]+/?$') {
+            throw 'SENTRY_DSN must be an https:// Sentry DSN, or diagnostics ship disabled.'
           }
           if (-not $env:SWITCHIFY_SUPABASE_URL.StartsWith('https://')) {
             throw 'SWITCHIFY_SUPABASE_URL must use https://, or accounts ship disabled.'
@@ -421,7 +427,6 @@ jobs:
       - name: Build signed Windows package
         shell: powershell
         env:
-          TIMBERLOGS_API_KEY: ${{ secrets.TIMBERLOGS_API_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: ./scripts/Build-WindowsUiAccess.ps1 -TauriConfig src-tauri/tauri.release.windows.generated.json

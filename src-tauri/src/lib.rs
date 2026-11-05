@@ -2066,6 +2066,7 @@ pub fn run() {
             {
                 let model = app.state::<AppModel>();
                 let state = model.snapshot();
+                model.telemetry.install_panic_hook();
                 model
                     .telemetry
                     .start(&state.version, &state.capabilities.platform);
