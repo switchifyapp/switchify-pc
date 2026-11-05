@@ -602,14 +602,17 @@ fn handle_power_signal(
             }
         }
         PowerSignal::Resume => {
-            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
-                switches.resume();
-            }
             let generation = lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .resume(Instant::now());
             if let Some(generation) = generation {
+                // Coalesce Windows' automatic and interactive wake signals
+                // before retiring capture, so a duplicate cannot stop a
+                // fresh post-wake switch gesture.
+                if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                    switches.resume();
+                }
                 reset_transport(&app, &shared, BluetoothState::Initializing);
                 spawn_recovery(app, shared, lifecycle, generation);
             }
