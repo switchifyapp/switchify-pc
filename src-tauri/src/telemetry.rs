@@ -834,10 +834,20 @@ fn report_envelope(report: &QueuedReport, install_id: &str) -> String {
         "logger": report.dataset,
         "release": format!("{RELEASE_PREFIX}{}", report.version),
         "environment": environment(&report.version),
-        "user": { "id": install_id },
+        // Sentry looks up a city-level location from the connection's IP
+        // address unless the event already has one, even with `infer_ip: never`
+        // and IP storage off. An empty `geo` stops that lookup.
+        "user": { "id": install_id, "geo": {} },
         "tags": { "os": platform, "dataset": report.dataset },
         "contexts": { "os": { "name": platform } },
-        "sdk": { "name": SDK_NAME, "version": env!("CARGO_PKG_VERSION") },
+        // `infer_ip: never` stops Sentry deriving an IP address from the
+        // connection for the event, on top of the project's "prevent storing IP
+        // addresses" setting.
+        "sdk": {
+            "name": SDK_NAME,
+            "version": env!("CARGO_PKG_VERSION"),
+            "settings": { "infer_ip": "never" },
+        },
     });
     if report.dataset == "panic" {
         let mut exception = json!({
@@ -1579,7 +1589,8 @@ mod tests {
                 "user"
             ]
         );
-        assert_eq!(event["user"], json!({ "id": "install-id" }));
+        assert_eq!(event["user"], json!({ "id": "install-id", "geo": {} }));
+        assert_eq!(event["sdk"]["settings"], json!({ "infer_ip": "never" }));
         assert_eq!(event["contexts"], json!({ "os": { "name": "macos" } }));
         assert_eq!(event["logentry"]["formatted"], "Bluetooth stopped");
         assert_eq!(event["timestamp"], 1_700_000_000.123);
