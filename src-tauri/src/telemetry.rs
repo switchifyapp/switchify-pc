@@ -151,6 +151,9 @@ struct TelemetryData {
     last_error: Option<String>,
     build: Option<BuildInfo>,
     session: Option<SessionRecord>,
+    /// Whether this launch has opened its session. A panic the app survives
+    /// ends the session without allowing a second one; opting out resets it.
+    session_opened: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,6 +313,7 @@ impl TelemetryService {
                     last_error: None,
                     build: None,
                     session: None,
+                    session_opened: false,
                 }),
                 flushing: AtomicBool::new(false),
                 retry_scheduled: AtomicBool::new(false),
@@ -363,13 +367,19 @@ impl TelemetryService {
                 data.install_id = None;
                 data.queue.clear();
                 data.session = None;
+                data.session_opened = false;
             }
             let _ = persist_locked(&self.inner.path, &data);
         }
         if consent != TelemetryConsent::Enabled {
             self.purge();
+            self.inner.retry_attempt.store(0, Ordering::Release);
         } else {
-            self.inner.consent_tx.send_replace(true);
+            // Only a real change wakes waiters: saving unchanged settings must
+            // not cancel and resend a request already in flight.
+            self.inner
+                .consent_tx
+                .send_if_modified(|enabled| !std::mem::replace(enabled, true));
             self.start_session();
             self.flush();
         }
@@ -423,7 +433,8 @@ impl TelemetryService {
         }
         // Another thread may hold the lock for a moment (a flush or a disk
         // write), so try a bounded number of times; a poisoned lock still
-        // holds valid data. If this thread holds it, give up rather than wait.
+        // holds valid data. If this thread holds it, the loop waits about
+        // 200 ms and gives up.
         let mut data = None;
         for _ in 0..200 {
             match self.inner.data.try_lock() {
@@ -514,12 +525,13 @@ impl TelemetryService {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             if data.consent != TelemetryConsent::Enabled
-                || data.session.is_some()
+                || data.session_opened
                 || data.build.is_none()
                 || data.install_id.is_none()
             {
                 return;
             }
+            data.session_opened = true;
             data.session = Some(SessionRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 started_ms: crate::state::now_ms(),
@@ -642,7 +654,10 @@ impl TelemetryService {
         }
         let attempt = self.inner.retry_attempt.fetch_add(1, Ordering::AcqRel);
         let delays = &self.inner.retry_delays;
-        let delay = delays[attempt.min(delays.len() - 1)];
+        let delay = delays
+            .get(attempt.min(delays.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(RETRY_DELAYS[0]);
         let service = self.clone();
         let mut consent = self.inner.consent_tx.subscribe();
         tauri::async_runtime::spawn(async move {
@@ -1476,15 +1491,46 @@ mod tests {
             TelemetryConsent::Enabled,
             TelemetryConfig::from_dsn(TEST_DSN),
             transport.clone(),
-            vec![Duration::from_millis(200)],
+            vec![Duration::from_secs(600)],
         );
         service.start("1.6.0", "windows");
         assert!(wait_until(|| service.inner.retry_scheduled.load(Ordering::Acquire)).await);
         service.set_consent(TelemetryConsent::Disabled);
-        assert!(wait_until(|| !service.inner.retry_scheduled.load(Ordering::Acquire)).await);
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // The timer is ten minutes long, so only cancellation clears it.
+        let cancelled = tokio::time::timeout(Duration::from_secs(5), async {
+            while service.inner.retry_scheduled.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(cancelled.is_ok(), "opting out should cancel the retry");
         assert_eq!(transport.sent().len(), 1);
+        assert_eq!(service.inner.retry_attempt.load(Ordering::Acquire), 0);
         assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn a_survived_panic_does_not_open_a_second_session() {
+        let transport = Arc::new(FakeTransport::new([]));
+        let (service, path) = test_service(TelemetryConsent::Enabled, transport.clone());
+        service.start("1.6.0", "windows");
+        assert!(
+            wait_until(
+                || transport.sent().len() == 1 && !service.inner.flushing.load(Ordering::Acquire)
+            )
+            .await
+        );
+        service.record_panic("panic", None);
+        // Saving settings re-applies the unchanged consent.
+        service.set_consent(TelemetryConsent::Enabled);
+        assert!(wait_until(|| transport.sent().len() == 2).await);
+        settle().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 2);
+        let crash = lines(&sent[1]);
+        assert_eq!(crash[4]["status"], "crashed");
+        assert_eq!(crash[4]["sid"], lines(&sent[0])[2]["sid"]);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
