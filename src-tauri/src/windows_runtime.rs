@@ -558,11 +558,15 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     let power_shared = shared.clone();
     let power_lifecycle = lifecycle.clone();
     tauri::async_runtime::spawn(async move {
+        // Radio callbacks mutate the Bluetooth coordinator independently of
+        // sleep. They must never suppress local switch wake recovery.
+        let mut switch_lifecycle = RecoveryCoordinator::default();
         while let Some(signal) = power_receiver.recv().await {
             handle_power_signal(
                 power_app.clone(),
                 power_shared.clone(),
                 power_lifecycle.clone(),
+                &mut switch_lifecycle,
                 signal,
             );
         }
@@ -576,14 +580,23 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
     Ok(())
 }
 
+fn resume_switch_capture(lifecycle: &mut RecoveryCoordinator, now: Instant, resume: impl FnOnce()) {
+    if let Some(generation) = lifecycle.resume(now) {
+        resume();
+        lifecycle.mark_active(generation);
+    }
+}
+
 fn handle_power_signal(
     app: AppHandle,
     shared: SharedModel,
     lifecycle: Arc<Mutex<RecoveryCoordinator>>,
+    switch_lifecycle: &mut RecoveryCoordinator,
     signal: PowerSignal,
 ) {
     match signal {
         PowerSignal::Suspend => {
+            switch_lifecycle.suspend();
             lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -602,17 +615,19 @@ fn handle_power_signal(
             }
         }
         PowerSignal::Resume => {
+            // Coalesce automatic and interactive wake signals separately
+            // from Bluetooth, which may already be recovering after a
+            // radio change while the computer was asleep.
+            resume_switch_capture(switch_lifecycle, Instant::now(), || {
+                if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                    switches.resume();
+                }
+            });
             let generation = lifecycle
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .resume(Instant::now());
             if let Some(generation) = generation {
-                // Coalesce Windows' automatic and interactive wake signals
-                // before retiring capture, so a duplicate cannot stop a
-                // fresh post-wake switch gesture.
-                if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
-                    switches.resume();
-                }
                 reset_transport(&app, &shared, BluetoothState::Initializing);
                 spawn_recovery(app, shared, lifecycle, generation);
             }
@@ -2517,6 +2532,33 @@ fn release_input_session() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn radio_recovery_during_sleep_cannot_suppress_switch_resume_or_duplicate_it() {
+        use super::{resume_switch_capture, RecoveryCoordinator};
+        use std::{
+            cell::Cell,
+            time::{Duration, Instant},
+        };
+        let now = Instant::now();
+        let mut bluetooth = RecoveryCoordinator::default();
+        let mut switches = RecoveryCoordinator::default();
+        bluetooth.suspend();
+        switches.suspend();
+        // The real radio-Off callback interrupts the transport, and radio-On
+        // starts recovery before Windows delivers its resume notification.
+        bluetooth.interrupt_terminal();
+        assert!(bluetooth.recover_from_terminal().is_some());
+        assert!(bluetooth.resume(now).is_none());
+        let resumes = Cell::new(0);
+        let resume = || resumes.set(resumes.get() + 1);
+        resume_switch_capture(&mut switches, now, resume);
+        assert_eq!(resumes.get(), 1);
+        resume_switch_capture(&mut switches, now + Duration::from_millis(100), resume);
+        assert_eq!(resumes.get(), 1);
+        switches.suspend();
+        resume_switch_capture(&mut switches, now + Duration::from_millis(200), resume);
+        assert_eq!(resumes.get(), 2);
+    }
     use super::{
         advertisement_startup_decision, advertisement_status_needs_recovery,
         pointer_profile_for_display, run_notification_worker, select_notification_bytes,
