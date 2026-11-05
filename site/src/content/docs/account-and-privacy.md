@@ -59,7 +59,7 @@ When sharing is on, Switchify PC sends reports to [Sentry](https://sentry.io), a
 
 - a note each time the app starts, with its version and whether the computer runs Windows or macOS
 - error messages from the app, with anything that looks like a file path, password or key removed
-- a report if Switchify PC crashes, naming the place in its own code where it happened
+- a report if a part of Switchify PC stops with an internal error, giving only the kind of error and the source file and line where it happened
 
 Each report carries a random number made for this installation, not your name, account or computer name. Reports never include typed text, device names or file paths. Turning sharing off deletes the random number and any reports still waiting to be sent.
 

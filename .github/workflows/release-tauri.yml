@@ -207,7 +207,9 @@ jobs:
               exit 1
             fi
           done
-          if [[ "$SENTRY_DSN" != https://*@*/* ]]; then
+          # Mirrors TelemetryConfig::from_dsn in src-tauri/src/telemetry.rs.
+          sentry_dsn_pattern='^https://[A-Za-z0-9]+(:[^@/]*)?@[A-Za-z0-9.:-]+/([A-Za-z0-9._/-]*/)?[0-9]+/?$'
+          if [[ ! "$SENTRY_DSN" =~ $sentry_dsn_pattern ]]; then
             echo 'SENTRY_DSN must be an https:// Sentry DSN, or diagnostics ship disabled.' >&2
             exit 1
           fi
@@ -408,7 +410,8 @@ jobs:
               throw "Missing Windows release configuration: $name"
             }
           }
-          if ($env:SENTRY_DSN -notmatch '^https://[^@/]+@[^/]+/.+') {
+          # Mirrors TelemetryConfig::from_dsn in src-tauri/src/telemetry.rs.
+          if ($env:SENTRY_DSN -cnotmatch '^https://[A-Za-z0-9]+(:[^@/]*)?@[A-Za-z0-9.:-]+/([A-Za-z0-9._/-]*/)?[0-9]+/?$') {
             throw 'SENTRY_DSN must be an https:// Sentry DSN, or diagnostics ship disabled.'
           }
           if (-not $env:SWITCHIFY_SUPABASE_URL.StartsWith('https://')) {

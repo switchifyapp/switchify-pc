@@ -377,29 +377,30 @@ impl TelemetryService {
         PANIC_HOOK.call_once(move || {
             let previous = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                let message = info.payload_as_str().unwrap_or("Panic without a message.");
+                let kind = panic_kind(info.payload_as_str().unwrap_or_default());
                 let location = info
                     .location()
                     .map(|location| (location.file(), location.line()));
-                service.record_panic(message, location);
+                service.record_panic(kind, location);
                 previous(info);
             }));
         });
     }
 
-    /// Queues and persists a panic as a fatal event that also ends this
-    /// launch's session as crashed. It runs inside the panic hook, so it never
-    /// waits for the state lock (the panic may have happened while holding
-    /// it) and never sends: the process may be about to end, and the next
-    /// flush or launch delivers the persisted report.
-    fn record_panic(&self, message: &str, location: Option<(&str, u32)>) {
+    /// Queues and persists a panic, described only by its `panic_kind` and
+    /// location, as a fatal event that also ends this launch's session as
+    /// crashed. It runs inside the panic hook, so it never waits for the state
+    /// lock (the panic may have happened while holding it) and never sends:
+    /// the process may be about to end, and the next flush or launch delivers
+    /// the persisted report.
+    fn record_panic(&self, kind: &'static str, location: Option<(&str, u32)>) {
         if self.inner.config.is_none() {
             return;
         }
         let Ok(mut data) = self.inner.data.try_lock() else {
             return;
         };
-        let Some(mut report) = create_report(&data, "fatal", "panic", message) else {
+        let Some(mut report) = create_report(&data, "fatal", "panic", kind) else {
             return;
         };
         report.location = location.map(|(file, line)| safe_location(file, line));
@@ -457,59 +458,33 @@ impl TelemetryService {
     }
 
     /// Opens a release-health session for this launch once consent and the
-    /// build are both known. Like the earlier startup ping it is best effort:
-    /// it is not queued, and opting out cancels a request in flight.
+    /// build are both known. The flush delivers its opening update ahead of
+    /// queued reports and retries it like them, so a launch that starts
+    /// offline is still counted. It is never written to disk.
     fn start_session(&self) {
-        let Some(config) = self.inner.config.clone() else {
+        if self.inner.config.is_none() {
             return;
-        };
-        let envelope = {
+        }
+        {
             let mut data = self
                 .inner
                 .data
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if data.consent != TelemetryConsent::Enabled || data.session.is_some() {
+            if data.consent != TelemetryConsent::Enabled
+                || data.session.is_some()
+                || data.build.is_none()
+                || data.install_id.is_none()
+            {
                 return;
             }
-            let (Some(build), Some(install_id)) = (data.build.clone(), data.install_id.clone())
-            else {
-                return;
-            };
-            let session = SessionRecord {
+            data.session = Some(SessionRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 started_ms: crate::state::now_ms(),
                 init: true,
-            };
-            let envelope = session_envelope(&session, "ok", &install_id, &build.version);
-            data.session = Some(session);
-            envelope
-        };
-        let service = self.clone();
-        let mut consent = self.inner.consent_tx.subscribe();
-        tauri::async_runtime::spawn(async move {
-            if !*consent.borrow() {
-                return;
-            }
-            let outcome = tokio::select! {
-                biased;
-                changed = consent.changed() => {
-                    let _ = changed;
-                    None
-                }
-                outcome = service.inner.transport.send(config, envelope) => Some(outcome),
-            };
-            if outcome == Some(SendOutcome::Sent) {
-                let mut data = service
-                    .inner
-                    .data
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(session) = data.session.as_mut() {
-                    session.init = false;
-                }
-            }
-        });
+            });
+        }
+        self.flush();
     }
 
     fn flush(&self) {
@@ -534,20 +509,23 @@ impl TelemetryService {
                         .data
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if data.consent != TelemetryConsent::Enabled {
-                        None
-                    } else {
-                        data.queue.first().cloned().zip(data.install_id.clone())
-                    }
+                    next_delivery(&data)
                 };
-                let Some((next, install_id)) = next else {
+                let Some(next) = next else {
                     break;
                 };
                 let mut consent = service.inner.consent_tx.subscribe();
                 if !*consent.borrow() {
                     break;
                 }
-                let envelope = report_envelope(&next, &install_id);
+                let envelope = match &next {
+                    Delivery::SessionOpen {
+                        session,
+                        install_id,
+                        version,
+                    } => session_envelope(session, install_id, version),
+                    Delivery::Report { report, install_id } => report_envelope(report, install_id),
+                };
                 let outcome = tokio::select! {
                     biased;
                     changed = consent.changed() => {
@@ -571,7 +549,31 @@ impl TelemetryService {
                 if data.consent != TelemetryConsent::Enabled {
                     break;
                 }
-                data.queue.retain(|queued| queued.id != next.id);
+                match next {
+                    // Sent or rejected, the opening is not sent again. A panic
+                    // may have moved the session into a queued crash report
+                    // while the opening was in flight; that report must not
+                    // open it a second time.
+                    Delivery::SessionOpen { session, .. } => {
+                        if let Some(current) = data
+                            .session
+                            .as_mut()
+                            .filter(|current| current.id == session.id)
+                        {
+                            current.init = false;
+                        } else if let Some(crashed) = data
+                            .queue
+                            .iter_mut()
+                            .filter_map(|report| report.crashed_session.as_mut())
+                            .find(|crashed| crashed.id == session.id)
+                        {
+                            crashed.init = false;
+                        }
+                    }
+                    Delivery::Report { report, .. } => {
+                        data.queue.retain(|queued| queued.id != report.id);
+                    }
+                }
                 let _ = persist_locked(&service.inner.path, &data);
             }
             if service.finish_flush(retry_blocked) {
@@ -590,13 +592,79 @@ impl TelemetryService {
             .data
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        data.consent == TelemetryConsent::Enabled && !data.queue.is_empty()
+        next_delivery(&data).is_some()
     }
 
     fn purge(&self) {
         let _ = std::fs::remove_file(&self.inner.path);
         let _ = std::fs::remove_file(self.inner.path.with_extension("json.tmp"));
     }
+}
+
+/// The next envelope a flush delivers: this launch's session opening first,
+/// then queued reports oldest first.
+enum Delivery {
+    SessionOpen {
+        session: SessionRecord,
+        install_id: String,
+        version: String,
+    },
+    Report {
+        report: QueuedReport,
+        install_id: String,
+    },
+}
+
+fn next_delivery(data: &TelemetryData) -> Option<Delivery> {
+    if data.consent != TelemetryConsent::Enabled {
+        return None;
+    }
+    let install_id = data.install_id.clone()?;
+    if let (Some(session), Some(build)) = (
+        data.session.as_ref().filter(|session| session.init),
+        data.build.as_ref(),
+    ) {
+        return Some(Delivery::SessionOpen {
+            session: session.clone(),
+            install_id,
+            version: build.version.clone(),
+        });
+    }
+    data.queue
+        .first()
+        .cloned()
+        .map(|report| Delivery::Report { report, install_id })
+}
+
+/// A fixed description of a panic. The panic's own message is never sent:
+/// standard library panics quote the values involved (a string slicing panic
+/// quotes the whole string, which may be typed text), and so can an `expect`
+/// or `panic!` message built with `format!`.
+fn panic_kind(message: &str) -> &'static str {
+    const KINDS: [(&str, &str); 9] = [
+        (
+            "called `Option::unwrap()` on a `None` value",
+            "unwrap on None",
+        ),
+        (
+            "called `Result::unwrap()` on an `Err` value",
+            "unwrap on Err",
+        ),
+        ("called `Option::expect()`", "expect on None"),
+        ("index out of bounds", "index out of bounds"),
+        ("byte index", "string index out of range"),
+        ("attempt to", "arithmetic overflow"),
+        ("already borrowed", "RefCell already borrowed"),
+        (
+            "already mutably borrowed",
+            "RefCell already mutably borrowed",
+        ),
+        ("PoisonError", "poisoned lock"),
+    ];
+    KINDS
+        .iter()
+        .find(|(prefix, _)| message.starts_with(prefix) || message.contains(prefix))
+        .map_or("panic", |(_, kind)| kind)
 }
 
 fn create_report(
@@ -693,29 +761,38 @@ fn report_envelope(report: &QueuedReport, install_id: &str) -> String {
     ];
     if let Some(session) = &report.crashed_session {
         lines.push(json!({ "type": "session" }).to_string());
-        lines.push(session_payload(session, "crashed", install_id, &report.version).to_string());
+        lines.push(
+            session_payload(
+                session,
+                "crashed",
+                timestamp_ms,
+                install_id,
+                &report.version,
+            )
+            .to_string(),
+        );
     }
     lines.join("\n") + "\n"
 }
 
-fn session_envelope(
-    session: &SessionRecord,
-    status: &str,
-    install_id: &str,
-    version: &str,
-) -> String {
+/// The update that opens a session as healthy.
+fn session_envelope(session: &SessionRecord, install_id: &str, version: &str) -> String {
+    let now = crate::state::now_ms();
     [
-        json!({ "sent_at": rfc3339(crate::state::now_ms()) }).to_string(),
+        json!({ "sent_at": rfc3339(now) }).to_string(),
         json!({ "type": "session" }).to_string(),
-        session_payload(session, status, install_id, version).to_string(),
+        session_payload(session, "ok", session.started_ms, install_id, version).to_string(),
     ]
     .join("\n")
         + "\n"
 }
 
+/// `at_ms` is when the session reached `status`: its start for the opening
+/// update, the crash time for a crashed one delivered on a later launch.
 fn session_payload(
     session: &SessionRecord,
     status: &str,
+    at_ms: i64,
     install_id: &str,
     version: &str,
 ) -> serde_json::Value {
@@ -724,7 +801,7 @@ fn session_payload(
         "did": install_id,
         "init": session.init,
         "started": rfc3339(session.started_ms),
-        "timestamp": rfc3339(crate::state::now_ms()),
+        "timestamp": rfc3339(at_ms.max(session.started_ms)),
         "status": status,
         "errors": u32::from(status == "crashed"),
         "attrs": {
@@ -993,7 +1070,7 @@ mod tests {
         let (service, path) = test_service(TelemetryConsent::Undecided, transport.clone());
         service.start("1.0.0", "macos");
         service.report_exception("failure", "1.0.0", "macos");
-        service.record_panic("boom", Some(("src/lib.rs", 1)));
+        service.record_panic("panic", Some(("src/lib.rs", 1)));
         settle().await;
         assert!(!path.exists());
         assert!(transport.sent().is_empty());
@@ -1082,7 +1159,7 @@ mod tests {
         assert!(!path.exists());
         let sent_before = transport.sent().len();
         service.report_exception("another failure", "1.0.0", "windows");
-        service.record_panic("boom", None);
+        service.record_panic("panic", None);
         settle().await;
         assert_eq!(transport.sent().len(), sent_before);
         assert!(!path.exists());
@@ -1151,14 +1228,20 @@ mod tests {
         let transport = Arc::new(FakeTransport::new([SendOutcome::Retry]));
         let (service, path) = test_service(TelemetryConsent::Enabled, transport.clone());
         service.start("1.6.0-rc.1", "windows");
-        settle().await;
+        assert!(
+            wait_until(
+                || transport.sent().len() == 1 && !service.inner.flushing.load(Ordering::Acquire)
+            )
+            .await
+        );
         service.record_panic(
-            "index out of bounds at C:\\Users\\Owen\\secret.txt",
-            Some(("C:\\Users\\Owen\\.cargo\\registry\\src\\scan_menu.rs", 42)),
+            panic_kind("index out of bounds: the len is 3 but the index is 5"),
+            Some((r"C:\Users\Owen\.cargo\registry\src\scan_menu.rs", 42)),
         );
         let disk = load_disk(&path).unwrap();
         let report = disk.queue.first().unwrap();
         assert_eq!(report.level, "fatal");
+        assert_eq!(report.message, "index out of bounds");
         assert_eq!(report.location.as_deref(), Some("scan_menu.rs:42"));
         assert!(report.crashed_session.as_ref().unwrap().init);
 
@@ -1182,6 +1265,7 @@ mod tests {
         let parsed = lines(&envelope);
         assert_eq!(parsed[1]["type"], "event");
         let exception = &parsed[2]["exception"]["values"][0];
+        assert_eq!(exception["value"], "index out of bounds");
         assert_eq!(exception["mechanism"]["handled"], false);
         assert_eq!(
             exception["stacktrace"]["frames"][0]["filename"],
@@ -1191,7 +1275,67 @@ mod tests {
         assert_eq!(parsed[3]["type"], "session");
         assert_eq!(parsed[4]["status"], "crashed");
         assert_eq!(parsed[4]["init"], true);
+        assert_eq!(
+            parsed[4]["timestamp"],
+            rfc3339(report.timestamp.parse().unwrap())
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_session_opening_that_fails_is_retried_before_reports() {
+        let transport = Arc::new(FakeTransport::new([SendOutcome::Retry]));
+        let (service, path) = test_service(TelemetryConsent::Enabled, transport.clone());
+        service.start("1.6.0", "macos");
+        assert!(
+            wait_until(
+                || transport.sent().len() == 1 && !service.inner.flushing.load(Ordering::Acquire)
+            )
+            .await
+        );
+        service.report_exception("Bluetooth stopped", "1.6.0", "macos");
+        assert!(wait_until(|| transport.sent().len() == 3).await);
+        let sent = transport.sent();
+        let (first, retried) = (lines(&sent[0]), lines(&sent[1]));
+        assert_eq!(retried[1]["type"], "session");
+        assert_eq!(retried[2]["status"], "ok");
+        assert_eq!(retried[2]["init"], true);
+        assert_eq!(retried[2]["sid"], first[2]["sid"]);
+        assert_eq!(lines(&sent[2])[1]["type"], "event");
+
+        // Once the opening is delivered, a crash no longer reopens the session.
+        assert!(wait_until(|| !service.inner.flushing.load(Ordering::Acquire)).await);
+        service.record_panic("panic", None);
+        let disk = load_disk(&path).unwrap();
+        assert!(!disk.queue[0].crashed_session.as_ref().unwrap().init);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn panic_messages_are_reduced_to_a_fixed_kind() {
+        let typed = std::panic::catch_unwind(|| {
+            let text = String::from("my private messagé");
+            let _ = &text[..18];
+        })
+        .unwrap_err();
+        let message = typed
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        // Older toolchains quote the whole string here; either way only the
+        // kind is kept.
+        assert!(message.contains("byte index"), "{message}");
+        assert_eq!(panic_kind(message), "string index out of range");
+        assert_eq!(
+            panic_kind("byte index 18 is not a char boundary; it is inside 'é' (bytes 17..19) of `my private messagé`"),
+            "string index out of range"
+        );
+        assert_eq!(
+            panic_kind("called `Result::unwrap()` on an `Err` value: \"secret words\""),
+            "unwrap on Err"
+        );
+        assert_eq!(panic_kind("failed to open my private file"), "panic");
+        assert_eq!(panic_kind(""), "panic");
     }
 
     #[test]
