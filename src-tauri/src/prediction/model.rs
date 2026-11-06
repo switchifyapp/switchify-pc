@@ -125,7 +125,10 @@ impl Model {
                 } else {
                     None
                 },
-                threads: 4,
+                // The portable Mac worker runs small autoregressive batches.
+                // Keep both inference pools single-threaded to avoid scheduling
+                // overhead on these batches; Windows retains its four-thread pool.
+                threads: if cfg!(target_os = "macos") { 1 } else { 4 },
             })
         })();
         Ok(Self {
