@@ -45,11 +45,7 @@ impl DisplayPower {
         }
         match u32::from_le_bytes(data.try_into().ok()?) {
             0 => self.off = true,
-            1 | 2 => {
-                if std::mem::take(&mut self.off) {
-                    return Some(PowerSignal::DisplayOn);
-                }
-            }
+            1 | 2 if std::mem::take(&mut self.off) => return Some(PowerSignal::DisplayOn),
             _ => {}
         }
         None
@@ -90,7 +86,8 @@ impl PowerCycle {
             PowerSignal::DisplayOn => {
                 // A worker started on an earlier unattended wake can fail
                 // before the display returns. Recover again at that boundary.
-                self.resumed = true;
+                // This is local-input recovery only; do not consume a later
+                // classic wake needed by Bluetooth after a real suspend.
                 true
             }
         }
@@ -303,7 +300,7 @@ mod tests {
         assert_eq!(accept(0), None);
         let signal = accept(1).unwrap();
         assert!(cycle.accept(signal));
-        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+        assert!(cycle.accept(PowerSignal::ResumeInteractive));
         assert_eq!(accept(1), None);
         assert_eq!(accept(2), None);
         assert_eq!(accept(0), None);
@@ -327,6 +324,15 @@ mod tests {
             .accept(SESSION_DISPLAY_STATUS, &1u32.to_le_bytes())
             .unwrap();
         assert!(cycle.accept(signal));
+        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
+    }
+
+    #[test]
+    fn display_return_does_not_consume_interactive_only_bluetooth_wake() {
+        let mut cycle = PowerCycle::default();
+        assert!(cycle.accept(PowerSignal::Suspend));
+        assert!(cycle.accept(PowerSignal::DisplayOn));
+        assert!(cycle.accept(PowerSignal::ResumeInteractive));
         assert!(!cycle.accept(PowerSignal::ResumeInteractive));
     }
 
