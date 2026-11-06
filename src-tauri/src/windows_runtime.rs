@@ -603,6 +603,14 @@ fn handle_power_signal(
     new_cycle: bool,
 ) {
     match signal {
+        PowerSignal::DisplayOn => {
+            // Modern Standby may bypass classic suspend/resume broadcasts.
+            // Only refresh local input: a monitor power cycle alone should
+            // not discard a healthy phone connection or restart Bluetooth.
+            if let Some(switches) = app.try_state::<crate::switch_runtime::Controller>() {
+                switches.display_returned();
+            }
+        }
         PowerSignal::Suspend => {
             lifecycle
                 .lock()
