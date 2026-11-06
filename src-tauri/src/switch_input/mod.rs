@@ -579,7 +579,7 @@ impl Capture {
     pub fn resume(&mut self) {
         #[cfg(target_os = "windows")]
         {
-            resume_after_worker_exit(self.native.take(), &self.driver.core);
+            resume_after_worker_exit(self.native.take(), &self.driver.core, StopReason::Suspended);
         }
         #[cfg(not(target_os = "windows"))]
         self.driver
@@ -588,6 +588,16 @@ impl Capture {
             .unwrap_or_else(|p| p.into_inner())
             .resume();
     }
+    /// Refresh local input after the display returns without treating a
+    /// screen power cycle as a system sleep that ends remote scanning.
+    #[cfg(target_os = "windows")]
+    pub fn display_returned(&mut self) {
+        resume_after_worker_exit(
+            self.native.take(),
+            &self.driver.core,
+            StopReason::CaptureLost,
+        );
+    }
 }
 
 /// Retire the pre-sleep worker even when it has not reported a failure yet.
@@ -595,11 +605,13 @@ impl Capture {
 /// we clear stale ownership and the failure latch without a late callback
 /// restoring them. Do not hold the core lock while joining that thread.
 #[cfg(any(target_os = "windows", test))]
-fn resume_after_worker_exit<T>(worker: Option<T>, core: &Mutex<Core>) {
+fn resume_after_worker_exit<T>(worker: Option<T>, core: &Mutex<Core>, reason: StopReason) {
     drop(worker);
     let mut core = core.lock().unwrap_or_else(|p| p.into_inner());
     // Also handles wake notifications when the suspend signal was missed.
-    core.suspend();
+    if core.status.mode != Mode::Off {
+        core.stop(reason);
+    }
     core.physical.clear();
     core.resume();
 }
@@ -649,6 +661,29 @@ pub fn unavailable_reason(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn display_refresh_releases_old_input_without_a_system_sleep_stop() {
+        let mut state = Core::default();
+        state.begin(Mode::Active, 0);
+        state.physical.insert("Space".into());
+        let core = Mutex::new(state);
+        resume_after_worker_exit::<()>(None, &core, StopReason::CaptureLost);
+        let mut state = core.lock().unwrap();
+        assert_eq!(state.status.mode, Mode::Off);
+        assert_eq!(state.status.reason, Some(StopReason::CaptureLost));
+        assert!(state.physical.is_empty());
+        assert!(!state.worker_failed);
+        assert!(matches!(
+            state.events.pop_front(),
+            Some(Event::Stopped {
+                reason: StopReason::CaptureLost,
+                ..
+            })
+        ));
+        assert!(state
+            .begin_with_pressed_keys(Mode::Active, 10, HashSet::new())
+            .is_ok());
+    }
     fn core() -> Core {
         let mut c = Core::default();
         let m = Mapping {
@@ -752,7 +787,7 @@ mod tests {
         let core = Arc::new(Mutex::new(core()));
         core.lock().unwrap().suspend();
         assert!(!core.lock().unwrap().worker_failed);
-        resume_after_worker_exit(Some(SlowWorker(core.clone())), &core);
+        resume_after_worker_exit(Some(SlowWorker(core.clone())), &core, StopReason::Suspended);
         let mut core = core.lock().unwrap();
         assert!(!core.worker_failed);
         assert!(core.physical.is_empty());
@@ -781,7 +816,7 @@ mod tests {
     fn wake_without_a_suspend_signal_stops_the_old_session_before_rearming() {
         let core = Mutex::new(core());
         core.lock().unwrap().key("Space", true, 1);
-        resume_after_worker_exit::<()>(None, &core);
+        resume_after_worker_exit::<()>(None, &core, StopReason::Suspended);
         let core = core.lock().unwrap();
         assert_eq!(core.status.mode, Mode::Off);
         assert_eq!(core.status.reason, Some(StopReason::Suspended));

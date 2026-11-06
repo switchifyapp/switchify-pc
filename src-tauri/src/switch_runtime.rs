@@ -208,6 +208,14 @@ impl Controller {
             .resume();
         self.suspended.store(false, Ordering::SeqCst);
     }
+    #[cfg(target_os = "windows")]
+    pub fn display_returned(&self) {
+        self.broker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .display_returned();
+        self.suspended.store(false, Ordering::SeqCst);
+    }
     /// Whether the computer is between its suspend and resume signals.
     pub fn suspended(&self) -> bool {
         self.suspended.load(Ordering::SeqCst)
