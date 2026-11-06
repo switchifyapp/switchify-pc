@@ -1,8 +1,8 @@
 {
   "model": "en-aac-oanc-v1",
-  "revision": "858cef433c1e42a1bd6e95774c519aea1aed9abb",
-  "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.4.0/switchify-english-en-aac-oanc-v1.zip",
-  "archive_sha256": "ab8ced7302693211929730ecd0df5ae8656b0355e00c7664b751f20599452a99",
+  "revision": "577ac0b05881b184a75b1edf2e0b4b1180367ec5",
+  "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.5.0/switchify-english-en-aac-oanc-v1.zip",
+  "archive_sha256": "0d89caeeaa10bc4e27499af66ff4bb9e17c2c9713a33de61b7751a71b148bafd",
   "files": {
     "english.ngrams": {
       "sha256": "c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a",
