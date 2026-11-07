@@ -1,3 +1,5 @@
+import { usePanels } from "../panels/usePanels";
+import type { CustomPanel } from "../types";
 import { PageIcon } from "../ui/PageIcon";
 import { Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
@@ -9,7 +11,9 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
+  actionLabel,
   actions,
+  panelMenus,
   type Binding,
   type SwitchAction,
   type SwitchController,
@@ -41,18 +45,20 @@ export function escapeHoldMs(bindings: Binding[], holdIntervalMs: number, accept
   return longest ? Math.max(4000, (longest + 2) * holdIntervalMs + acceptMs) : 4000;
 }
 
-function summary(binding: Binding) {
+function summary(binding: Binding, panels: CustomPanel[]) {
   const hold = binding.holdActions.length
-    ? `Hold: ${binding.holdActions.map((a) => actions[a]).join(", ")}`
+    ? `Hold: ${binding.holdActions.map((a) => actionLabel(a, panels)).join(", ")}`
     : "No hold actions";
-  return `${actions[binding.pressAction]} · ${hold}`;
+  return `${actionLabel(binding.pressAction, panels)} · ${hold}`;
 }
 
 function ActionSelect({
   label,
   value,
   onChange,
+  panels,
 }: {
+  panels: CustomPanel[];
   label: string;
   value: SwitchAction;
   onChange: (value: SwitchAction) => void;
@@ -60,14 +66,17 @@ function ActionSelect({
   return (
     <Select
       aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value as SwitchAction)}
+      value={typeof value === "string" ? value : JSON.stringify(value)}
+      onChange={(e) => onChange((e.target.value.startsWith("{") ? JSON.parse(e.target.value) : e.target.value) as SwitchAction)}
     >
       {Object.entries(actions).map(([value, label]) => (
         <option key={value} value={value}>
           {label}
         </option>
       ))}
+      {Object.entries(panelMenus).map(([menu, name]) => <option key={menu} value={JSON.stringify({ openMenu: menu })}>Open {name}</option>)}
+      {panels.map((panel) => <option key={panel.id} value={JSON.stringify({ openCustomPanel: panel.id })}>Open {panel.name}</option>)}
+      {typeof value !== "string" && "openCustomPanel" in value && !panels.some((p) => p.id === value.openCustomPanel) && <option value={JSON.stringify(value)}>Custom panel unavailable</option>}
     </Select>
   );
 }
@@ -85,6 +94,7 @@ function KeyBadge({ value, unavailable }: { value: string; unavailable: boolean 
 
 function SwitchEditor({
   id,
+  panels,
   binding,
   isNew,
   disabled,
@@ -103,6 +113,7 @@ function SwitchEditor({
   entryPending,
   onKeyboardEntry,
 }: {
+  panels: CustomPanel[];
   keyboardEntry: boolean;
   entryPending: boolean;
   onKeyboardEntry: (active: boolean) => void;
@@ -210,6 +221,7 @@ function SwitchEditor({
       <label className="field">
         <span>Press and release</span>
         <ActionSelect
+          panels={panels}
           label={isNew ? "New switch action" : `Normal action for ${name}`}
           value={binding.pressAction}
           onChange={(pressAction) => onChange({ ...binding, pressAction })}
@@ -225,6 +237,7 @@ function SwitchEditor({
                   {index + 1}
                 </span>
                 <ActionSelect
+                  panels={panels}
                   label={`Hold action ${index + 1} for ${name}`}
                   value={action}
                   onChange={(value) =>
@@ -276,7 +289,7 @@ function SwitchEditor({
         <p className="setting-note">
           {binding.holdActions.length
             ? `Hold ${binding.holdActions
-                .map((a, i) => `${seconds(acceptMs + holdIntervalMs * (i + 1))} for ${actions[a]}`)
+                .map((a, i) => `${seconds(acceptMs + holdIntervalMs * (i + 1))} for ${actionLabel(a, panels)}`)
                 .join(", ")}. Release to run the action shown.`
             : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
         </p>
@@ -397,6 +410,7 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
 }
 
 export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected, platform }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean; platform?: DemoPlatform }) {
+  const panels = usePanels();
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
   // key field already shows the latter, so the band only carries save errors.
@@ -673,6 +687,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   const errorFor = (id: string) => (rowError?.id === id ? rowError.message : null);
   return (
     <>
+      {panels.error && <p role="alert">Panel choices could not be loaded: {panels.error}</p>}
       {state?.keyboardEntry && !expanded && <div role="status" className="setting-note">
         Keyboard typing is on. Switch scanning is paused.
         <Button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</Button>
@@ -771,7 +786,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     <div>
                       <h3>{name}</h3>
                       <p>On this computer</p>
-                      <p>{summary(binding)}</p>
+                      <p>{summary(binding, panels.panels ?? [])}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={unavailable} />
                     <Button
@@ -804,6 +819,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   </div>
                   {open && (
                     <SwitchEditor
+                  panels={panels.panels ?? []}
                       {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
@@ -856,7 +872,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     <div>
                       <h3>{name}</h3>
                       <p>Remote forwarding slot {index + 1}</p>
-                      <p>{summary(binding)}</p>
+                      <p>{summary(binding, panels.panels ?? [])}</p>
                     </div>
                     <KeyBadge value={binding.key} unavailable={false} />
                     <Button
@@ -886,6 +902,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   </div>
                   {open && (
                     <SwitchEditor
+                      panels={panels.panels ?? []}
                       {...entryProps}
                       id={`${listId}-${binding.id}`}
                       binding={binding}
@@ -925,6 +942,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                   </div>
                 </div>
                 <SwitchEditor
+                      panels={panels.panels ?? []}
                   {...entryProps}
                   binding={draft}
                   isNew

@@ -82,6 +82,9 @@ beforeEach(() => {
       case "set_switch_keyboard_entry":
         current = { ...current, keyboardEntry: args.active };
         return current;
+      case "list_custom_panels":
+        return [{ id: "greetings", name: "Greetings", version: 1, description: "", rows: [] }];
+      case "list_builtin_panels": case "list_panel_extras": return [];
       case "get_switches":
         return current;
       case "save_switches":
@@ -675,4 +678,40 @@ it("saves press timing, which starts off", async () => {
   open("Head switch");
   await screen.findByText("Hold 1.3s for Next, 2.3s for Stop scanning. Release to run the action shown.");
   await screen.findByText(/Holding any switch for 4.3s resets the scan/);
+});
+
+it("assigns built-in and custom panels to local presses and holds", async () => {
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  const press = screen.getByLabelText("Normal action for Head switch");
+  await within(press).findByRole("option", { name: "Open Greetings" });
+  fireEvent.change(press, { target: { value: JSON.stringify({ openCustomPanel: "greetings" }) } });
+  await waitFor(() => expect(current.settings.bindings[0].pressAction).toEqual({ openCustomPanel: "greetings" }));
+  fireEvent.change(screen.getByLabelText("Hold action 1 for Head switch"), { target: { value: JSON.stringify({ openMenu: "editing" }) } });
+  await waitFor(() => expect(current.settings.bindings[0].holdActions[0]).toEqual({ openMenu: "editing" }));
+  expect(press).toHaveValue(JSON.stringify({ openCustomPanel: "greetings" }));
+});
+
+it("keeps a deleted panel assignment visible for replacement", async () => {
+  current.settings.bindings[0].pressAction = { openCustomPanel: "gone" };
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  const press = screen.getByLabelText("Normal action for Head switch");
+  expect((within(press).getByRole("option", { name: "Custom panel unavailable" }) as HTMLOptionElement).selected).toBe(true);
+  fireEvent.change(press, { target: { value: "select" } });
+  await waitFor(() => expect(current.settings.bindings[0].pressAction).toBe("select"));
+});
+
+it("assigns panel actions to forwarded switch presses and holds", async () => {
+  render(<Shell />);
+  await revealMobile();
+  fireEvent.click(screen.getByRole("button", { name: "Edit Remote switch 1" }));
+  const press = screen.getByLabelText("Normal action for Remote switch 1");
+  await within(press).findByRole("option", { name: "Open Greetings" });
+  fireEvent.change(press, { target: { value: JSON.stringify({ openMenu: "home" }) } });
+  await waitFor(() => expect(remote.slots[0].pressAction).toEqual({ openMenu: "home" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add hold action for Remote switch 1" }));
+  await waitFor(() => expect(remote.slots[0].holdActions).toHaveLength(1));
+  fireEvent.change(screen.getByLabelText("Hold action 1 for Remote switch 1"), { target: { value: JSON.stringify({ openCustomPanel: "greetings" }) } });
+  await waitFor(() => expect(remote.slots[0].holdActions[0]).toEqual({ openCustomPanel: "greetings" }));
 });

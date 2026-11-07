@@ -1751,15 +1751,24 @@ impl Technique for Workflow {
         self.leaving_home = false;
         // Anything that reaches a repeating key stops it, and only an
         // explicit change of mode goes on to act.
-        if self.end_key_repeat()
-            && !matches!(
-                action,
-                Action::OpenPoint | Action::OpenMouse | Action::OpenKeyboard
-            )
-        {
+        if self.end_key_repeat() && !action.opens_panel() {
             return None;
         }
         self.key_repeat = None;
+        let target = match &action {
+            Action::OpenMenu(menu) => Some(TrialTarget::Menu { menu: *menu }),
+            Action::OpenCustomPanel(id) => Some(TrialTarget::Panel { id: id.clone() }),
+            _ => None,
+        };
+        if let Some(target) = target {
+            return match self.open_for_trial(&target) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.error = Some(error);
+                    None
+                }
+            };
+        }
         if action == Action::OpenPoint {
             return self.open_point();
         }
@@ -4534,6 +4543,42 @@ mod tests {
             tile_rect(&after, "Tile 7").width
         );
         assert!(tile_rect(&after, "Tile 0").width < tile_rect(&after, "Left click").width);
+    }
+
+    #[test]
+    fn switch_panel_actions_start_resume_and_handle_deleted_panels() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+        let mut session = Session::new(workflow, true);
+        assert_eq!(
+            session.action(Action::OpenCustomPanel("greetings".into())),
+            None
+        );
+        assert!(session.active());
+        assert_eq!(
+            session.technique.menu.custom_id.as_deref(),
+            Some("greetings")
+        );
+        session.action(Action::Pause);
+        assert!(session.paused());
+        session.action(Action::OpenMenu(Kind::Editing));
+        assert!(session.active());
+        assert!(!session.paused());
+        assert_eq!(session.technique.menu.kind, Kind::Editing);
+        session.technique.selected(Item::Back);
+        assert!(session.technique.home_open());
+        session.action(Action::OpenCustomPanel("gone".into()));
+        assert_eq!(
+            session.technique.error.as_deref(),
+            Some("That panel no longer exists.")
+        );
+        assert!(session.technique.home_open());
     }
 
     #[test]

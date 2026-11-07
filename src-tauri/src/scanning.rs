@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const TICK_MS: u64 = 33;
 pub const MAX_ELAPSED_MS: u64 = 250;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
     Select,
@@ -17,10 +17,32 @@ pub enum Action {
     OpenKeyboard,
     OpenPoint,
     OpenMouse,
+    OpenMenu(crate::scan_menu::Kind),
+    OpenCustomPanel(String),
 }
 impl Action {
-    pub fn label(self) -> &'static str {
+    pub fn opens_panel(&self) -> bool {
+        matches!(
+            self,
+            Self::OpenKeyboard
+                | Self::OpenPoint
+                | Self::OpenMouse
+                | Self::OpenMenu(_)
+                | Self::OpenCustomPanel(_)
+        )
+    }
+    pub fn valid_assignment(&self) -> bool {
         match self {
+            Self::Cancel => false,
+            Self::OpenMenu(kind) => crate::builtin_panels::editable(*kind),
+            Self::OpenCustomPanel(id) => crate::panel_actions::validate_panel_id(id).is_ok(),
+            _ => true,
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::OpenMenu(kind) => kind.label(),
+            Self::OpenCustomPanel(_) => "Open custom panel",
             Self::OpenKeyboard => "Open keyboard",
             Self::OpenPoint => "Open point",
             Self::OpenMouse => "Open mouse",
@@ -434,14 +456,14 @@ impl<T: Technique> Session<T> {
             self.reset();
             return None;
         }
-        if matches!(
-            action,
-            Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
-        ) {
+        if action.opens_panel() {
             // A step back kept in place resumes, as starting afresh would.
-            let steps_back = self.technique.steps_back(action);
-            let selection = self.technique.handle(action);
-            if selection.is_some() || steps_back {
+            let steps_back = self.technique.steps_back(action.clone());
+            let selection = self.technique.handle(action.clone());
+            if selection.is_some()
+                || steps_back
+                || matches!(action, Action::OpenMenu(_) | Action::OpenCustomPanel(_))
+            {
                 self.active = true;
                 self.paused = false;
             }

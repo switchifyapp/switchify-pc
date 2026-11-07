@@ -73,7 +73,10 @@ impl Config {
                 s.name.as_ref().is_some_and(|n| n.chars().count() > 64)
                     || s.hold_actions.len() > 32
                     || s.press_action == Some(Action::Cancel)
-                    || s.hold_actions.contains(&Action::Cancel)
+                    || s.hold_actions.iter().any(|a| !a.valid_assignment())
+                    || s.press_action
+                        .as_ref()
+                        .is_some_and(|a| !a.valid_assignment())
                     || (s.press_action.is_none() && !s.hold_actions.is_empty())
             })
         {
@@ -99,7 +102,7 @@ impl Config {
                         id: (i + 1).to_string(),
                         name: s.display_name(i),
                         key: format!("F{}", i + 1),
-                        press_action: s.press_action?,
+                        press_action: s.press_action.clone()?,
                         hold_actions: s.hold_actions.clone(),
                     })
                 })
@@ -108,7 +111,7 @@ impl Config {
     }
     pub fn profile(&self) -> Value {
         json!({"id":PROFILE_ID,"name":"Switchify scanning","version":self.revision,"kind":"scanning","bindings":self.slots.iter().enumerate().map(|(i,s)| {
-        let mut label = s.press_action.map_or("Unassigned", Action::label).to_string();
+        let mut label = s.press_action.as_ref().map_or("Unassigned", Action::label).to_string();
         if !s.hold_actions.is_empty() { label.push_str("; hold: "); label.push_str(&s.hold_actions.iter().map(|a| a.label()).collect::<Vec<_>>().join(", ")); }
         if s.press_action.is_some() && s.name.as_deref().is_some_and(|n| !n.trim().is_empty()) { label = format!("{}: {label}", s.display_name(i)); }
         json!({"switchId":i+1,"label":label,"behavior":if s.press_action.is_some(){"stateful"}else{"unassigned"}})

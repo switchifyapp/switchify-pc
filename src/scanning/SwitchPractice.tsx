@@ -2,7 +2,7 @@ import { Button, Select } from "../ui/controls";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { actions, type SwitchAction } from "./useSwitches";
+import { actionLabel, type SwitchAction } from "./useSwitches";
 
 type Block = { id: string; label: string; selected: boolean };
 type View = { active: boolean; source: string; message: string; input: string; action: SwitchAction | null; completed: number; blocks: Block[] };
@@ -73,7 +73,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
       <p>Use Select to start, Next and Previous to move among the blocks, then Select to choose one. Nothing here clicks, types, or changes settings.</p>
       <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. The practice window closes when testing stops, including on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
       <p role="status" aria-live="polite">{view?.message ?? "Starting practice…"}</p>
-      <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actions[view.action]}`} · Completed: {view?.completed ?? 0}</p>
+      <p>{view?.source} · {view?.input ? `Last input: ${view.input}` : "No input received yet"}{view?.action && ` · ${actionLabel(view.action)}`} · Completed: {view?.completed ?? 0}</p>
       <ul className="switch-practice-blocks" aria-label="Practice blocks">
         {(view?.blocks ?? []).map(block => <li key={block.id} data-selected={block.selected}>{block.label}</li>)}
       </ul>
