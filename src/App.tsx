@@ -481,7 +481,7 @@ export function App() {
   const [focusUpdates, setFocusUpdates] = useState(false);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [query, setQuery] = useState("");
-  const [discard, setDiscard] = useState<{ kind: "profile" | "panel"; proceed: () => void } | null>(null);
+  const [discard, setDiscard] = useState<{ kind: "profile" | "panel"; proceed: () => void; opener: HTMLElement | null } | null>(null);
   const [arrival, setArrival] = useState<Target | null>(null);
   const [requestedArea, setRequestedArea] = useState<ScanArea | "shared" | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -741,7 +741,7 @@ export function App() {
   // The requested destination runs only after the user accepts discarding.
   const afterDiscard = (proceed: () => void) => {
     const kind = profileEditorDirty.current ? "profile" : panelEditorDirty.current ? "panel" : null;
-    if (kind) setDiscard({ kind, proceed });
+    if (kind) setDiscard({ kind, proceed, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null });
     else proceed();
   };
   const selectView = (next: View) => {
@@ -847,7 +847,7 @@ export function App() {
       {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} ctx={current} jump={jump} />}
       </>}
     </main></DemonstrationProvider>
-    {discard && <ConfirmDialog title={`Discard unsaved ${discard.kind} changes?`} description="Your changes have not been saved." action="Discard changes" onCancel={() => setDiscard(null)} onConfirm={() => {
+    {discard && <ConfirmDialog title={`Discard unsaved ${discard.kind} changes?`} description="Your changes have not been saved." action="Discard changes" returnFocus={discard.opener} onCancel={() => setDiscard(null)} onConfirm={() => {
       const proceed = discard.proceed;
       profileEditorDirty.current = false; panelEditorDirty.current = false;
       setDiscard(null); proceed();

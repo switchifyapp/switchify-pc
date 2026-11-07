@@ -326,12 +326,12 @@ function SwitchEditor({
 // Keep focus off actionable controls throughout learning, including pre-held
 // releases and keys outside the native supported set. Losing main-window focus
 // cancels learning; Escape is handled by native capture.
-function CaptureDialog({ name, platform, onCancel }: { name: string; platform?: DemoPlatform; onCancel: () => void }) {
+function CaptureDialog({ name, platform, onCancel, returnFocus }: { name: string; platform?: DemoPlatform; onCancel: () => void; returnFocus: HTMLElement | null }) {
   const notLearned = keysNotLearned(platform);
   const titleId = useId();
   const bodyId = useId();
   return (
-    <Dialog className="capture-dialog" captureKeyboard aria-labelledby={titleId} aria-describedby={bodyId}>
+    <Dialog className="capture-dialog" captureKeyboard aria-labelledby={titleId} aria-describedby={bodyId} returnFocus={returnFocus}>
         <PageIcon page="switches" size={40} />
         <h2 id={titleId}>Press and release your switch</h2>
         <p id={bodyId}>
@@ -365,6 +365,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const captureOpener = useRef<HTMLElement | null>(null);
   const initialDraft = useRef<Binding | null>(null);
   const requestRemoval = (kind: "local" | "remote" | "draft", binding: Binding, index?: number) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -532,6 +533,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       ),
     });
   const learn = (id: string) => {
+    captureOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     releaseEntry();
     setRowError(null);
     setTarget(id);
@@ -636,6 +638,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
       {confirmation && !suspended && <SwitchConfirmation title={confirmation.kind === "draft" ? "Discard this new switch?" : `Remove ${confirmation.name}?`} action={confirmation.kind === "draft" ? "Discard switch" : "Remove switch"} busy={confirmBusy} error={confirmError} cancel={cancelConfirmation} confirm={() => void confirmRemoval()} />}
       {capturing && target && !suspended && (
         <CaptureDialog
+          returnFocus={captureOpener.current}
           name={captureName}
           platform={platform}
           onCancel={() => {

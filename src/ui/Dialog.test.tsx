@@ -135,3 +135,22 @@ it("preserves a deliberate focus handoff after capture closes", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   await waitFor(() => expect(screen.getByRole("textbox")).toHaveFocus());
 });
+
+it("restores an explicit opener that blurred before the dialog mounted", async () => {
+  function Example() {
+    const [capture, setCapture] = useState(false);
+    const opener = useRef<HTMLElement | null>(null);
+    return <><button disabled={capture} onClick={(event) => {
+      opener.current = event.currentTarget;
+      event.currentTarget.blur();
+      setCapture(true);
+    }}>Learn</button>{capture && <Dialog aria-label="Capture" returnFocus={opener.current}>
+      <button onClick={() => setCapture(false)}>Cancel capture</button>
+    </Dialog>}</>;
+  }
+  render(<Example />);
+  const learn = screen.getByRole("button", { name: "Learn" });
+  learn.focus(); fireEvent.click(learn);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel capture" }));
+  await waitFor(() => expect(learn).toHaveFocus());
+});

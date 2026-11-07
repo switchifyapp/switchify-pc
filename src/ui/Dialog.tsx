@@ -42,6 +42,8 @@ function controls(dialog: HTMLElement) {
 type DialogProps = Omit<ComponentProps<"section">, "ref" | "aria-label" | "aria-labelledby"> & ({ "aria-label": string; "aria-labelledby"?: string } | { "aria-labelledby": string; "aria-label"?: string }) & {
   dialogRef?: RefObject<HTMLElement | null>;
   initialFocus?: RefObject<HTMLElement | null>;
+  /** Record in the opening event when the opener will be disabled or inert. */
+  returnFocus?: HTMLElement | null;
   onEscape?: () => void;
   active?: boolean;
   suspended?: boolean;
@@ -51,7 +53,7 @@ type DialogProps = Omit<ComponentProps<"section">, "ref" | "aria-label" | "aria-
 };
 
 /** One modal owner, including dialogs opened over setup or another editor. */
-export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspended = false, backdropClassName = "", captureKeyboard = false, className = "", role = "dialog", onKeyDown, children, ...props }: DialogProps) {
+export function Dialog({ dialogRef, initialFocus, returnFocus, onEscape, active = true, suspended = false, backdropClassName = "", captureKeyboard = false, className = "", role = "dialog", onKeyDown, children, ...props }: DialogProps) {
   const ownRef = useRef<HTMLElement>(null);
   const context = useContext(ParentDialog);
   const parent = context?.id ?? null;
@@ -61,7 +63,7 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
   const backdrop = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!active || paused || !ref.current || !backdrop.current) return;
-    const entry: Entry = { backdrop: backdrop.current, dialog: ref.current, previous: document.activeElement instanceof HTMLElement ? document.activeElement : null, id, parent };
+    const entry: Entry = { backdrop: backdrop.current, dialog: ref.current, previous: returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null), id, parent };
     const child = dialogs.findIndex((candidate) => {
       let ancestor = candidate.parent;
       while (ancestor) {
@@ -104,10 +106,10 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
         restoreFocus();
         // Layout cleanup precedes React clearing disabled/inert on the
         // opener. Retry after the commit, when a resumed parent is ready.
-        queueMicrotask(restoreFocus);
+        requestAnimationFrame(restoreFocus);
       }
     };
-  }, [active, paused, captureKeyboard, ref, initialFocus, id, parent]);
+  }, [active, paused, captureKeyboard, ref, initialFocus, returnFocus, id, parent]);
 
   useLayoutEffect(() => {
     const shell = document.querySelector<HTMLElement>(".app-shell");
@@ -139,14 +141,14 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
   </div>, document.body);
 }
 
-export function ConfirmDialog({ title, description, action, cancelLabel = "Keep editing", busy = false, destructive = true, error, onCancel, onConfirm }: {
-  title: string; description?: string; action: string; cancelLabel?: string; busy?: boolean; destructive?: boolean; error?: string | null; onCancel: () => void; onConfirm: () => void;
+export function ConfirmDialog({ title, description, action, cancelLabel = "Keep editing", busy = false, destructive = true, error, returnFocus, onCancel, onConfirm }: {
+  title: string; description?: string; action: string; cancelLabel?: string; busy?: boolean; destructive?: boolean; error?: string | null; returnFocus?: HTMLElement | null; onCancel: () => void; onConfirm: () => void;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   // IDs are local to the dialog rather than tied to a particular editor.
   const titleId = useId();
   const descriptionId = `${titleId}-description`;
-  return <Dialog className="profile-dialog confirm-dialog" role="alertdialog" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} initialFocus={cancel} onEscape={() => { if (!busy) onCancel(); }}>
+  return <Dialog className="profile-dialog confirm-dialog" role="alertdialog" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} initialFocus={cancel} returnFocus={returnFocus} onEscape={() => { if (!busy) onCancel(); }}>
     <header><div><h2 id={titleId}>{title}</h2>{description && <p id={descriptionId}>{description}</p>}</div></header>
     {error && <FeedbackMessage>{error}</FeedbackMessage>}
     <footer><span /><Button ref={cancel} className="secondary" disabled={busy} onClick={onCancel}>{cancelLabel}</Button><Button className={destructive ? "primary danger" : "primary"} disabled={busy} onClick={onConfirm}>{busy ? "Saving…" : action}</Button></footer>
