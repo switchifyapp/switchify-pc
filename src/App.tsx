@@ -1,10 +1,12 @@
-import { Button, Input, Select, StatusIcon } from "./ui/controls";
+import { Dialog, ConfirmDialog } from "./ui/Dialog";
+import { FeedbackMessage, SectionHeader, ActionRow, FormField } from "./ui/patterns";
+import { IconButton, Button, Input, Select, StatusIcon } from "./ui/controls";
 import { PageIcon } from "./ui/PageIcon";
 import { needsInputAccess } from "./inputAccess";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  Accessibility, Bluetooth, ChevronRight, Download,
+  Accessibility, Bluetooth, Download,
   Copy, KeyRound, Plus, Power, RefreshCw, Save,
   Trash2, Wrench, X,
 } from "lucide-react";
@@ -116,9 +118,9 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
 }
 
 function DevicesView({ state, forget }: { state: AppState; forget: (id: string) => void }) {
-  return <div className="subview" data-section="devices" data-setting="devices"><header className="section-header"><div><h2>Paired devices</h2><p>Mobile devices trusted by this computer</p></div></header>
+  return <div className="subview" data-section="devices" data-setting="devices"><SectionHeader title="Paired devices" description="Mobile devices trusted by this computer" />
     {state.pairedDevices.length === 0 ? <div className="empty-state"><PageIcon page="mobile" size={28} /><h3>No paired devices</h3><p>Open Switchify on your mobile device to pair while this computer is advertising.</p></div> :
-      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><PageIcon page="mobile" size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><Button className="icon-button danger-icon" title={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></Button></article>)}</div>}
+      <div className="device-list">{state.pairedDevices.map((device) => <article key={device.deviceId}><StatusIcon><PageIcon page="mobile" size={19} /></StatusIcon><div><h3>{device.deviceName}</h3><p>{device.lastSeenAt !== null ? `Last connected ${new Date(device.lastSeenAt).toLocaleString()}` : "Not connected yet"}</p></div><IconButton className="danger-icon" label={`Forget ${device.deviceName}`} onClick={() => forget(device.deviceId)}><Trash2 size={18} /></IconButton></article>)}</div>}
   </div>;
 }
 
@@ -218,7 +220,7 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
   const [confirmation, setConfirmation] = useState<"discard" | "delete" | "duplicate" | "native" | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
-  const confirmationButtonRef = useRef<HTMLButtonElement>(null);
+
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
   const errors = validateProfileDraft(draft, profiles);
   const firstError = Object.keys(errors)[0];
@@ -228,10 +230,6 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     return () => onDirtyChange(false);
   }, [dirty, onDirtyChange]);
 
-  useEffect(() => {
-    if (confirmation) confirmationButtonRef.current?.focus();
-    else dialogRef.current?.focus();
-  }, [confirmation]);
 
   useEffect(() => {
     if (nativeExitRequest) setConfirmation("native");
@@ -266,16 +264,6 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     const keys = [...new Set([...modifiers, pressed])];
     setBinding(index, binding.type, binding.type === "key" ? pressed : undefined, binding.type === "shortcut" ? keys : undefined);
   };
-  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); if (confirmation === "native") onCancelNativeExit(); confirmation ? setConfirmation(null) : requestClose(); return; }
-    if (event.key !== "Tab") return;
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)') ?? [])].filter((control) => control.offsetParent !== null || control === document.activeElement);
-    if (controls.length === 0) return;
-    const first = controls[0]; const last = controls.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  };
-
   const confirmationTitle = confirmation === "delete" ? `Delete ${profile.name}?` : "Discard unsaved changes?";
   const confirmationCopy = confirmation === "delete" ? "This profile will no longer be available to switch sessions."
     : confirmation === "duplicate" ? "The duplicate will use the last saved version of this profile."
@@ -294,15 +282,12 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
     else onClose();
   };
 
-  if (confirmation) return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="profile-confirm-title" tabIndex={-1} onKeyDown={trapFocus}>
-    <header><div><h2 id="profile-confirm-title">{confirmationTitle}</h2><p>{confirmationCopy}</p></div></header>
-    <footer><span /><Button ref={confirmationButtonRef} className="secondary" onClick={cancelConfirmation}>Keep editing</Button><Button className={confirmation === "duplicate" ? "primary" : "primary danger"} disabled={busy} onClick={confirmAction}>{confirmationAction}</Button></footer>
-  </section></div>;
+  if (confirmation) return <ConfirmDialog title={confirmationTitle} description={confirmationCopy} action={confirmationAction} destructive={confirmation !== "duplicate"} busy={busy} onCancel={cancelConfirmation} onConfirm={confirmAction} />;
 
-  return <div className="modal-backdrop"><section ref={dialogRef} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title" tabIndex={-1} onKeyDown={trapFocus}>
-    <header><div><h2 id="profile-title">{profile.builtIn ? profile.name : "Edit switch profile"}</h2><p>Map each physical switch to a desktop action.</p></div><Button className="icon-button" title="Close" onClick={requestClose}><X size={18} /></Button></header>
-    {operationError && <div className="dialog-error" role="alert">{operationError}</div>}
-    <label className="field"><span>Profile name</span><Input data-error-key="name" value={draft.name} maxLength={50} disabled={profile.builtIn} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "profile-name-error" : undefined} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />{errors.name && <span className="field-error" id="profile-name-error">{errors.name}</span>}</label>
+  return <Dialog dialogRef={dialogRef} className="profile-dialog" aria-labelledby="profile-title" onEscape={requestClose}>
+    <header><div><h2 id="profile-title">{profile.builtIn ? profile.name : "Edit switch profile"}</h2><p>Map each physical switch to a desktop action.</p></div><IconButton label="Close" onClick={requestClose}><X size={18} /></IconButton></header>
+    {operationError && <FeedbackMessage>{operationError}</FeedbackMessage>}
+    <FormField label="Profile name" error={errors.name}>{(field) => <Input {...field} data-error-key="name" value={draft.name} maxLength={50} disabled={profile.builtIn} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />}</FormField>
     <div className="binding-list">{draft.bindings.map((binding, index) => <div className="binding-row" key={binding.switchId} data-invalid={Boolean(errors[`binding-${binding.switchId}`])}>
       <strong>Switch {binding.switchId}</strong>
       <Select data-error-key={`binding-${binding.switchId}`} aria-label={`Switch ${binding.switchId} action`} aria-invalid={Boolean(errors[`binding-${binding.switchId}`])} aria-describedby={errors[`binding-${binding.switchId}`] ? `binding-${binding.switchId}-error` : undefined} value={binding.type} disabled={profile.builtIn} onChange={(event) => setBinding(index, event.target.value as typeof binding.type)}>
@@ -315,7 +300,7 @@ function ProfileEditor({ profile, profiles, onClose, onSave, onDelete, onDuplica
       {errors[`binding-${binding.switchId}`] && <span className="field-error binding-error" id={`binding-${binding.switchId}-error`}>{errors[`binding-${binding.switchId}`]}</span>}
     </div>)}</div>
     <footer>{onDelete && <Button className="secondary danger" disabled={busy} onClick={() => setConfirmation("delete")}><Trash2 size={16} />Delete</Button>}<Button className="secondary" disabled={busy} onClick={() => dirty ? setConfirmation("duplicate") : onDuplicate()}><Copy size={16} />Duplicate</Button><span /><Button className="secondary" onClick={requestClose}>Cancel</Button>{!profile.builtIn && <Button className="primary" disabled={busy || Boolean(firstError)} onClick={() => void runSave()}><Save size={16} />Save profile</Button>}</footer>
-  </section></div>;
+  </Dialog>;
 }
 
 function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyChange, nativeExitRequest, onConfirmNativeExit, onCancelNativeExit, busy }: { profiles: SwitchProfile[]; platform: AppState["capabilities"]["platform"]; saveProfile: (profile: SwitchProfile) => Promise<void>; deleteProfile: (id: string) => Promise<void>; onDirtyChange: (dirty: boolean) => void; nativeExitRequest: ProfileExitAction | null; onConfirmNativeExit: () => void; onCancelNativeExit: () => void; busy: boolean }) {
@@ -323,8 +308,8 @@ function ProfilesView({ profiles, platform, saveProfile, deleteProfile, onDirtyC
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const closeEditor = () => { setEditing(null); requestAnimationFrame(() => (openerRef.current?.isConnected ? openerRef.current : document.querySelector<HTMLButtonElement>(".section-header button"))?.focus()); };
   const openEditor = (profile: SwitchProfile, opener: HTMLButtonElement) => { openerRef.current = opener; setEditing(profile); };
-  return <div className="subview" data-section="profiles" data-setting="profiles"><header className="section-header"><div><h2>Switch Forwarding</h2><p>Profiles available to physical switch sessions</p></div><Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button></header>
-    <div className="profile-list">{profiles.map((profile) => <Button className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)}><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>{profile.name}</h3><p>{profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`}</p></div><span>{profile.builtIn ? "Built in" : "Custom"}</span><ChevronRight size={18} /></Button>)}</div>
+  return <div className="subview" data-section="profiles" data-setting="profiles"><SectionHeader title="Switch Forwarding" description="Profiles available to physical switch sessions" action={<Button className="primary" onClick={(event) => openEditor(newProfile(), event.currentTarget)}><Plus size={16} />New profile</Button>} />
+    <div className="profile-list">{profiles.map((profile) => <ActionRow className="profile-row" key={profile.id} onClick={(event) => openEditor(profile, event.currentTarget)} title={profile.name} description={profile.provider === "grid3" ? "Grid 3" : `${profile.bindings.filter((binding) => binding.type !== "none").length} mapped switches`} icon={<StatusIcon><PageIcon page="switches" size={19} /></StatusIcon>} trailing={<span>{profile.builtIn ? "Built in" : "Custom"}</span>} />)}</div>
     {platform === "macos" && <p className="capability-note">Grid 3 profiles are available on Windows only.</p>}
     {editing && <ProfileEditor key={editing.id} profile={editing} profiles={profiles} busy={busy} onDirtyChange={onDirtyChange} nativeExitRequest={nativeExitRequest} onConfirmNativeExit={() => { closeEditor(); onConfirmNativeExit(); }} onCancelNativeExit={onCancelNativeExit} onClose={closeEditor} onDuplicate={() => setEditing(duplicateProfile(editing, profiles))} onSave={async (profile) => { await saveProfile(profile); closeEditor(); }} onDelete={editing.builtIn || !profiles.some((profile) => profile.id === editing.id) ? null : async () => { await deleteProfile(editing.id); closeEditor(); }} />}
   </div>;
@@ -347,12 +332,12 @@ function UpdateBanner({ update, openUpdates }: { update: UpdateState; openUpdate
 function SupportView({ state, switches, busy, perform, openSetup, openUpdates, ctx, jump }: { state: AppState; switches: SwitchController; busy: boolean; perform: (operation: () => Promise<AppState>) => void; openSetup: () => void; openUpdates: () => void; ctx: FindContext; jump: Jump }) {
   return <div className="view"><PageHead title="Help" blurb={<>Set up Switchify PC and fix common problems. The full guide is at <a href="https://pc.theswitchify.app" target="_blank" rel="noreferrer">pc.theswitchify.app</a>.</>} />
     <SectionStrip page="support" ctx={ctx} jump={jump} />
-    <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><header className="section-header" data-setting="setup-guide"><div><h2 id="support-setup-heading">Setup</h2><p>Set up your switches and optional mobile connection.</p></div><Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button></header><div className="task-list" aria-label="Setup status">
+    <section className="subview" data-section="setup" aria-labelledby="support-setup-heading"><SectionHeader data-setting="setup-guide" headingId="support-setup-heading" title="Setup" description="Set up your switches and optional mobile connection." action={<Button className="primary setup-launch" onClick={openSetup}><Wrench size={16} />Open setup guide</Button>} /><div className="task-list" aria-label="Setup status">
       {needsInputAccess(state) && <article data-setting="input-access"><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button></article>}
       <article><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Local switches</h3><p>{switches.state?.settings.bindings.length ?? 0} configured. Open Switches to assign Select, then open Scanning to adjust movement.</p></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "switches" })}>Open Switches</Button></article>
       <article><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Optional mobile connection</h3><p>{bluetoothLabels[state.bluetooth]}. Open Mobile for pairing and forwarding profiles.</p></div><Button className="secondary" onClick={() => jump({ page: "mobile", section: "pairing" })}>Open Mobile</Button></article>
     </div></section>
-    <section className="subview" data-section="fix" aria-labelledby="support-fix-heading"><header className="section-header"><div><h2 id="support-fix-heading">Fix a problem</h2><p>Checks and tools for when something is not working.</p></div></header><div className="task-list" aria-label="Troubleshooting actions">
+    <section className="subview" data-section="fix" aria-labelledby="support-fix-heading"><SectionHeader headingId="support-fix-heading" title="Fix a problem" description="Checks and tools for when something is not working." /><div className="task-list" aria-label="Troubleshooting actions">
       <article data-setting="bluetooth"><StatusIcon><Bluetooth size={19} /></StatusIcon><div><h3>Bluetooth connection</h3><p>{bluetoothLabels[state.bluetooth]}</p></div><Button className="secondary" disabled={busy} onClick={() => perform(api.disconnectAll)}><Power size={16} />Disconnect</Button></article>
       {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => perform(() => api.checkAccessibility(true))}>Open Accessibility Settings</Button></article>}
       <article data-setting="not-recognised"><StatusIcon><PageIcon page="switches" size={19} /></StatusIcon><div><h3>Switch not recognized</h3><p>{interfaceModeAdvice} {reservedKeyAdvice(state.capabilities.platform)}</p><Demonstration kind="interface" /></div><Button className="secondary" onClick={() => jump({ page: "switches", section: "practice", setting: "practice" })}>Test switches</Button></article>
@@ -416,19 +401,10 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
 
 
-  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab" || capturing || suspended) return;
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled):not([tabindex="-1"]), a[href], input:not(:disabled), select:not(:disabled)') ?? [])];
-    if (controls.length === 0) return;
-    const first = controls[0]; const last = controls.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  };
-
-  return <div className="modal-backdrop setup-backdrop" hidden={suspended} inert={suspended}><section ref={dialogRef} className="setup-dialog" data-switch-step={step === 1} role={capturing ? undefined : "dialog"} aria-modal={capturing ? undefined : true} aria-labelledby="setup-title" tabIndex={-1} onKeyDown={trapFocus}>
+  return <Dialog dialogRef={dialogRef} className="setup-dialog" backdropClassName="setup-backdrop" suspended={suspended} active={!capturing} data-switch-step={step === 1} aria-labelledby="setup-title">
     <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${stepNumber} of ${steps.length}`}>{stepNumber} / {steps.length}</strong></header>
     <div className="setup-progress" aria-hidden="true">{steps.map(index => <span key={titles[index]} data-active={index <= step} />)}</div>
-    {error && <div className="dialog-error" role="alert">{error}</div>}
+    {error && <FeedbackMessage>{error}</FeedbackMessage>}
     <div className="setup-content">
       {step === 0 && <div className="setup-statuses">
         {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</Button></article>}
@@ -440,7 +416,7 @@ function SetupGuide({ state, switches, suspended, busy, error, skip, finish, acc
     </div>
     <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
     <footer><Button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</Button>{step === 1 && <Button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</Button>}<span /><Button className="secondary" disabled={busy || switchBusy || stepNumber === 1} onClick={() => setStep(step - 1)}>Back</Button><Button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep(step + 1)}>{step === 4 ? "Finish" : "Next"}</Button></footer>
-  </section></div>;
+  </Dialog>;
 }
 
 function PairingDialog({ requests, connectedDeviceName, busy, error, approve, reject }: {
@@ -452,14 +428,8 @@ function PairingDialog({ requests, connectedDeviceName, busy, error, approve, re
   reject: (requestId: string) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
-  const previousFocus = useRef<HTMLElement | null>(null);
   const actedRequest = useRef<string | null>(null);
 
-  useEffect(() => {
-    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialogRef.current?.focus();
-    return () => previousFocus.current?.focus();
-  }, []);
 
   useEffect(() => {
     if (!actedRequest.current || requests.some((request) => request.requestId === actedRequest.current)) return;
@@ -472,28 +442,9 @@ function PairingDialog({ requests, connectedDeviceName, busy, error, approve, re
     void operation(requestId);
   };
 
-  const trapFocus = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab") return;
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
-    if (controls.length === 0) {
-      event.preventDefault();
-      dialogRef.current?.focus();
-      return;
-    }
-    const first = controls[0];
-    const last = controls.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
-  return <div className="modal-backdrop"><section ref={dialogRef} className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title" tabIndex={-1} onKeyDown={trapFocus}>
+  return <Dialog dialogRef={dialogRef} className="pairing-dialog" aria-labelledby="pairing-title">
     <header><PageIcon page="mobile" size={26} /><div><h2 id="pairing-title">Pairing requests</h2><p>Confirm each code matches Switchify for mobile.</p>{connectedDeviceName && <p className="pairing-connection">Connected to {connectedDeviceName}</p>}</div><span>{requests.length}</span></header>
-    {error && <p className="dialog-error" role="alert">{error}</p>}
+    {error && <FeedbackMessage>{error}</FeedbackMessage>}
     <div className="pairing-list" aria-label="Pending pairing requests">
       {requests.map((request, index) => {
         const titleId = `pairing-request-${index}`;
@@ -505,7 +456,7 @@ function PairingDialog({ requests, connectedDeviceName, busy, error, approve, re
         </article>;
       })}
     </div>
-  </section></div>;
+  </Dialog>;
 }
 
 export function App() {
@@ -530,6 +481,7 @@ export function App() {
   const [focusUpdates, setFocusUpdates] = useState(false);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [query, setQuery] = useState("");
+  const [discard, setDiscard] = useState<{ kind: "profile" | "panel"; proceed: () => void; opener: HTMLElement | null } | null>(null);
   const [arrival, setArrival] = useState<Target | null>(null);
   const [requestedArea, setRequestedArea] = useState<ScanArea | "shared" | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -786,36 +738,29 @@ export function App() {
     });
     return () => { void stop.then((unlisten) => unlisten()); };
   }, [view]);
-  // Leaving an editor with unsaved changes asks first; a yes forgets them.
-  const confirmDiscard = (): boolean => {
-    if (profileEditorDirty.current && !window.confirm("Discard unsaved profile changes?")) return false;
-    if (panelEditorDirty.current && !window.confirm("Discard unsaved panel changes?")) return false;
-    profileEditorDirty.current = false;
-    panelEditorDirty.current = false;
-    return true;
+  // The requested destination runs only after the user accepts discarding.
+  const afterDiscard = (proceed: () => void) => {
+    const kind = profileEditorDirty.current ? "profile" : panelEditorDirty.current ? "panel" : null;
+    if (kind) setDiscard({ kind, proceed, opener: document.activeElement instanceof HTMLElement ? document.activeElement : null });
+    else proceed();
   };
-  const selectView = (next: View): boolean => {
-    if (next === viewRef.current) return true;
-    if (!confirmDiscard()) return false;
-    viewRef.current = next;
-    setView(next);
-    return true;
+  const selectView = (next: View) => {
+    if (next === viewRef.current) { setQuery(""); return; }
+    afterDiscard(() => { setQuery(""); viewRef.current = next; setView(next); });
   };
-
-  // Finding things: the Find tile's query, and the setting a jump is heading to.
-  // Find's results replace the page, so the first letter typed asks the same
-  // question leaving the page would; a refused question leaves the box empty.
   const changeQuery = (next: string) => {
-    // Blank input is no query, so a stray space never replaces the page.
     if (!next.trim()) { setQuery(""); return; }
-    if (!query && !confirmDiscard()) return;
-    setQuery(next);
+    if (!query) afterDiscard(() => setQuery(next));
+    else setQuery(next);
   };
   const jump: Jump = (target) => {
-    setQuery("");
-    if (!selectView(target.page)) return;
-    setRequestedArea(target.area ?? (target.page === "scanning" ? "shared" : null));
-    setArrival(target);
+    const arrive = () => {
+      setQuery(""); viewRef.current = target.page; setView(target.page);
+      setRequestedArea(target.area ?? (target.page === "scanning" ? "shared" : null));
+      setArrival(target);
+    };
+    if (target.page === viewRef.current) arrive();
+    else afterDiscard(arrive);
   };
   useArrival(rootRef, arrival, () => setArrival(null));
   // A new page starts at its top; a jump scrolls to its own target instead.
@@ -835,16 +780,9 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const openUpdates = () => {
-    // Find results replace the page, so leave them before heading to Updates.
-    setQuery("");
-    if (viewRef.current !== "settings") {
-      if (!confirmDiscard()) return;
-      viewRef.current = "settings";
-      setView("settings");
-    }
-    setFocusUpdates(true);
-  };
+  const openUpdates = () => afterDiscard(() => {
+    setQuery(""); viewRef.current = "settings"; setView("settings"); setFocusUpdates(true);
+  });
 
   const saveProfile = async (profile: SwitchProfile) => {
     setBusy(true); setError(null);
@@ -872,12 +810,12 @@ export function App() {
   };
 
   if (!state || !settings) return <div className="loading"><RefreshCw className="spin" size={24} /><span>Starting Switchify PC...</span></div>;
-  const modal = setupOpen || state.pendingPairings.length > 0;
+  const modal = setupOpen || state.pendingPairings.length > 0 || discard !== null;
   const current = ctx!;
   return <DemonstrationProvider platform={state.capabilities.platform} suspended={state.pendingPairings.length > 0 || switches.capturing || !!switches.state?.capture.active}><div ref={rootRef} className="app-shell" data-scan={scanning.config.scannerColor} data-thickness={scanning.config.scanPreferences?.thickness ?? "standard"}>
     <header className="app-bar" inert={modal}>
       <div className="brand"><img className="brand-mark" src={brandIconUrl} alt="" aria-hidden="true" /><div><strong>Switchify</strong><small>PC</small></div></div>
-      <nav aria-label="Pages">{pages.map(id => <Button key={id} className="tile tile-nav" data-utility={id === "settings" || id === "support" ? id : undefined} data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => { setQuery(""); selectView(id); }}><span className="tile-icon" aria-hidden="true"><PageIcon page={id} /></span><span>{pageLabels[id]}</span></Button>)}</nav>
+      <nav aria-label="Pages">{pages.map(id => <Button key={id} className="tile tile-nav" data-utility={id === "settings" || id === "support" ? id : undefined} data-active={view === id && !query} aria-current={view === id && !query ? "page" : undefined} onClick={() => selectView(id)}><span className="tile-icon" aria-hidden="true"><PageIcon page={id} /></span><span>{pageLabels[id]}</span></Button>)}</nav>
     </header>
     <DemonstrationProvider platform={state.capabilities.platform} suspended={modal || switches.capturing || !!switches.state?.capture.active}><main inert={modal}>
       <div className="workspace-toolbar"><span className="workspace-location">{query ? "Find settings" : pageLabels[view]}</span><FindTile query={query} onChange={changeQuery} inputRef={findRef} shortcut={state.capabilities.platform === "macos" ? "⌘ K" : "Ctrl K"} /></div>
@@ -891,7 +829,7 @@ export function App() {
           {state.licence.status !== "licensed" && <BuyLicence />}
         </div>
       </div>}
-      {error && <div className="error-banner" role="alert">{error}<Button onClick={() => setError(null)}>Dismiss</Button></div>}
+      {error && <FeedbackMessage variant="banner" className="error-banner"><span>{error}</span><Button onClick={() => setError(null)}>Dismiss</Button></FeedbackMessage>}
       <UpdateBanner update={liveUpdater ?? state.updater} openUpdates={openUpdates} />
       <p id="settings-updates-notice" className="sr-only" aria-live={updateFailure ? updateLiveness(updateFailure.status) : "polite"} aria-atomic="true">{updateNotice}</p>
       {query ? <FindResults query={query} ctx={current} jump={jump} /> : <>
@@ -909,6 +847,11 @@ export function App() {
       {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} ctx={current} jump={jump} />}
       </>}
     </main></DemonstrationProvider>
+    {discard && <ConfirmDialog title={`Discard unsaved ${discard.kind} changes?`} description="Your changes have not been saved." action="Discard changes" returnFocus={discard.opener} onCancel={() => setDiscard(null)} onConfirm={() => {
+      const proceed = discard.proceed;
+      profileEditorDirty.current = false; panelEditorDirty.current = false;
+      setDiscard(null); proceed();
+    }} />}
     {setupOpen && <SetupGuide state={state} switches={switches} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
     {state.pendingPairings.length > 0 && <PairingDialog error={error} requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div></DemonstrationProvider>;

@@ -1,3 +1,4 @@
+import { PageHeader } from "../ui/patterns";
 // Finding things: the Find tile and its results, the section strip at the
 // top of each page, the Also see links, Home's common tasks and recently
 // changed, and the jump that takes a person to one setting and marks it.
@@ -165,5 +166,5 @@ export function useArrival(root: RefObject<HTMLElement | null>, target: Target |
 
 /** A page's standard header and strip. */
 export function PageHead({ title, blurb, action }: { title: string; blurb: ReactNode; action?: ReactNode }) {
-  return <header className="page-header"><div><h1>{title}</h1><p>{blurb}</p></div>{action}</header>;
+  return <PageHeader title={title} description={blurb} action={action} />;
 }

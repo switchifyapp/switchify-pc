@@ -1,6 +1,8 @@
+import { ConfirmDialog } from "../ui/Dialog";
+import { FeedbackMessage, PageHeader, FormField } from "../ui/patterns";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
-import { Button, Input, Select } from "../ui/controls";
+import { Textarea, IconButton, Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
 import { PanelPicture, toolbarAction, type TilePlace } from "./PanelPicture";
 import { actionProblem, chordFromEvent, columnProblems, defaultLabel, describeAction, friendlyKey, maxColumnTiles, maxExtraColumns, maxExtraRows, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
@@ -38,7 +40,6 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const choose = (selection: Selection) => { setSelected(selection); setPick((count) => count + 1); };
   const [confirmation, setConfirmation] = useState<"discard" | "delete" | null>(null);
   const [catalogue, setCatalogue] = useState<PanelActionEntry[]>([]);
-  const confirmRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const addRowRef = useRef<HTMLButtonElement>(null);
@@ -73,7 +74,6 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
 
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
   useEffect(() => { void api.panelActions().then(setCatalogue).catch(() => setCatalogue([])); }, []);
-  useEffect(() => { if (confirmation) confirmRef.current?.focus(); }, [confirmation]);
 
   const update = (next: CustomPanel) => setDraft(next);
   const updateRows = (rows: PanelCell[][]) => update({ ...draft, rows });
@@ -188,28 +188,28 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   };
 
   return <div className="view panel-editor">
-    {confirmation && <div className="modal-backdrop"><section className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${ids}-confirm`} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); keepEditing(); } }}>
-      <header><div><h2 id={`${ids}-confirm`}>{confirmation === "delete" ? (extras ? `Remove the tiles added to ${panel.name}?` : builtin ? `Reset ${panel.name} to default?` : `Delete ${panel.name}?`) : "Discard unsaved changes?"}</h2><p>{confirmation === "delete" ? (extras ? "The panel goes back to its keys alone." : builtin ? "The menu goes back to the way it came." : "Tiles on other panels that open it will say it no longer exists.") : "Your changes to this panel have not been saved."}</p></div></header>
-      {error && <div className="dialog-error" role="alert">{error}</div>}
-      <footer><span /><Button ref={confirmRef} className="secondary" onClick={keepEditing}>Keep editing</Button><Button className="primary danger" disabled={busy} onClick={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}>{confirmation === "delete" ? (extras ? "Remove tiles" : builtin ? "Reset to default" : "Delete panel") : "Discard changes"}</Button></footer>
-    </section></div>}
+    {confirmation && <ConfirmDialog
+      title={confirmation === "delete" ? (extras ? `Remove the tiles added to ${panel.name}?` : builtin ? `Reset ${panel.name} to default?` : `Delete ${panel.name}?`) : "Discard unsaved changes?"}
+      description={confirmation === "delete" ? (extras ? "The panel goes back to its keys alone." : builtin ? "The menu goes back to the way it came." : "Tiles on other panels that open it will say it no longer exists.") : "Your changes to this panel have not been saved."}
+      action={confirmation === "delete" ? (extras ? "Remove tiles" : builtin ? "Reset to default" : "Delete panel") : "Discard changes"}
+      busy={busy} error={error} onCancel={keepEditing} onConfirm={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}
+    />}
     <div inert={confirmation !== null || undefined}>
-      <header className="page-header"><div><Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button><h1>{panel.name}</h1><p>{extras ? "Add rows of your own below the keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</p></div>
+      <PageHeader title={panel.name} before={<Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button>} description={<>{extras ? "Add rows of your own below the keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</>} action={
         <div className="panel-header-actions">{onTry && <Button className="secondary" disabled={busy || dirty} title={dirty ? "Save first, then try" : "Open this panel in the scanner"} onClick={() => { onClearError?.(); void onTry(); }}><Play size={16} aria-hidden="true" />Try it</Button>}{extras
           ? <Button ref={deleteRef} className="secondary danger" disabled={busy || !extras.hasTiles} title={extras.hasTiles ? undefined : "No tiles added yet"} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Remove tiles</Button>
           : builtin
           ? <Button ref={deleteRef} className="secondary" disabled={busy || !builtin.rearranged} title={builtin.rearranged ? undefined : "Not changed yet"} onClick={requestDelete}><RotateCcw size={16} aria-hidden="true" />Reset to default</Button>
-          : <Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button>}<Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />{saveLabel}</Button></div></header>
+          : <Button ref={deleteRef} className="secondary danger" disabled={busy} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Delete panel</Button>}<Button className="primary" disabled={busy || !canSave} onClick={save}><Save size={16} aria-hidden="true" />{saveLabel}</Button></div>} />
       {/* Always present, so screen readers hear a problem appear. */}
       <p className="save-hint" role="status" data-empty={attention.length === 0 || undefined}>{attention.length > 0 && <Button className="text-button" onClick={attention[0].go}>{attention.length === 1 ? attention[0].label : `${attention.length} things need attention. Go to the first`}</Button>}</p>
-      {error && !confirmation && <p className="dialog-error" role="alert">{error}</p>}
+      {error && !confirmation && <FeedbackMessage>{error}</FeedbackMessage>}
       <div className="panel-editor-layout">
         <div className="panel-editor-main">
           <form className="panel-fields" onSubmit={(event) => { event.preventDefault(); save(); }}>
             {!builtin && !extras && <>
-              <label className="field"><span>Panel name</span><Input ref={nameRef} value={draft.name} maxLength={maxPanelNameChars} aria-invalid={problems.name ? true : undefined} aria-describedby={problems.name ? `${ids}-name-error` : undefined} onChange={(event) => update({ ...draft, name: event.target.value })} /></label>
-              {problems.name && <p id={`${ids}-name-error`} className="field-error">{problems.name}</p>}
-              <label className="field"><span>Description</span><Input value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} /></label>
+              <FormField label="Panel name" error={problems.name}>{(field) => <Input {...field} ref={nameRef} value={draft.name} maxLength={maxPanelNameChars} onChange={(event) => update({ ...draft, name: event.target.value })} />}</FormField>
+              <FormField label="Description">{(field) => <Input {...field} value={draft.description} maxLength={maxPanelDescriptionChars} placeholder="What this panel is for" onChange={(event) => update({ ...draft, description: event.target.value })} />}</FormField>
             </>}
           </form>
           <section ref={rowsRef} tabIndex={-1} className="panel-grid-editor" aria-label="Tiles">
@@ -226,16 +226,16 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
                 return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
               },
               rowTools: (rowIndex) => <>
-                <Button className="icon-button" disabled={draft.rows[rowIndex].length >= maxTilesPerRow} aria-label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} /></Button>
-                <Button className="icon-button" disabled={rowIndex === 0} aria-label={`Move row ${rowIndex + 1} up`} onClick={() => moveRow(rowIndex, -1)}><ArrowUp size={16} /></Button>
-                <Button className="icon-button" disabled={rowIndex === draft.rows.length - 1} aria-label={`Move row ${rowIndex + 1} down`} onClick={() => moveRow(rowIndex, 1)}><ArrowDown size={16} /></Button>
-                <Button className="icon-button danger-icon" aria-label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={16} /></Button>
+                <IconButton disabled={draft.rows[rowIndex].length >= maxTilesPerRow} label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} /></IconButton>
+                <IconButton disabled={rowIndex === 0} label={`Move row ${rowIndex + 1} up`} onClick={() => moveRow(rowIndex, -1)}><ArrowUp size={16} /></IconButton>
+                <IconButton disabled={rowIndex === draft.rows.length - 1} label={`Move row ${rowIndex + 1} down`} onClick={() => moveRow(rowIndex, 1)}><ArrowDown size={16} /></IconButton>
+                <IconButton className="danger-icon" label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={16} /></IconButton>
               </>,
               columnTools: (columnIndex) => <>
-                <Button className="icon-button" disabled={columns[columnIndex].length >= maxColumnTiles} aria-label={`Add tile to column ${columnIndex + 1}`} onClick={() => addColumnTile(columnIndex)}><Plus size={16} /></Button>
-                <Button className="icon-button" disabled={columnIndex === 0} aria-label={`Move column ${columnIndex + 1} left`} onClick={() => moveColumn(columnIndex, -1)}><ArrowLeft size={16} /></Button>
-                <Button className="icon-button" disabled={columnIndex === columns.length - 1} aria-label={`Move column ${columnIndex + 1} right`} onClick={() => moveColumn(columnIndex, 1)}><ArrowRight size={16} /></Button>
-                <Button className="icon-button danger-icon" aria-label={`Remove column ${columnIndex + 1}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={16} /></Button>
+                <IconButton disabled={columns[columnIndex].length >= maxColumnTiles} label={`Add tile to column ${columnIndex + 1}`} onClick={() => addColumnTile(columnIndex)}><Plus size={16} /></IconButton>
+                <IconButton disabled={columnIndex === 0} label={`Move column ${columnIndex + 1} left`} onClick={() => moveColumn(columnIndex, -1)}><ArrowLeft size={16} /></IconButton>
+                <IconButton disabled={columnIndex === columns.length - 1} label={`Move column ${columnIndex + 1} right`} onClick={() => moveColumn(columnIndex, 1)}><ArrowRight size={16} /></IconButton>
+                <IconButton className="danger-icon" label={`Remove column ${columnIndex + 1}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={16} /></IconButton>
               </>,
             }} />
             <div className="panel-canvas-actions">
@@ -295,8 +295,8 @@ function TileInspector({ pick, selection, cell, catalogue, panels, self, problem
       <option value="new" disabled={lines.length >= lineLimit}>New {lineNoun}{lines.length >= lineLimit ? " (no room)" : ""}</option>
     </Select></label>
     <div className="tile-inspector-actions">
-      <Button className="icon-button" disabled={selection.cell === 0} aria-label={selection.column ? "Move tile up" : "Move tile left"} onClick={() => onMove(-1)}>{selection.column ? <ArrowUp size={18} /> : <ArrowLeft size={18} />}</Button>
-      <Button className="icon-button" disabled={selection.cell === rowLength - 1} aria-label={selection.column ? "Move tile down" : "Move tile right"} onClick={() => onMove(1)}>{selection.column ? <ArrowDown size={18} /> : <ArrowRight size={18} />}</Button>
+      <IconButton disabled={selection.cell === 0} label={selection.column ? "Move tile up" : "Move tile left"} onClick={() => onMove(-1)}>{selection.column ? <ArrowUp size={18} /> : <ArrowLeft size={18} />}</IconButton>
+      <IconButton disabled={selection.cell === rowLength - 1} label={selection.column ? "Move tile down" : "Move tile right"} onClick={() => onMove(1)}>{selection.column ? <ArrowDown size={18} /> : <ArrowRight size={18} />}</IconButton>
       <Button className="secondary danger" onClick={onRemove}><Trash2 size={16} aria-hidden="true" />Remove tile</Button>
     </div>
     <section className="tile-action" aria-labelledby={`${ids}-action`}>
@@ -304,7 +304,7 @@ function TileInspector({ pick, selection, cell, catalogue, panels, self, problem
       <p className="tile-action-current" aria-live="polite">{describeAction(cell.action, catalogue, panels)}</p>
       {cell.action.type === "myPanels" && <p className="capability-note">Shown once you have made a panel.</p>}
       {cell.action.type === "key" && <label className="field"><span>Keys</span><Input className="key-recorder" placeholder="Select, then press the keys" value={cell.action.keys.map(friendlyKey).join(" + ")} readOnly aria-invalid={parameterProblem ? true : undefined} aria-describedby={parameterProblem ? `${ids}-parameter-error` : undefined} onKeyDown={recordKeys} /></label>}
-      {cell.action.type === "text" && <label className="field"><span>Text to type</span><textarea className="field-control" rows={3} maxLength={maxTextChars} value={cell.action.text} aria-invalid={parameterProblem ? true : undefined} aria-describedby={parameterProblem ? `${ids}-parameter-error` : undefined} onChange={(event) => onAction({ type: "text", text: event.target.value })} /></label>}
+      {cell.action.type === "text" && <label className="field"><span>Text to type</span><Textarea rows={3} maxLength={maxTextChars} value={cell.action.text} aria-invalid={parameterProblem ? true : undefined} aria-describedby={parameterProblem ? `${ids}-parameter-error` : undefined} onChange={(event) => onAction({ type: "text", text: event.target.value })} /></label>}
       {cell.action.type === "openCustomPanel" && <label className="field"><span>Panel to open</span><Select value={cell.action.id} aria-invalid={parameterProblem ? true : undefined} aria-describedby={parameterProblem ? `${ids}-parameter-error` : undefined} onChange={(event) => onAction({ type: "openCustomPanel", id: event.target.value })}><option value="">Choose a panel</option>{others.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</Select></label>}
       {parameterProblem && <p id={`${ids}-parameter-error`} className="field-error">{parameterProblem}</p>}
       <label className="field"><span>Change action</span><Input type="search" placeholder="Search actions, for example copy or volume" value={query} onChange={(event) => setQuery(event.target.value)} /></label>

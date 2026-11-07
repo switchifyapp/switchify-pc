@@ -1,5 +1,6 @@
+import { Dialog } from "../ui/Dialog";
+import { FeedbackMessage } from "../ui/patterns";
 import { Button, Select } from "../ui/controls";
-import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { actionLabel, type SwitchAction } from "./useSwitches";
@@ -13,7 +14,6 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [remote, setRemote] = useState(false);
-  const dialog = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const request = useRef(0);
   const restoreFocus = useRef(false);
@@ -21,10 +21,6 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
   useEffect(() => () => { request.current++; if ("__TAURI_INTERNALS__" in window) void invoke("end_switch_practice").catch(() => {}); }, []);
   useEffect(() => {
     if (!open) return;
-    const background = [...document.body.children].filter((element) => !element.contains(dialog.current));
-    const previous = background.map(element => element.hasAttribute("inert"));
-    background.forEach(element => element.setAttribute("inert", ""));
-    dialog.current?.focus();
     let alive = true;
     let polling = false;
     const timer = window.setInterval(() => {
@@ -37,7 +33,7 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
         }
       }).finally(() => { polling = false; });
     }, 100);
-    return () => { alive = false; window.clearInterval(timer); background.forEach((element, i) => { if (!previous[i]) element.removeAttribute("inert"); }); };
+    return () => { alive = false; window.clearInterval(timer); };
   }, [open]);
   const begin = async () => {
     const id = ++request.current;
@@ -60,15 +56,8 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
     <p>Try your saved switches safely.</p>
     <label>Test source <Select aria-label="Test source" value={remote ? "remote" : "local"} disabled={open || pending || disabled} onChange={e => setRemote(e.target.value === "remote")}><option value="local">Switches on this computer</option><option value="remote">Switches from Switchify Remote</option></Select></label>
     <Button ref={trigger} type="button" className="secondary" disabled={pending || disabled || !("__TAURI_INTERNALS__" in window)} onClick={() => void begin()}>Test switches</Button>
-    {!open && error && <p role="alert">{error}</p>}
-    {open && createPortal(<div className="modal-backdrop"><section ref={dialog} className="switch-practice-dialog" role="dialog" aria-modal="true" aria-labelledby="practice-title" tabIndex={-1} onKeyDown={e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); void close(); }
-      if (e.key === "Tab") {
-        const buttons = [...(dialog.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-        if (buttons.length) { e.preventDefault(); const i = buttons.indexOf(document.activeElement as HTMLButtonElement); buttons[(i + (e.shiftKey ? buttons.length - 1 : 1)) % buttons.length].focus(); }
-      }
-    }}>
+    {!open && error && <FeedbackMessage>{error}</FeedbackMessage>}
+    {open && <Dialog className="switch-practice-dialog" aria-labelledby="practice-title" onEscape={() => { if (!pending) void close(); }}>
       <h2 id="practice-title">Safe switch practice</h2>
       <p>Use Select to start, Next and Previous to move among the blocks, then Select to choose one. Nothing here clicks, types, or changes settings.</p>
       <p>Press Escape, use Stop scanning, or hold any switch through its emergency stop to finish. The practice window closes when testing stops, including on loss of focus, disconnect, or after two minutes. Remote forwarding stops when practice ends.</p>
@@ -78,8 +67,8 @@ export function SwitchPractice({ disabled = false }: { disabled?: boolean }) {
         {(view?.blocks ?? []).map(block => <li key={block.id} data-selected={block.selected}>{block.label}</li>)}
       </ul>
       <p aria-live="polite">Highlighted: {highlighted || "None — use Select to start"}</p>
-      {error && <p role="alert">{error}</p>}
+      {error && <FeedbackMessage>{error}</FeedbackMessage>}
       <div className="switch-practice-buttons"><Button type="button" className="primary" disabled={pending} onClick={() => void close()}>Exit practice</Button></div>
-    </section></div>, document.body)}
+    </Dialog>}
   </div>;
 }

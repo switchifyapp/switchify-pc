@@ -1,3 +1,4 @@
+import { FeedbackMessage } from "../ui/patterns";
 import { PageIcon } from "../ui/PageIcon";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CircleUserRound, LockKeyhole, MailCheck, RefreshCw, Trash2 } from "lucide-react";
@@ -150,7 +151,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
   // Keyed by occurrence so the same message is announced again.
   // Off the signed-in screen (e.g. a session rejected mid-delete) the
   // failed control is gone, so the error joins the form that replaced it.
-  const errorAt = (place: ErrorPlace) => error && (account.signedIn ? error.place : "form") === place && <span key={error.id} className="field-error" id="account-error" role="alert">{error.text}</span>;
+  const errorAt = (place: ErrorPlace) => error && (account.signedIn ? error.place : "form") === place && <FeedbackMessage key={error.id} variant="inline" className="field-error" id="account-error">{error.text}</FeedbackMessage>;
   const errorText = errorAt("form");
   const errorProps = { "aria-invalid": Boolean(error), "aria-describedby": error ? "account-error" : undefined };
 
@@ -307,7 +308,7 @@ function SyncRow() {
       {sync
         ? <p role="status">{text}{status === "upToDate" && last && <> Last synced {last}.</>}</p>
         : <p>{text}</p>}
-      {error && <span className="field-error" role="alert">{error}</span>}
+      {error && <FeedbackMessage variant="inline" className="field-error">{error}</FeedbackMessage>}
     </div>
     {sync && (status === "needsChoice"
       ? <div className="privacy-choice row-actions" role="group" aria-label="Choose which settings to keep">

@@ -6,6 +6,9 @@ const classes = (...names: (string | false)[]) => names.filter(Boolean).join(" "
 export function Button({ className = "", type = "button", ...props }: ComponentProps<"button">) {
   return <button type={type} className={classes("btn", className)} {...props} />;
 }
+export function IconButton({ label, children, className = "", ...props }: Omit<ComponentProps<"button">, "aria-label" | "title"> & { label: string }) {
+  return <Button {...props} className={classes("icon-button", className)} aria-label={label} title={label}><span className="button-icon" aria-hidden="true">{children}</span></Button>;
+}
 // A status tile: green with a tick when done, amber with a mark when
 // something needs doing; `ok` omitted marks a row with only a subject.
 export function StatusIcon({ ok, children }: { ok?: boolean; children: ReactNode }) {
@@ -17,6 +20,9 @@ export function Input({ className = "", type, ...props }: ComponentProps<"input"
 }
 export function Select({ className = "", ...props }: ComponentProps<"select">) {
   return <select className={classes("field-control", className)} {...props} />;
+}
+export function Textarea({ className = "", ...props }: ComponentProps<"textarea">) {
+  return <textarea className={classes("field-control", className)} {...props} />;
 }
 
 // Keep children mounted: collapsing never loses an editor, a draft or a value.

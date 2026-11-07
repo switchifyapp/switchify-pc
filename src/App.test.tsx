@@ -303,7 +303,7 @@ describe("Switchify PC shell", () => {
       navigate = handler;
       return () => undefined;
     });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
 
@@ -311,11 +311,11 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Unsaved tray profile" } });
     act(() => navigate?.("settings"));
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.getByRole("textbox", { name: "Profile name" })).toBeInTheDocument();
-
-    confirm.mockReturnValue(true);
     act(() => navigate?.("settings"));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });
 
@@ -342,6 +342,36 @@ describe("Switchify PC shell", () => {
     await act(async () => finishRegistration?.(stop));
 
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a dirty profile on a same-page tray jump without asking to discard", async () => {
+    let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation(async (handler) => { navigate = handler; return () => undefined; });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    act(() => navigate?.("profiles"));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved tray profile" } });
+    act(() => navigate?.("profiles"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved tray profile");
+    act(() => navigate?.("settings"));
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+  });
+
+  it.each(["navigation", "find"])("returns focus after keeping panel edits from %s", async (source) => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    fireEvent.change(await screen.findByLabelText("Panel name"), { target: { value: "Unsaved panel" } });
+    const opener = source === "navigation" ? screen.getByRole("button", { name: "Home" }) : screen.getByRole("searchbox", { name: "Find a setting" });
+    opener.focus();
+    if (source === "navigation") fireEvent.click(opener);
+    else fireEvent.change(opener, { target: { value: "speed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(opener.closest("[inert]")).toBeNull();
+    expect(screen.getByLabelText("Panel name")).toHaveValue("Unsaved panel");
   });
 
   it.each([
@@ -835,18 +865,31 @@ describe("Switchify PC shell", () => {
   });
 
   it("asks before leaving a panel with unsaved changes", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
     fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
     await screen.findByRole("heading", { name: "New panel", level: 1 });
     fireEvent.change(screen.getByRole("textbox", { name: "Panel name" }), { target: { value: "Changed" } });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved panel changes?");
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved panel changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.getByRole("heading", { name: "New panel", level: 1 })).toBeInTheDocument();
-    confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(await screen.findByRole("heading", { name: "Switchify PC", level: 1 })).toBeInTheDocument();
+  });
+
+  it("can leave the profile key recorder with Escape", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByLabelText("Switch 1 action"), { target: { value: "key" } });
+    const recorder = screen.getByLabelText("Switch 1 key");
+    recorder.focus(); fireEvent.keyDown(recorder, { key: "Escape" });
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
   });
 
   it("creates a profile and records a desired key", async () => {
@@ -922,18 +965,19 @@ describe("Switchify PC shell", () => {
 
   describe("finding things", () => {
     it("asks before Find discards unsaved panel changes", async () => {
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
       fireEvent.click(await screen.findByRole("button", { name: "Home, not changed" }));
       fireEvent.click(await screen.findByRole("button", { name: "Remove row 1" }));
       const find = screen.getByRole("searchbox", { name: "Find a setting" });
       fireEvent.change(find, { target: { value: "s" } });
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved panel changes?");
+      expect(screen.getByRole("alertdialog", { name: "Discard unsaved panel changes?" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
       expect(find).toHaveValue("");
       expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
-      confirm.mockReturnValue(true);
       fireEvent.change(find, { target: { value: "s" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
       expect(await screen.findByRole("list", { name: "Matching settings" })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
       expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
@@ -950,7 +994,8 @@ describe("Switchify PC shell", () => {
       fireEvent.change(find, { target: { value: " " } });
       expect(confirm).not.toHaveBeenCalled();
       fireEvent.change(find, { target: { value: "s" } });
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+      expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
       expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
       expect(screen.getByLabelText("Profile name")).toHaveValue("Break test");
     });
@@ -1157,7 +1202,8 @@ describe("Switchify PC shell", () => {
       fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
       fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved" } });
       fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-      expect(window.confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+      expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
       expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved");
       expect(screen.queryByRole("heading", { name: "Settings", level: 1 })).not.toBeInTheDocument();
     });
@@ -1206,18 +1252,17 @@ describe("Switchify PC shell", () => {
   });
 
   it("prevents navigation from discarding a modified profile", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
     fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Profile name" }), { target: { value: "Modified controls" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved profile changes?");
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
-
-    confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
   });
 
