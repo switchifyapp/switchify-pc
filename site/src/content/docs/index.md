@@ -25,7 +25,11 @@ Press Ctrl+K on Windows or Command+K on Mac to focus **Find a setting**. You can
 
 Home shows whether switch control is ready, followed by common tasks such as changing the scan rate or adding a switch. **Your setup** below them shows saved switches, scanning and the optional mobile connection. Input access appears on Home, in Help and in search only when a Mac still needs Accessibility permission. The same switch, scanning, panel and phone symbols appear beside related tasks, status information and device lists throughout the settings window.
 
-Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting.
+**Settings** opens a menu of categories: **General**, **Input**, **Privacy**, **Updates**, **Account and licence**, and **About**. Choose a large category button to see its controls. Only that category is shown. Choose **Back to settings** to return to the menu; keyboard focus returns to the category you opened. Choosing **Settings** in the sidebar also returns to the menu. Builds without accounts show **Licence** instead of **Account and licence**. Changes save as you make them.
+
+![Settings with six large category buttons for General, Input, Privacy, Updates, Account and licence, and About.](../../assets/screenshots/settings-categories.png)
+
+Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting, including the right Settings category. Clearing the search returns to the category you were viewing and keeps keyboard focus in Find.
 
 Right-clicking in the Switchify PC window does not open a menu. To copy or paste in a text field, use Ctrl+C or Ctrl+V on Windows, or Command+C or Command+V on Mac.
 

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { api, browserState } from "../api";
@@ -12,10 +13,12 @@ function stateWithSettings(settings: AppSettings) {
   return { ...structuredClone(browserState), settings: structuredClone(settings) };
 }
 
-// Settings is one page: a section is reached from the "On this page" strip.
-const selectTab = (name: string) => {
-  const strip = screen.getByRole("navigation", { name: "On this page" });
-  fireEvent.click(within(strip).getByRole("button", { name: new RegExp(`^${name}(,|$)`) }));
+// Open a category, returning to the menu when another category is open.
+const openSection = (name: string) => {
+  const back = screen.queryByRole("button", { name: "Back to settings" });
+  if (back) fireEvent.click(back);
+  const navigation = screen.queryByRole("navigation", { name: "Settings categories" }) ?? screen.getByRole("navigation", { name: "On this page" });
+  fireEvent.click(within(navigation).getByRole("button", { name: new RegExp('^' + name + '(,|$)') }));
 };
 // The pointer settings live at the end of the shared Scanning settings.
 const openMouse = async () => {
@@ -71,7 +74,7 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("group", { name: "Stop repeating" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
     fireEvent.click(within(navigation).getByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
     expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /Pointer speed/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
@@ -84,7 +87,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
 
     expect(screen.getByText("Downloading Switchify PC 1.0.0-beta.2…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "50");
@@ -123,8 +126,8 @@ describe("Switchify PC settings", () => {
     sendProgress(150, 200);
     expect(screen.getByRole("status", { name: "Application update" })).toHaveTextContent("Downloading Switchify PC 1.0.0-beta.2 — 75%");
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("General");
-    selectTab("Updates");
+    openSection("General");
+    openSection("Updates");
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
     expect(document.querySelector(".update-controls > span")).toHaveTextContent("75%");
     expect(progressHandlers.size).toBe(1);
@@ -139,7 +142,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     await waitFor(() => expect(progressHandlers.size).toBe(1));
     sendProgress(150, 200);
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
@@ -159,7 +162,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     await waitFor(() => expect(progressHandlers.size).toBe(1));
 
     sendProgress(1_000, null);
@@ -188,7 +191,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     expect(screen.getByRole("alert")).toHaveTextContent("Download failed");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(download).toHaveBeenCalledOnce();
@@ -200,7 +203,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     fireEvent.click(screen.getByRole("button", { name: "Install and restart" }));
     expect(install).toHaveBeenCalledOnce();
   });
@@ -211,7 +214,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     expect(within(screen.getByRole("region", { name: "Updates" })).getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");
     fireEvent.click(screen.getByRole("button", { name: "Retry download" }));
     expect(download).toHaveBeenCalledOnce();
@@ -222,7 +225,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Update service unavailable");
     checkForUpdates.mockRestore();
@@ -235,7 +238,7 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status, version: null, downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Updates");
+    openSection("Updates");
 
     expect(screen.getByText(description)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
@@ -244,7 +247,7 @@ describe("Switchify PC settings", () => {
   it("exposes key repeat settings and disables them with the toggle", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     const toggle = screen.getByRole("checkbox", { name: "Repeat held keys" });
@@ -285,6 +288,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
+    openSection("General");
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
 
     await openMouse();
@@ -309,7 +313,7 @@ describe("Switchify PC settings", () => {
   it("exposes the dwell controls and their explanatory note", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
 
     const dwell = screen.getByRole("checkbox", { name: "Click when I stop" });
     expect(dwell).not.toBeChecked();
@@ -334,7 +338,7 @@ describe("Switchify PC settings", () => {
   it("exposes the cursor overlay controls on the Mobile page", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-    selectTab("Cursor overlay");
+    openSection("Cursor overlay");
     expect(screen.getByRole("heading", { name: "Cursor overlay", level: 2 })).toBeInTheDocument();
 
     expect(screen.getByRole("checkbox", { name: "Show cursor overlay" })).toBeChecked();
@@ -357,7 +361,7 @@ describe("Switchify PC settings", () => {
     browserState.telemetry = { consent: "disabled", available: true };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
 
@@ -369,7 +373,7 @@ describe("Switchify PC settings", () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
@@ -383,7 +387,7 @@ describe("Switchify PC settings", () => {
     vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
 
@@ -395,7 +399,7 @@ describe("Switchify PC settings", () => {
   it("shows the version, licence and project links on the About tab", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("About");
+    openSection("About");
 
     const about = screen.getByRole("region", { name: "About" });
     expect(within(about).getByText(`Switchify PC ${browserState.version}`)).toBeInTheDocument();
@@ -408,7 +412,7 @@ describe("Switchify PC settings", () => {
   it("explains telemetry consent and links to the privacy policy", async () => {
     const first = render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
     expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
     // One affordance per state: only the choice buttons until consent is recorded.
     expect(screen.queryByRole("checkbox", { name: "Share anonymous diagnostic data" })).not.toBeInTheDocument();
@@ -424,7 +428,7 @@ describe("Switchify PC settings", () => {
     browserState.telemetry = { consent: "undecided", available: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
     expect(await screen.findByText("Diagnostic reporting is unavailable in this build.")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Share anonymous diagnostic data" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share diagnostics" })).toBeDisabled();
@@ -502,7 +506,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    selectTab("Privacy");
+    openSection("Privacy");
     fireEvent.click(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" }));
     await openMouse();
     setPointerSpeed(50);
@@ -510,7 +514,7 @@ describe("Switchify PC settings", () => {
 
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.8");
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
     expect(screen.getByRole("checkbox", { name: "Share anonymous diagnostic data" })).toBeChecked();
 
     await act(async () => {
@@ -531,6 +535,7 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
+    openSection("General");
     const startup = screen.getByRole("checkbox", { name: "Start with system" });
     fireEvent.click(startup);
     expect(startup).toBeChecked();
@@ -543,7 +548,7 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
+    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
     const updates = await screen.findByRole("region", { name: "Updates" });
     await waitFor(() => expect(updates).toHaveFocus());
@@ -559,26 +564,69 @@ describe("Switchify PC settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("region", { name: "Updates" })).not.toHaveFocus();
+    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
   });
 
 
-  it("lists every settings section on the page strip with its current value", async () => {
+  it("opens one category at a time and returns focus to its menu button", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
-    const strip = screen.getByRole("navigation", { name: "On this page" });
-    const names = within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label")!);
-    // The browser fallback has no account support, so no Account section here.
-    expect(names.map((name) => name.split(",")[0])).toEqual(["General", "Input", "Privacy", "Updates", "Licence", "About"]);
-    expect(names[0]).toBe("General, Off");
-    expect(names[3]).toContain(`Switchify PC ${browserState.version}`);
-    // Every section is on the page at once, so nothing is hidden behind a tab.
+    const menu = screen.getByRole("navigation", { name: "Settings categories" });
+    expect(within(menu).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+      .toEqual(["General", "Input", "Privacy", "Updates", "Licence", "About"]);
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
+    openSection("General");
+    expect(screen.getByRole("heading", { name: "General" })).toHaveFocus();
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+    expect(screen.getByRole("button", { name: "General" })).toHaveFocus();
+    openSection("Input");
     expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Updates" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "About" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Account", level: 2 })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Start with system" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Input" })).toHaveFocus();
+  });
+
+  it.each([
+    ["startup", "Start with system", "startup", "General"],
+    ["dwell", "Click when I stop", "dwell", "Input"],
+    ["privacy", "Anonymous diagnostics", "privacy", "Privacy"],
+    ["licence", "Licence", "licence", "Licence"],
+  ])("opens the exact %s setting from Find and returns to its category", async (query, label, setting, category) => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a setting" }), { target: { value: query } });
+    const results = await screen.findByRole("list", { name: "Matching settings" });
+    fireEvent.click(within(results).getByRole("button", { name: new RegExp(`^${label}, Settings,`) }));
+    await waitFor(() => expect(document.querySelector(`[data-setting="${setting}"]`)).toHaveAttribute("data-found", "true"));
+    const target = document.querySelector(`[data-setting="${setting}"]`);
+    expect(target?.contains(document.activeElement)).toBe(true);
+    expect(screen.queryByRole("navigation", { name: "Settings categories" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+    expect(screen.getByRole("button", { name: category })).toHaveFocus();
+  });
+
+  it.each([
+    ["General", "typing"], ["General", "button"],
+    ["Input", "typing"], ["Input", "button"],
+  ])("keeps Find focused when clearing search with %s open using %s", async (category, method) => {
+    render(<StrictMode><App /></StrictMode>);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    openSection(category);
+    const find = screen.getByRole("searchbox", { name: "Find a setting" });
+    find.focus();
+    fireEvent.change(find, { target: { value: "dw" } });
+    await screen.findByRole("list", { name: "Matching settings" });
+    expect(screen.queryByRole("button", { name: "Back to settings" })).not.toBeInTheDocument();
+    if (method === "typing") fireEvent.change(find, { target: { value: "" } });
+    else fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await screen.findByRole("heading", { name: category, level: 2 });
+    expect(find).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Back to settings" })).toBeInTheDocument();
   });
 
   it("omits the cursor overlay section when the platform cannot show a cursor overlay", async () => {
@@ -597,7 +645,7 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
 
     fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
 
@@ -612,7 +660,7 @@ describe("Switchify PC settings", () => {
     await openMouse();
     setPointerSpeed(50);
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
     await openMouse();
 
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
@@ -724,7 +772,7 @@ describe("Switchify PC settings", () => {
   it("keeps the key repeat explanation behind a disclosure", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     expect(screen.getByText("Held navigation keys repeat, like on a keyboard.")).toBeInTheDocument();
@@ -744,7 +792,7 @@ describe("Switchify PC settings", () => {
   it("keeps the privacy consent text visible rather than behind a disclosure", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Privacy");
+    openSection("Privacy");
 
     // Consent legibility, not clutter: this must never move behind a disclosure.
     expect(screen.getByText(/Nothing is sent unless you choose Share diagnostics/)).toBeInTheDocument();
@@ -772,7 +820,7 @@ describe("Switchify PC settings", () => {
   it("gives each help disclosure a distinct accessible name", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
     const pointerNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(pointerNames).toEqual(["More about key repeat"]);
@@ -786,7 +834,7 @@ describe("Switchify PC settings", () => {
   it("links each help disclosure to the detail it reveals and the group to its summary", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    selectTab("Input");
+    openSection("Input");
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
 
     // The group is described by the always-visible summary.
@@ -823,10 +871,15 @@ describe("Switchify PC settings", () => {
     expect(updatesNotice()).toBeEmptyDOMElement();
   });
 
-  it("speaks a standing failure only from the Updates section, which is always on the Settings page", async () => {
+  it("announces a standing failure in the menu and shows its details only in Updates", async () => {
     browserState.updater = failedUpdater("Download failed");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(updatesNotice()).toHaveTextContent("Download failed. Open Updates in Settings to retry.");
+    openSection("General");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    openSection("Updates");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Download failed.");
     expect(updatesNotice()).toBeEmptyDOMElement();
@@ -838,6 +891,7 @@ describe("Switchify PC settings", () => {
     browserState.updater = failedUpdater("Update download could not start: check for an update first");
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    openSection("Updates");
     expect(screen.getByRole("alert")).toHaveTextContent("Update download could not start: check for an update first.");
     expect(updatesNotice()).toBeEmptyDOMElement();
   });
@@ -846,6 +900,7 @@ describe("Switchify PC settings", () => {
     browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    openSection("Updates");
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Updates" })).getByRole("status")).toHaveTextContent("Download cancelled. You can retry when ready.");

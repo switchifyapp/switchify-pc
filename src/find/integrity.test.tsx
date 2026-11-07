@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { api, browserState } from "../api";
@@ -25,6 +25,13 @@ describe("the index matches the rendered app", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: pageLabels[page] })).toHaveAttribute("aria-current", "page"));
   };
 
+  const openSettingsSection = (section: string) => {
+    const back = screen.queryByRole("button", { name: "Back to settings" });
+    if (back) fireEvent.click(back);
+    const label = section === "licence" || section === "account" ? "Account and licence" : sections.settings.find((item) => item.id === section)!.label;
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Settings categories" })).getByRole("button", { name: label }));
+  };
+
   it("renders a section and a marked element for every entry on every page", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -40,10 +47,12 @@ describe("the index matches the rendered app", () => {
       if (page === "mobile") await screen.findByRole("button", { name: "New profile" });
       for (const section of sections[page]) {
         if (section.when && !section.when(ctx)) continue;
+        if (page === "settings") openSettingsSection(section.id);
         await waitFor(() => expect(document.querySelector(`[data-section="${section.id}"]`), `${page} section ${section.id}`).not.toBeNull());
       }
       for (const e of index) {
         if (e.page !== page || !available(e, ctx)) continue;
+        if (page === "settings") openSettingsSection(e.section);
         if (e.area) {
           const names = { point: "point scanning", mouse: "mouse scanning", menu: "menus", keyboard: "keyboard" };
           // Menus and Keyboard sit inside More options, opened as a person would.
@@ -68,6 +77,7 @@ describe("the index matches the rendered app", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     await open("settings");
+    openSettingsSection("account");
     await waitFor(() => expect(document.querySelector(`[data-setting="auto-approve"]`)).not.toBeNull());
   });
 

@@ -15,18 +15,21 @@ computer scanning, dwell clicking and mobile control stop. Settings, account
 management and licence entry remain available. Ordinary development builds do
 not enable paid licensing.
 
+Open **Settings**, then **Account and licence** to find the Licence section.
+Builds without accounts have a **Licence** category instead.
+
 During the trial, a notice at the top of the app shows how many days remain.
-It also points to the **Licence** section of Settings for entering your key. The notice
+It also points to Settings for licence options. The notice
 disappears once this computer is licensed, and returns when 7 days or fewer
 remain in its offline allowance.
 
 **Buy licence** opens checkout in your default browser. It appears in the
-trial notice and in the **Licence** section of Settings when this computer is not licensed.
+trial notice and in the **Licence** section when this computer is not licensed.
 It opens Stripe checkout for a one-time purchase covering one computer.
 An internet connection is needed to open checkout. Your purchase email includes
 your key and a **Switchify-PC.licence** attachment that you can save and import.
 
-Open the **Licence** section of Settings to paste a key, choose **Paste and activate**, or
+Open the **Licence** section to paste a key, choose **Paste and activate**, or
 choose **Import licence file** to open a saved text licence file. Your trial
 days or active licence appear in the status panel at the top of the section.
 Connect to the internet for the first activation. No Switchify account is

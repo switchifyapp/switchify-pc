@@ -24,7 +24,7 @@ Download the latest release from [GitHub releases](https://github.com/switchifya
 Version 1.4.0 introduces a full 30-day trial and purchase licences for one
 computer. If you upgrade from an earlier free release, your trial starts when
 you first open the licensing-enabled app. You can see the days remaining in
-the **Licence** section of Settings.
+the **Licence** section under **Settings**, **Account and licence**.
 
 To continue after the trial, import your purchase email's licence attachment
 or paste its key in that section. First activation needs an internet connection;
