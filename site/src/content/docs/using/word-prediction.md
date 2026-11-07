@@ -7,7 +7,9 @@ While you type on the scanning [keyboard](/using/keyboard/), a row of suggestion
 
 The three instant word suggestions appear almost as soon as the keyboard opens;
 the English word model is a small file that loads quickly. The AI words and
-phrases follow once the on-device model has started.
+phrases follow once the on-device model has started. The bundled AI worker uses
+less memory and reuses calculations while preparing suggestions. It still runs
+entirely on your computer.
 
 ## What the eight slots are
 
