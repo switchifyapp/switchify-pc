@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { api, browserState } from "../api";
@@ -613,7 +614,7 @@ describe("Switchify PC settings", () => {
     ["General", "typing"], ["General", "button"],
     ["Input", "typing"], ["Input", "button"],
   ])("keeps Find focused when clearing search with %s open using %s", async (category, method) => {
-    render(<App />);
+    render(<StrictMode><App /></StrictMode>);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     openSection(category);
     const find = screen.getByRole("searchbox", { name: "Find a setting" });

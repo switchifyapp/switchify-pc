@@ -36,7 +36,7 @@ export function SettingsView({ section, onSectionChange, arriving, state, update
   useLayoutEffect(() => {
     // Mounting after Find is cleared must leave focus in Find. Only category
     // changes move focus; Find arrivals and update notices own their focus.
-    if (previous.current !== undefined && !arriving && !focusUpdates) {
+    if (previous.current !== undefined && previous.current !== category && !arriving && !focusUpdates) {
       const target = category ? root.current?.querySelector<HTMLElement>("h2") : previous.current ? root.current?.querySelector<HTMLElement>(`[data-category="${previous.current}"]`) : null;
       if (target) { target.tabIndex = category ? -1 : 0; target.focus(); target.scrollIntoView?.({ block: "nearest" }); }
     }
