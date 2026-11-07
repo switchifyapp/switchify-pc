@@ -9,13 +9,22 @@ const dialogs: Entry[] = [];
 const originalInert = new Map<Element, boolean>();
 
 function updateBackground() {
-  for (const [element, inert] of originalInert) element.toggleAttribute("inert", inert || element.hasAttribute("hidden"));
+  for (const [element, inert] of originalInert) element.toggleAttribute("inert", inert);
   const top = dialogs.at(-1);
-  if (!top) { originalInert.clear(); return; }
   for (const element of document.body.children) {
-    if (!originalInert.has(element)) originalInert.set(element, element.hasAttribute("inert"));
-    if (element !== top.backdrop) element.setAttribute("inert", "");
+    if (element.hasAttribute("data-dialog-backdrop")) {
+      // These are ours: a previously suspended backdrop must become usable
+      // again when it is top, regardless of its earlier inert state.
+      element.toggleAttribute("inert", element.hasAttribute("hidden") || !!top && element !== top.backdrop);
+    } else if (top) {
+      if (!originalInert.has(element)) originalInert.set(element, element.hasAttribute("inert"));
+      element.setAttribute("inert", "");
+    }
   }
+  if (!top) originalInert.clear();
+  // Portal insertion order can differ from logical nesting on first mount.
+  // Keep every owner above inactive backdrops and its parents.
+  dialogs.forEach((entry, index) => { entry.backdrop.style.zIndex = String(21 + index); });
 }
 
 function controls(dialog: HTMLElement) {
@@ -80,6 +89,7 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
       for (const type of ["keydown", "keyup", "keypress"] as const) document.removeEventListener(type, swallow, true);
       const wasTop = dialogs.at(-1) === entry;
       dialogs.splice(dialogs.indexOf(entry), 1);
+      entry.backdrop.style.zIndex = "";
       updateBackground();
       if (wasTop) {
         const top = dialogs.at(-1);
@@ -99,7 +109,7 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
     if (dialogs.at(-1)?.dialog === ref.current && (!ref.current?.contains(document.activeElement) || document.activeElement?.matches(":disabled"))) ref.current?.focus();
   });
 
-  return createPortal(<div ref={backdrop} className={`modal-backdrop ${backdropClassName}`.trim()} hidden={paused} inert={paused}>
+  return createPortal(<div ref={backdrop} data-dialog-backdrop className={`modal-backdrop ${backdropClassName}`.trim()} hidden={paused} inert={paused}>
     <section {...props} ref={ref} className={`dialog ${className}`.trim()} role={active ? role : undefined} aria-modal={active ? true : undefined} tabIndex={-1} onKeyDown={(event) => {
       onKeyDown?.(event);
       if (!active || paused || event.defaultPrevented || dialogs.at(-1)?.dialog !== ref.current) return;

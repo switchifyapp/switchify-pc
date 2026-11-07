@@ -50,7 +50,9 @@ it("keeps a child modal on top when parent and child mount together", () => {
   render(<Dialog aria-label="Parent"><Dialog aria-label="Child"><button>Child action</button></Dialog></Dialog>);
   const child = screen.getByRole("dialog", { name: "Child" });
   expect(child).toHaveFocus();
-  expect(screen.getByRole("dialog", { name: "Parent" }).closest("[inert]")).not.toBeNull();
+  const parent = screen.getByRole("dialog", { name: "Parent" });
+  expect(parent.closest("[inert]")).not.toBeNull();
+  expect(Number(child.parentElement!.style.zIndex)).toBeGreaterThan(Number(parent.parentElement!.style.zIndex));
 });
 
 it("preserves pre-existing inert backgrounds after unmount", () => {
@@ -60,19 +62,21 @@ it("preserves pre-existing inert backgrounds after unmount", () => {
 });
 
 it("lets a later independent dialog take ownership over an existing nested dialog", () => {
-  const view = render(<Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog>);
+  const view = render(<><Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog></>);
   view.rerender(<><Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog><Dialog aria-label="Pairing" /></>);
   expect(screen.getByRole("dialog", { name: "Pairing" })).toHaveFocus();
   expect(screen.getByRole("dialog", { name: "Practice" }).closest("[inert]")).not.toBeNull();
 });
 
 it("suspends open child dialogs with their parent and resumes ownership", () => {
-  const view = render(<Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog>);
+  const view = render(<><Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog></>);
   view.rerender(<><Dialog aria-label="Setup" suspended><Dialog aria-label="Practice" /></Dialog><Dialog aria-label="Pairing" /></>);
   expect(screen.queryByRole("dialog", { name: "Practice" })).toBeNull();
   expect(screen.getByRole("dialog", { name: "Pairing" })).toHaveFocus();
-  view.rerender(<Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog>);
-  expect(screen.getByRole("dialog", { name: "Practice" })).toHaveFocus();
+  view.rerender(<><Dialog aria-label="Setup"><Dialog aria-label="Practice" /></Dialog></>);
+  const practice = screen.getByRole("dialog", { name: "Practice" });
+  expect(practice).toHaveFocus();
+  expect(practice.parentElement).not.toHaveAttribute("inert");
 });
 
 it("keeps keyboard learning on the dialog and swallows all keyboard edges", () => {
