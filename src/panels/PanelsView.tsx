@@ -1,6 +1,7 @@
+import { FeedbackMessage, PageHeader, SectionHeader, ActionRow } from "../ui/patterns";
 import { PageIcon } from "../ui/PageIcon";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "../ui/controls";
 import { PanelPicture } from "./PanelPicture";
 import { PanelEditor, type BuiltinEditing, type ExtrasEditing } from "./PanelEditor";
@@ -93,10 +94,7 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
   if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "panel", id: open.id }).then(() => undefined, () => undefined)} />;
   // The built-in menus and panels are a list, one row each, under the menu that opens them.
   const menu = (kind: string) => builtins.find((candidate) => candidate.kind === kind);
-  const row = (id: string, name: string, summary: string, onClick: () => void) => <Button className="menu-row" data-opener={id} onClick={onClick} aria-label={`${name}, ${summary}`}>
-    <span className="menu-row-text"><strong>{name}</strong><small>{sentence(summary)}</small></span>
-    <ChevronRight size={18} aria-hidden="true" />
-  </Button>;
+  const row = (id: string, name: string, summary: string, onClick: () => void) => <ActionRow className="menu-row" data-opener={id} onClick={onClick} aria-label={`${name}, ${summary}`} title={name} description={sentence(summary)} />;
   const builtinItem = (kind: string): ReactNode => {
     const view = menu(kind);
     if (!view) return null;
@@ -113,9 +111,9 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
   const onHome = menu("home") !== undefined || extras.length > 0 || HOME_MENUS.some(menu);
   const onMore = menu("more") !== undefined || MORE_MENUS.some(menu);
   return <div className="view">
-    <header className="page-header"><div><h1>Panels</h1><p>Panels of your own, which Home lists under My panels, then the built-in menus and panels.</p></div><Button data-opener="new-panel" className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button></header>
+    <PageHeader title="Panels" description="Panels of your own, which Home lists under My panels, then the built-in menus and panels." action={<Button data-opener="new-panel" className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button>} />
     {strip}
-    {error && <p className="field-error" role="alert">{error}</p>}
+    {error && <FeedbackMessage>{error}</FeedbackMessage>}
     <section className="panel-group panel-group-yours" data-section="yours" data-setting="your-panels" aria-label="Your panels">
     {panels === null ? <p className="capability-note">Loading your panels...</p>
       : panels.length === 0 ? <section className="empty-state" aria-label="No panels yet"><PageIcon page="panels" size={32} /><h2>Your first panel starts here</h2><p>Put the actions you use together on one panel. Start with Keyboard, Mouse, Back and Close, then make it your own.</p><Button className="primary" disabled={busy} onClick={() => void create()}>Create your first panel</Button></section>
@@ -127,7 +125,7 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
       </li>)}</ul>}
     </section>
     {(onHome || onMore || unplaced.length > 0) && <section className="panel-group" data-section="builtin" data-setting="builtin-menus" aria-labelledby="builtin-heading">
-      <header className="section-header"><div><h2 id="builtin-heading">Built-in menus and panels</h2><p>Listed under the menu that opens them. More actions is a tile on the page that opens after you choose a point, and its menu opens most of Home's menus too. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys.</p></div></header>
+      <SectionHeader headingId="builtin-heading" title="Built-in menus and panels" description="Listed under the menu that opens them. More actions is a tile on the page that opens after you choose a point, and its menu opens most of Home's menus too. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys." />
       <div className="menu-lists">
         {onHome && <section>
           <h3 id="home-list-heading">On Home</h3>

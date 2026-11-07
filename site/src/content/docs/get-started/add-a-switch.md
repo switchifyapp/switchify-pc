@@ -76,3 +76,7 @@ Choose **Resume listening** in the same places to take them back. Home shows **L
 ## On Windows
 
 Switchify PC keeps capturing your switch keys while it is in the background or minimised, including when the key is pressed with Shift, Ctrl, Alt or Windows held. Keys you have not assigned pass through to whatever you are using. Switch control does not work on the Windows secure desktop, such as a UAC prompt.
+
+## Confirming changes
+
+When you remove a switch, the confirmation starts on **Keep switch**. Tab and Shift+Tab stay within the dialog. Escape keeps the switch. While a change is saving, wait for it to finish before choosing another action.

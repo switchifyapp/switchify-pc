@@ -1,9 +1,10 @@
+import { FeedbackMessage } from "../ui/patterns";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Check, KeyRound } from "lucide-react";
 import type { AppState, LicenceView } from "../types";
-import { Button } from "../ui/controls";
+import { Button, Textarea } from "../ui/controls";
 import { SettingGroup } from "./controls";
 import { BuyLicence } from "../licensing/BuyLicence";
 
@@ -88,7 +89,7 @@ export function LicenceSection({ state }: { state: AppState }) {
           </div>
           <div className="licence-key-field">
             <label htmlFor="licence-key">Licence key</label>
-            <textarea className="field-control" id="licence-key" rows={4} value={key} maxLength={2048} spellCheck={false} autoComplete="off" onChange={(e) => setKey(e.target.value)} />
+            <Textarea id="licence-key" rows={4} value={key} maxLength={2048} spellCheck={false} autoComplete="off" onChange={(e) => setKey(e.target.value)} />
           </div>
           <div className="licence-actions">
             <Button className={key.trim() ? "primary" : "secondary"} disabled={busy || !key.trim()} onClick={() => void run("redeem_licence", { key })}>Activate key</Button>
@@ -115,7 +116,7 @@ export function LicenceSection({ state }: { state: AppState }) {
           </div>
         </> : <Button className="text-button" disabled={busy} onClick={() => setConfirm(true)}>Remove licence from this computer</Button>}</div>}
       </>}
-      {error && <p className="field-error" role="alert">{error}</p>}
+      {error && <FeedbackMessage>{error}</FeedbackMessage>}
       <p className="licence-supporting">For a lost key or help entering one, contact <a href="mailto:info@theswitchify.app">info@theswitchify.app</a>.</p>
     </div>
   </SettingGroup>;

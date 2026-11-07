@@ -1,12 +1,13 @@
+import { Dialog, ConfirmDialog } from "../ui/Dialog";
+import { FeedbackMessage, FormField } from "../ui/patterns";
 import { usePanels } from "../panels/usePanels";
 import type { CustomPanel } from "../types";
 import { PageIcon } from "../ui/PageIcon";
-import { Button, Input, Select, MoreOptions } from "../ui/controls";
+import { IconButton, Button, Input, Select, MoreOptions } from "../ui/controls";
 import { Demonstration, SwitchDemonstrations } from "../help/Demonstration";
 import type { DemoPlatform } from "../help/demonstrations";
 import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, switchKeyLabel, unavailableKeyReason } from "../help/keyAvailability";
 import { SwitchPractice } from "../scanning/SwitchPractice";
-import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
@@ -152,17 +153,14 @@ function SwitchEditor({
   return (
     <fieldset id={id} className="switch-editor" disabled={disabled}>
       {!remote && <Demonstration kind="learn" />}<Demonstration kind="select" />
-      <label className="field">
-        <span>Name</span>
-        <Input
+      <FormField label="Name">{(field) => <Input {...field}
           ref={nameRef}
           aria-label={isNew ? "New switch name" : `Name for ${switchKeyLabel(binding.key)}`}
           value={binding.name}
           maxLength={64}
           placeholder="Head switch, foot pedal, sip..."
           onChange={(e) => onChange({ ...binding, name: e.target.value })}
-        />
-      </label>
+        />}</FormField>
       <div className="field">
         <p className="setting-note">
           Switches on this computer can appear as keys to other apps. To type a
@@ -211,10 +209,10 @@ function SwitchEditor({
             </Button>
           </div>
           {(keyError || unavailable) && (
-            <span className="field-error" id={keyErrorId} role="alert">
+            <FeedbackMessage variant="inline" className="field-error" id={keyErrorId}>
               {keyError ?? unavailableReason ??
                 "This key is unavailable on this computer. Learn another key."}
-            </span>
+            </FeedbackMessage>
           )}
         </div>
       )}
@@ -249,28 +247,26 @@ function SwitchEditor({
                     })
                   }
                 />
-                <Button
+                <IconButton
                   type="button"
-                  className="icon-button"
                   disabled={index === 0}
-                  aria-label={`Move hold action ${index + 1} up`}
+                  label={`Move hold action ${index + 1} up`}
                   onClick={() => move(index, -1)}
                 >
                   <ChevronUp size={18} />
-                </Button>
-                <Button
+                </IconButton>
+                <IconButton
                   type="button"
-                  className="icon-button"
                   disabled={index === binding.holdActions.length - 1}
-                  aria-label={`Move hold action ${index + 1} down`}
+                  label={`Move hold action ${index + 1} down`}
                   onClick={() => move(index, 1)}
                 >
                   <ChevronDown size={18} />
-                </Button>
-                <Button
+                </IconButton>
+                <IconButton
                   type="button"
-                  className="icon-button danger-icon"
-                  aria-label={`Remove hold action ${index + 1}`}
+                  className="danger-icon"
+                  label={`Remove hold action ${index + 1}`}
                   onClick={() =>
                     onChange({
                       ...binding,
@@ -281,7 +277,7 @@ function SwitchEditor({
                   }
                 >
                   <X size={18} />
-                </Button>
+                </IconButton>
               </li>
             ))}
           </ol>
@@ -332,40 +328,10 @@ function SwitchEditor({
 // cancels learning; Escape is handled by native capture.
 function CaptureDialog({ name, platform, onCancel }: { name: string; platform?: DemoPlatform; onCancel: () => void }) {
   const notLearned = keysNotLearned(platform);
-  const ref = useRef<HTMLElement>(null);
   const titleId = useId();
   const bodyId = useId();
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    const swallow = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    const focusBack = () => {
-      if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
-    };
-    for (const type of ["keydown", "keyup", "keypress"] as const)
-      document.addEventListener(type, swallow, true);
-    document.addEventListener("focusin", focusBack);
-    return () => {
-      for (const type of ["keydown", "keyup", "keypress"] as const)
-        document.removeEventListener(type, swallow, true);
-      document.removeEventListener("focusin", focusBack);
-      previous?.focus();
-    };
-  }, []);
   return (
-    <div className="modal-backdrop">
-      <section
-        ref={ref}
-        className="capture-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={bodyId}
-        tabIndex={-1}
-      >
+    <Dialog className="capture-dialog" captureKeyboard aria-labelledby={titleId} aria-describedby={bodyId}>
         <PageIcon page="switches" size={40} />
         <h2 id={titleId}>Press and release your switch</h2>
         <p id={bodyId}>
@@ -376,37 +342,12 @@ function CaptureDialog({ name, platform, onCancel }: { name: string; platform?: 
         <Button type="button" className="secondary" tabIndex={-1} onClick={onCancel}>
           Cancel capture
         </Button>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 
 function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { title: string; action: string; busy: boolean; error: string | null; cancel: () => void; confirm: () => void }) {
-  const ref = useRef<HTMLElement>(null);
-  const keepRef = useRef<HTMLButtonElement>(null);
-  const titleId = useId();
-  useLayoutEffect(() => {
-    const background = [...document.body.children].filter((element) => !element.contains(ref.current));
-    const previous = background.map((element) => element.hasAttribute("inert"));
-    background.forEach((element) => element.setAttribute("inert", ""));
-    keepRef.current?.focus();
-    return () => background.forEach((element, index) => { if (!previous[index]) element.removeAttribute("inert"); });
-  }, []);
-  return createPortal(<div className="modal-backdrop"><section ref={ref} className="profile-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={(event) => {
-    event.stopPropagation();
-    if (event.key === "Escape") { event.preventDefault(); if (!busy) cancel(); }
-    if (event.key === "Tab") {
-      const buttons = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-      const first = buttons[0]; const last = buttons.at(-1);
-      if (!first) { event.preventDefault(); return; }
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    }
-  }}>
-    <header><h2 id={titleId}>{title}</h2></header>
-    {error && <p role="alert">{error} Your switch is still available. Try again or keep it.</p>}
-    <footer><span /><Button ref={keepRef} className="secondary" disabled={busy} onClick={cancel}>Keep switch</Button><Button className="primary danger" disabled={busy} onClick={confirm}>{busy ? "Saving…" : action}</Button></footer>
-  </section></div>, document.body);
+  return <ConfirmDialog title={title} action={action} busy={busy} error={error ? `${error} Your switch is still available. Try again or keep it.` : null} cancelLabel="Keep switch" onCancel={cancel} onConfirm={confirm} />;
 }
 
 export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected, platform }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean; platform?: DemoPlatform }) {
@@ -687,7 +628,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
   const errorFor = (id: string) => (rowError?.id === id ? rowError.message : null);
   return (
     <>
-      {panels.error && <p role="alert">Panel choices could not be loaded: {panels.error}</p>}
+      {panels.error && <FeedbackMessage>Panel choices could not be loaded: {panels.error}</FeedbackMessage>}
       {state?.keyboardEntry && !expanded && <div role="status" className="setting-note">
         Keyboard typing is on. Switch scanning is paused.
         <Button type="button" className="secondary" disabled={entryPending} onClick={() => { void toggleEntry(false); }}>Resume switch control</Button>
@@ -807,15 +748,15 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     >
                       {open ? "Close" : "Edit"}
                     </Button>
-                    <Button
+                    <IconButton
                       type="button"
-                      className="icon-button danger-icon"
-                      aria-label={`Remove ${name}`}
+                      className="danger-icon"
+                      label={`Remove ${name}`}
                       disabled={disabled || !!pending || unsaved}
                       onClick={() => requestRemoval("local", binding)}
                     >
                       <Trash2 size={18} />
-                    </Button>
+                    </IconButton>
                   </div>
                   {open && (
                     <SwitchEditor
@@ -890,15 +831,15 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                     >
                       {open ? "Close" : "Edit"}
                     </Button>
-                    <Button
+                    <IconButton
                       type="button"
-                      className="icon-button danger-icon"
-                      aria-label={`Remove ${name}`}
+                      className="danger-icon"
+                      label={`Remove ${name}`}
                       disabled={!!remote.pending || remote.unsaved}
                       onClick={() => requestRemoval("remote", binding, index)}
                     >
                       <Trash2 size={18} />
-                    </Button>
+                    </IconButton>
                   </div>
                   {open && (
                     <SwitchEditor
