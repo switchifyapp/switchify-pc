@@ -18,7 +18,7 @@ Below them, **Built-in menus and panels** lists everything else that scans, one 
 
 Choose **New panel**. Switchify PC makes a starter panel with four tiles: Keyboard, Mouse, Back and Close, and opens it in the editor. Give it a name and, if you like, a description. Names must be different from each other.
 
-To change a panel later, choose its picture in the list. **Delete panel** removes it; Switchify PC asks first. In the confirmation, **Keep editing** is focused first. Tab and Shift+Tab stay within the dialog, and Escape keeps your panel.
+To change a panel later, choose its picture in the list. **Delete panel** removes it; Switchify PC asks first. In the confirmation, **Keep editing** is focused first. Choose **Keep editing** to cancel deletion. Tab and Shift+Tab stay within the dialog.
 
 ## Edit the tiles
 

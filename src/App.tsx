@@ -754,11 +754,13 @@ export function App() {
     else setQuery(next);
   };
   const jump: Jump = (target) => {
-    afterDiscard(() => {
+    const arrive = () => {
       setQuery(""); viewRef.current = target.page; setView(target.page);
       setRequestedArea(target.area ?? (target.page === "scanning" ? "shared" : null));
       setArrival(target);
-    });
+    };
+    if (target.page === viewRef.current) arrive();
+    else afterDiscard(arrive);
   };
   useArrival(rootRef, arrival, () => setArrival(null));
   // A new page starts at its top; a jump scrolls to its own target instead.

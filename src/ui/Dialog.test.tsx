@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { expect, it, vi } from "vitest";
 import { ConfirmDialog, Dialog } from "./Dialog";
 
@@ -105,4 +105,33 @@ it("keeps focus inside a busy confirmation with no enabled controls", () => {
   fireEvent.keyDown(dialog, { key: "Tab" }); expect(dialog).toHaveFocus();
   const view = render(<ConfirmDialog title="Saving" action="Save" busy onCancel={cancel} onConfirm={vi.fn()} />);
   fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" }); expect(cancel).not.toHaveBeenCalled(); view.unmount();
+});
+
+it("restores a capture opener after its parent dialog resumes", async () => {
+  function Example() {
+    const [capture, setCapture] = useState(false);
+    return <Dialog aria-label="Setup" active={!capture}><fieldset disabled={capture}><button onClick={() => setCapture(true)}>Learn key</button></fieldset>
+      {capture && <Dialog aria-label="Capture"><button onClick={() => setCapture(false)}>Cancel capture</button></Dialog>}
+    </Dialog>;
+  }
+  render(<Example />);
+  const learn = screen.getByRole("button", { name: "Learn key" });
+  learn.focus(); fireEvent.click(learn);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel capture" }));
+  await waitFor(() => expect(learn).toHaveFocus());
+});
+
+it("preserves a deliberate focus handoff after capture closes", async () => {
+  function Example() {
+    const [capture, setCapture] = useState(false);
+    const name = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => { if (!capture) name.current?.focus(); }, [capture]);
+    return <><button disabled={capture} onClick={() => setCapture(true)}>Learn</button><input ref={name} aria-label="New switch name" />
+      {capture && <Dialog aria-label="Capture"><button onClick={() => setCapture(false)}>Done</button></Dialog>}
+    </>;
+  }
+  render(<Example />);
+  const learn = screen.getByRole("button", { name: "Learn" }); learn.focus(); fireEvent.click(learn);
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(screen.getByRole("textbox")).toHaveFocus());
 });

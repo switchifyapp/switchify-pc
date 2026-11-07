@@ -79,4 +79,4 @@ Switchify PC keeps capturing your switch keys while it is in the background or m
 
 ## Confirming changes
 
-When you remove a switch, the confirmation starts on **Keep switch**. Tab and Shift+Tab stay within the dialog. Escape keeps the switch. While a change is saving, wait for it to finish before choosing another action.
+When you remove a switch, the confirmation starts on **Keep switch**. Choose **Keep switch** to cancel removal. Tab and Shift+Tab stay within the dialog. While a change is saving, wait for it to finish before choosing another action.

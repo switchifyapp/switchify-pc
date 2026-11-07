@@ -285,6 +285,18 @@ it("holds focus in a modal and swallows keys while learning", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(current.settings.bindings[0].key).toBe("F3"));
 });
+it.each(["learned", "cancelled"])("returns focus to Learn key after capture is %s", async (outcome) => {
+  render(<Shell />);
+  await screen.findByRole("heading", { name: "Head switch" });
+  open("Head switch");
+  const learn = screen.getByRole("button", { name: "Learn another key for Head switch" });
+  learn.focus(); fireEvent.click(learn);
+  await screen.findByRole("dialog", { name: "Press and release your switch" });
+  expect(learn).toBeDisabled();
+  current = { ...current, capture: { active: false, key: outcome === "learned" ? "F3" : null, error: null } };
+  await act(async () => event(current));
+  await waitFor(() => { expect(learn).toBeEnabled(); expect(learn).toHaveFocus(); });
+});
 it("keeps a refused capture's error on its own row and releases the target", async () => {
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });

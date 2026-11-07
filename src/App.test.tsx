@@ -344,6 +344,36 @@ describe("Switchify PC shell", () => {
     expect(stop).toHaveBeenCalledOnce();
   });
 
+  it("keeps a dirty profile on a same-page tray jump without asking to discard", async () => {
+    let navigate: ((target: "home" | "settings" | "profiles") => void) | undefined;
+    vi.spyOn(api, "onNavigateRequested").mockImplementation(async (handler) => { navigate = handler; return () => undefined; });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    act(() => navigate?.("profiles"));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved tray profile" } });
+    act(() => navigate?.("profiles"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved tray profile");
+    act(() => navigate?.("settings"));
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
+  });
+
+  it.each(["navigation", "find"])("returns focus after keeping panel edits from %s", async (source) => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New panel" }));
+    fireEvent.change(await screen.findByLabelText("Panel name"), { target: { value: "Unsaved panel" } });
+    const opener = source === "navigation" ? screen.getByRole("button", { name: "Home" }) : screen.getByRole("searchbox", { name: "Find a setting" });
+    opener.focus();
+    if (source === "navigation") fireEvent.click(opener);
+    else fireEvent.change(opener, { target: { value: "speed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(opener.closest("[inert]")).toBeNull();
+    expect(screen.getByLabelText("Panel name")).toHaveValue("Unsaved panel");
+  });
+
   it.each([
     ["available", "Switchify PC 1.0.0-beta.2 is available.", "View update"],
     ["downloading", "Downloading Switchify PC 1.0.0-beta.2 — 25%", "View progress"],

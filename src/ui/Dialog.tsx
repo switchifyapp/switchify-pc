@@ -92,9 +92,19 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
       entry.backdrop.style.zIndex = "";
       updateBackground();
       if (wasTop) {
-        const top = dialogs.at(-1);
-        if (entry.previous?.isConnected && !entry.previous.closest("[inert], [hidden]") && !entry.previous.matches(":disabled") && (!top || top.dialog.contains(entry.previous))) entry.previous.focus();
-        else top?.dialog.focus();
+        const restoreFocus = () => {
+          const top = dialogs.at(-1);
+          const focused = document.activeElement;
+          // Leave deliberate focus changes alone, including a new switch's
+          // name field or the initial action of a newly opened dialog.
+          if (focused?.isConnected && focused !== document.body && !entry.dialog.contains(focused) && focused !== top?.dialog) return;
+          if (entry.previous?.isConnected && !entry.previous.closest("[inert], [hidden]") && !entry.previous.matches(":disabled") && (!top || top.dialog.contains(entry.previous))) entry.previous.focus();
+          else if (top && !top.dialog.contains(focused)) top.dialog.focus();
+        };
+        restoreFocus();
+        // Layout cleanup precedes React clearing disabled/inert on the
+        // opener. Retry after the commit, when a resumed parent is ready.
+        queueMicrotask(restoreFocus);
       }
     };
   }, [active, paused, captureKeyboard, ref, initialFocus, id, parent]);
