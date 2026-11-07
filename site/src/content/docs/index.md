@@ -29,7 +29,7 @@ Home shows whether switch control is ready, followed by common tasks such as cha
 
 ![Settings with six large category buttons for General, Input, Privacy, Updates, Account and licence, and About.](../../assets/screenshots/settings-categories.png)
 
-Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting, including the right Settings category.
+Type into **Find a setting** to find a control by name or meaning. While meaning-based search starts, the window shows **Finding settings…** if there are no keyword matches yet. Choose a result to open its setting, including the right Settings category. Clearing the search returns to the category you were viewing and keeps keyboard focus in Find.
 
 Right-clicking in the Switchify PC window does not open a menu. To copy or paste in a text field, use Ctrl+C or Ctrl+V on Windows, or Command+C or Command+V on Mac.
 

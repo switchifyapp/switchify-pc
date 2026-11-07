@@ -609,6 +609,25 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("button", { name: category })).toHaveFocus();
   });
 
+  it.each([
+    ["General", "typing"], ["General", "button"],
+    ["Input", "typing"], ["Input", "button"],
+  ])("keeps Find focused when clearing search with %s open using %s", async (category, method) => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    openSection(category);
+    const find = screen.getByRole("searchbox", { name: "Find a setting" });
+    find.focus();
+    fireEvent.change(find, { target: { value: "dw" } });
+    await screen.findByRole("list", { name: "Matching settings" });
+    expect(screen.queryByRole("button", { name: "Back to settings" })).not.toBeInTheDocument();
+    if (method === "typing") fireEvent.change(find, { target: { value: "" } });
+    else fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await screen.findByRole("heading", { name: category, level: 2 });
+    expect(find).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Back to settings" })).toBeInTheDocument();
+  });
+
   it("omits the cursor overlay section when the platform cannot show a cursor overlay", async () => {
     browserState.capabilities = { ...structuredClone(defaultCapabilities), cursorOverlay: false };
     render(<App />);

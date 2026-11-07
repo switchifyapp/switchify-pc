@@ -23,7 +23,7 @@ const categories = [
 export function SettingsView({ section, onSectionChange, arriving, state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, onUpdatesShown, ctx }: { section: string | null; onSectionChange: (section: string | null) => void; arriving: boolean; state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; onUpdatesShown: (shown: boolean) => void; ctx: FindContext }) {
   const updatesRef = useRef<HTMLElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const previous = useRef<string | null>(null);
+  const previous = useRef<string | null | undefined>(undefined);
   const category = section === "licence" ? "account" : section;
   const showAccount = ctx.account?.available !== false;
   const updatesVisible = category === "updates";
@@ -34,9 +34,9 @@ export function SettingsView({ section, onSectionChange, arriving, state, update
   }, [onUpdatesShown, updatesVisible]);
 
   useLayoutEffect(() => {
-    // Find owns focus for direct arrivals. Back returns to the category that
-    // was opened, so keyboard users can carry on from the same place.
-    if (!arriving && !focusUpdates) {
+    // Mounting after Find is cleared must leave focus in Find. Only category
+    // changes move focus; Find arrivals and update notices own their focus.
+    if (previous.current !== undefined && !arriving && !focusUpdates) {
       const target = category ? root.current?.querySelector<HTMLElement>("h2") : previous.current ? root.current?.querySelector<HTMLElement>(`[data-category="${previous.current}"]`) : null;
       if (target) { target.tabIndex = category ? -1 : 0; target.focus(); target.scrollIntoView?.({ block: "nearest" }); }
     }
