@@ -17,6 +17,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## New in v1.7.0
+
+Assign a switch press or hold action to open one of your panels. Settings now opens a category menu, so you can view one group of controls at a time. Dialogs and confirmations use consistent keyboard focus and navigation.
+
 ## Using the settings window
 
 The pages are in a sidebar on the left, with an icon beside each name. **Switches** has a round switch with a cable, **Scanning** has a moving line, and **Settings** has sliders. The sidebar and **Find a setting** at the top stay available as you scroll. Settings and Help sit at the bottom of the sidebar. In a very narrow window, the pages move above the workspace. The current page has a red background and a short marker beside it. Chosen settings have a filled background and a checkmark.
