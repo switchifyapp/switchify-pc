@@ -850,6 +850,18 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("heading", { name: "Switchify PC", level: 1 })).toBeInTheDocument();
   });
 
+  it("can leave the profile key recorder with Escape", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
+    fireEvent.change(screen.getByLabelText("Switch 1 action"), { target: { value: "key" } });
+    const recorder = screen.getByLabelText("Switch 1 key");
+    recorder.focus(); fireEvent.keyDown(recorder, { key: "Escape" });
+    expect(screen.getByRole("alertdialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toBeInTheDocument();
+  });
+
   it("creates a profile and records a desired key", async () => {
     let saved: SwitchProfile | undefined;
     vi.spyOn(api, "saveProfile").mockImplementation(async (profile) => {

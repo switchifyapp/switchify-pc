@@ -112,9 +112,12 @@ export function Dialog({ dialogRef, initialFocus, onEscape, active = true, suspe
   return createPortal(<div ref={backdrop} data-dialog-backdrop className={`modal-backdrop ${backdropClassName}`.trim()} hidden={paused} inert={paused}>
     <section {...props} ref={ref} className={`dialog ${className}`.trim()} role={active ? role : undefined} aria-modal={active ? true : undefined} tabIndex={-1} onKeyDown={(event) => {
       onKeyDown?.(event);
-      if (!active || paused || event.defaultPrevented || dialogs.at(-1)?.dialog !== ref.current) return;
+      if (!active || paused || dialogs.at(-1)?.dialog !== ref.current) return;
       event.stopPropagation();
-      if (event.key === "Escape") { event.preventDefault(); onEscape?.(); }
+      // A key recorder may prevent the key's default action. Escape still
+      // provides a way out; native learning swallows it in capture phase.
+      if (event.key === "Escape") { event.preventDefault(); onEscape?.(); return; }
+      if (event.defaultPrevented) return;
       if (event.key !== "Tab") return;
       const items = controls(event.currentTarget);
       const first = items[0], last = items.at(-1);

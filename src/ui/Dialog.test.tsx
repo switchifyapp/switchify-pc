@@ -90,6 +90,14 @@ it("keeps keyboard learning on the dialog and swallows all keyboard edges", () =
   expect(fireEvent.keyDown(document.body, { key: "Tab" })).toBe(true);
 });
 
+it("handles Escape even when a child key recorder prevents its default action", () => {
+  const escape = vi.fn();
+  render(<Dialog aria-label="Profile" onEscape={escape}><input aria-label="Record key" onKeyDown={(event) => event.preventDefault()} /></Dialog>);
+  const recorder = screen.getByRole("textbox"); recorder.focus();
+  fireEvent.keyDown(recorder, { key: "Escape" });
+  expect(escape).toHaveBeenCalledOnce();
+});
+
 it("keeps focus inside a busy confirmation with no enabled controls", () => {
   const cancel = vi.fn();
   function Example() { const ref = useRef<HTMLElement>(null); return <Dialog dialogRef={ref} aria-label="Waiting"><button disabled>Wait</button></Dialog>; }
