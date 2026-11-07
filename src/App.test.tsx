@@ -53,6 +53,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch help" }));
     expect(screen.getByRole("button", { name: "Show me how: Connect a jack switch" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
     expect(screen.getByRole("button", { name: "Show me how: Understand startup behavior" })).toBeInTheDocument();
     expect(setSettings).not.toHaveBeenCalled();
   });
@@ -417,14 +418,14 @@ describe("Switchify PC shell", () => {
     browserState.licence = licence;
     const { unmount } = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
-    expect(screen.queryByText(/See Settings, Licence/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open Settings for licence options/)).not.toBeInTheDocument();
     unmount();
     browserState.licence = { ...licence, status: "trial", licenceId: null, message: "12 days left in your full trial." };
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     const notice = screen.getByRole("status", { name: "Licence" });
     expect(notice).toHaveTextContent("12 days left in your full trial.");
-    expect(notice).toHaveTextContent("See Settings, Licence.");
+    expect(notice).toHaveTextContent("Open Settings for licence options.");
     delete browserState.licence;
   });
 
@@ -1056,6 +1057,7 @@ describe("Switchify PC shell", () => {
       fireEvent.keyDown(document.body, { key: "/" });
       expect(find()).toHaveFocus();
       fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "General" }));
       const startup = screen.getByRole("checkbox", { name: "Start with system" });
       startup.focus();
       fireEvent.keyDown(startup, { key: "/" });
@@ -1066,6 +1068,7 @@ describe("Switchify PC shell", () => {
       render(<App />);
       await screen.findByRole("heading", { name: "Switchify PC" });
       fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "General" }));
       const startup = screen.getByRole("checkbox", { name: "Start with system" });
       startup.focus();
       fireEvent.keyDown(startup, { key: "k", [modifier]: true });
@@ -1117,8 +1120,11 @@ describe("Switchify PC shell", () => {
       await screen.findByRole("heading", { name: "Switchify PC" });
       expect(screen.getByText("Nothing changed yet.")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "General" }));
       fireEvent.click(screen.getByRole("checkbox", { name: "Start with system" }));
       await waitFor(() => expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeChecked());
+      fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Input" }));
       fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
       await waitFor(() => expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeChecked());
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -1161,17 +1167,18 @@ describe("Switchify PC shell", () => {
       mockAccount(signedIn);
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Account and licence" }));
       expect(screen.getByRole("heading", { name: "Account", level: 2 })).toBeInTheDocument();
       expect(await screen.findByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Account", level: 1 })).not.toBeInTheDocument();
-      const strip = screen.getByRole("navigation", { name: "On this page" });
-      await waitFor(() => expect(within(strip).getByRole("button", { name: /^Account/ })).toHaveAccessibleName("Account, Signed in as me@example.com. On"));
+      expect(screen.getByRole("button", { name: "Back to settings" })).toBeInTheDocument();
     });
 
     it("offers sign-in when signed out and follows account changes", async () => {
       const receive = mockAccount(signedOut);
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Account and licence" }));
       expect(await screen.findByRole("heading", { name: "Sign in to sync your settings" })).toBeInTheDocument();
       act(() => receive(signedIn));
       expect(await screen.findByRole("heading", { name: "me@example.com" })).toBeInTheDocument();
@@ -1184,12 +1191,17 @@ describe("Switchify PC shell", () => {
       await screen.findByRole("heading", { name: "Switchify PC" });
       await waitFor(() => expect(lastStatus).toHaveBeenCalled());
       expect(retrying).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      expect(retrying).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Account and licence" }));
+      await waitFor(() => expect(retrying).toHaveBeenCalledOnce());
     });
 
     it("stays neutral while the keychain is locked", async () => {
       mockAccount({ ...signedOut, keychainUnavailable: true });
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Account and licence" }));
       expect(await screen.findByText(/Your saved sign-in can't be read/)).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Sign in to sync your settings" })).not.toBeInTheDocument();
     });
@@ -1212,10 +1224,13 @@ describe("Switchify PC shell", () => {
       mockAccount({ ...signedOut, available: false });
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "About" }));
       await screen.findByRole("region", { name: "About" });
       await waitFor(() => expect(screen.queryByRole("heading", { name: "Account", level: 2 })).not.toBeInTheDocument());
-      const strip = screen.getByRole("navigation", { name: "On this page" });
-      expect(within(strip).queryByRole("button", { name: /^Account/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
+      expect(screen.getByRole("button", { name: "Licence" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Account and licence" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "About" }));
       expect(screen.getByRole("region", { name: "About" })).toHaveTextContent(`Switchify PC ${browserState.version}`);
     });
   });

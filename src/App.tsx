@@ -479,6 +479,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [focusUpdates, setFocusUpdates] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountView | null>(null);
   const [query, setQuery] = useState("");
   const [discard, setDiscard] = useState<{ kind: "profile" | "panel"; proceed: () => void; opener: HTMLElement | null } | null>(null);
@@ -517,15 +518,14 @@ export function App() {
   const [heldFailure, setHeldFailure] = useState(settledFailure);
   if (!inFlight && heldFailure !== settledFailure) setHeldFailure(settledFailure);
   const updateFailure = inFlight ? heldFailure : settledFailure;
-  // Whether the Settings page, which holds the Updates section, is shown.
+  // Whether the Updates category is actually on screen.
   const [updatesShown, setUpdatesShown] = useState(false);
   const announcedUpdateFailure = useRef<{ key: string; text: string } | null>(null);
   const [updateNotice, setUpdateNotice] = useState("");
   useEffect(() => {
     if (!updateFailure) { announcedUpdateFailure.current = null; setUpdateNotice(""); return; }
     if (updatesShown) { announcedUpdateFailure.current = { key: updateFailure.key, text: updateFailure.text }; setUpdateNotice(""); return; }
-    // Find's results replace the page without changing the view, so they are
-    // the one time the Updates section is off screen while on Settings.
+    // Category navigation and Find can both hide Updates while on Settings.
     if (view !== "settings" || query) return;
     const announced = announcedUpdateFailure.current;
     if (updateFailure.key !== announced?.key) {
@@ -745,8 +745,9 @@ export function App() {
     else proceed();
   };
   const selectView = (next: View) => {
-    if (next === viewRef.current) { setQuery(""); return; }
-    afterDiscard(() => { setQuery(""); viewRef.current = next; setView(next); });
+    const open = () => { setQuery(""); if (next === "settings") setSettingsSection(null); viewRef.current = next; setView(next); };
+    if (next === viewRef.current) { open(); return; }
+    afterDiscard(open);
   };
   const changeQuery = (next: string) => {
     if (!next.trim()) { setQuery(""); return; }
@@ -757,6 +758,7 @@ export function App() {
     const arrive = () => {
       setQuery(""); viewRef.current = target.page; setView(target.page);
       setRequestedArea(target.area ?? (target.page === "scanning" ? "shared" : null));
+      if (target.page === "settings") setSettingsSection(target.section);
       setArrival(target);
     };
     if (target.page === viewRef.current) arrive();
@@ -781,7 +783,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const openUpdates = () => afterDiscard(() => {
-    setQuery(""); viewRef.current = "settings"; setView("settings"); setFocusUpdates(true);
+    setQuery(""); viewRef.current = "settings"; setView("settings"); setSettingsSection("updates"); setFocusUpdates(true);
   });
 
   const saveProfile = async (profile: SwitchProfile) => {
@@ -824,7 +826,7 @@ export function App() {
           <KeyRound size={24} aria-hidden="true" />
           <div role="status" aria-label="Licence">
             <p className="licence-banner-message">{state.licence.message}</p>
-            <p className="licence-banner-hint">See Settings, Licence.</p>
+            <p className="licence-banner-hint">Open Settings for licence options.</p>
           </div>
           {state.licence.status !== "licensed" && <BuyLicence />}
         </div>
@@ -843,7 +845,7 @@ export function App() {
         <ProfilesView profiles={profiles} platform={state.capabilities.platform} busy={busy} saveProfile={saveProfile} deleteProfile={deleteProfile} onDirtyChange={(dirty) => { profileEditorDirty.current = dirty; }} nativeExitRequest={profileExitRequest} onConfirmNativeExit={confirmProfileExit} onCancelNativeExit={cancelProfileExit} />
         {state.capabilities.cursorOverlay && <div className="subview" data-section="cursor"><CursorSection settings={settings} update={(key, value) => changeSettings({ ...settings, [key]: value })} /></div>}
         <AlsoSee page="mobile" ctx={current} jump={jump} /></div>}
-      {view === "settings" && <SettingsView state={state} updater={liveUpdater ?? state.updater} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} onUpdatesShown={setUpdatesShown} ctx={current} jump={jump} />}
+      {view === "settings" && <SettingsView section={settingsSection} onSectionChange={setSettingsSection} arriving={arrival?.page === "settings"} state={state} updater={liveUpdater ?? state.updater} settings={settings} onChange={changeSettings} chooseTelemetry={(enabled) => void perform(() => api.setTelemetryConsent(enabled))} updateAction={(action) => void runUpdate(action)} cancelUpdate={() => void cancelUpdate()} busy={busy} focusUpdates={focusUpdates} onUpdatesFocused={() => setFocusUpdates(false)} onUpdatesShown={setUpdatesShown} ctx={current} />}
       {view === "support" && <SupportView state={state} switches={switches} busy={busy} perform={(operation) => void perform(operation)} openSetup={openSetup} openUpdates={openUpdates} ctx={current} jump={jump} />}
       </>}
     </main></DemonstrationProvider>

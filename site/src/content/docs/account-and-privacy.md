@@ -19,11 +19,11 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep.
 
-Signing in and settings sync are in the **Account** section of Settings. The Settings sync card there lists what syncs and what stays on this computer. Under **Remove account** at the end of the section, **Delete account…** deletes the account and its saved settings from every device after you confirm.
+Open **Settings**, then **Account and licence** for signing in and settings sync. The Settings sync card there lists what syncs and what stays on this computer. Under **Remove account** at the end of the Account section, **Delete account…** deletes the account and its saved settings from every device after you confirm.
 
 ## Updates
 
-Switchify PC checks for an update shortly after it starts, every six hours, and on demand. Settings shows what is available, downloads it with progress you can cancel, and installs on *Install and restart*.
+Switchify PC checks for an update shortly after it starts, every six hours, and on demand. Open **Settings**, then **Updates** to check what is available, download it with progress you can cancel, and choose *Install and restart*. An update notice opens Updates directly. Download progress continues when you open another category.
 
 A release candidate, such as 1.0.0-rc.32, is offered only to people already running a release candidate. A stable release, such as 1.0.0, is offered to everyone, so a release candidate moves to the next stable release when it comes out. A stable install never installs a release candidate, even if one is offered to it.
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { AppSettings, AppState, UpdateState } from "../types";
 import { GeneralSection } from "./GeneralSection";
 import { InputSection } from "./InputSection";
@@ -7,21 +7,41 @@ import { UpdatesSection, type UpdateAction } from "./UpdatesSection";
 import { LicenceSection } from "./LicenceSection";
 import { AboutSection } from "./AboutSection";
 import { AccountSection } from "./AccountSection";
-import { AlsoSee, PageHead, SectionStrip, type Jump } from "../find/Find";
+import { PageHead } from "../find/Find";
+import { Button } from "../ui/controls";
 import type { FindContext } from "../find/index";
 
-// One page: every section in turn, with the strip at the top showing what
-// each is set to. The strip, Find and the update banner all jump to a
-// section rather than switching a tab.
-export function SettingsView({ state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, onUpdatesShown, ctx, jump }: { state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; onUpdatesShown: (shown: boolean) => void; ctx: FindContext; jump: Jump }) {
-  const updatesRef = useRef<HTMLElement>(null);
+const categories = [
+  { id: "general", title: "General", description: "Starting Switchify with your computer." },
+  { id: "input", title: "Input", description: "Dwell clicking and repeating held keys." },
+  { id: "privacy", title: "Privacy", description: "Choose whether to share anonymous diagnostics." },
+  { id: "updates", title: "Updates", description: "Check, download and install app updates." },
+  { id: "account", title: "Account and licence", description: "Sign in, sync settings and manage this computer's licence." },
+  { id: "about", title: "About", description: "App version, source code and credits." },
+];
 
-  // App owns the standing update failure and what has been said about it; the
-  // Updates panel, which shows it, is on screen whenever this page is.
+export function SettingsView({ section, onSectionChange, arriving, state, updater, settings, onChange, chooseTelemetry, updateAction, cancelUpdate, busy, focusUpdates, onUpdatesFocused, onUpdatesShown, ctx }: { section: string | null; onSectionChange: (section: string | null) => void; arriving: boolean; state: AppState; updater: UpdateState; settings: AppSettings; onChange: (next: AppSettings) => void; chooseTelemetry: (enabled: boolean) => void; updateAction: (action: UpdateAction) => void; cancelUpdate: () => void; busy: boolean; focusUpdates: boolean; onUpdatesFocused: () => void; onUpdatesShown: (shown: boolean) => void; ctx: FindContext }) {
+  const updatesRef = useRef<HTMLElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const previous = useRef<string | null>(null);
+  const category = section === "licence" ? "account" : section;
+  const showAccount = ctx.account?.available !== false;
+  const updatesVisible = category === "updates";
+
   useEffect(() => {
-    onUpdatesShown(true);
+    onUpdatesShown(updatesVisible);
     return () => onUpdatesShown(false);
-  }, [onUpdatesShown]);
+  }, [onUpdatesShown, updatesVisible]);
+
+  useLayoutEffect(() => {
+    // Find owns focus for direct arrivals. Back returns to the category that
+    // was opened, so keyboard users can carry on from the same place.
+    if (!arriving && !focusUpdates) {
+      const target = category ? root.current?.querySelector<HTMLElement>("h2") : previous.current ? root.current?.querySelector<HTMLElement>(`[data-category="${previous.current}"]`) : null;
+      if (target) { target.tabIndex = category ? -1 : 0; target.focus(); target.scrollIntoView?.({ block: "nearest" }); }
+    }
+    previous.current = category;
+  }, [category]);
 
   useEffect(() => {
     if (!focusUpdates) return;
@@ -32,19 +52,29 @@ export function SettingsView({ state, updater, settings, onChange, chooseTelemet
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => onChange({ ...settings, [key]: value });
 
-  return <div className="view settings-view">
+  return <div ref={root} className="view settings-view">
     <PageHead title="Settings" blurb="How Switchify PC behaves on this computer, and your account." />
-    <SectionStrip page="settings" ctx={ctx} jump={jump} />
-    <GeneralSection settings={settings} update={update} />
-    <InputSection settings={settings} update={update} />
-    <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />
-    <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />
-    <LicenceSection state={state} />
-    <AboutSection state={state} />
-    {ctx.account?.available !== false && <section className="setting-group" data-section="account" data-setting="account" aria-labelledby="settings-account-heading">
+    {!category ? <>
+      <nav className="grid settings-categories" aria-label="Settings categories">
+        {categories.map((item) => <Button key={item.id} className="tile tile-jump" data-category={item.id} aria-label={item.id === "account" && !showAccount ? "Licence" : item.title} onClick={() => onSectionChange(item.id)}>
+          <span className="tile-title">{item.id === "account" && !showAccount ? "Licence" : item.title}</span>
+          <span className="tile-note">{item.id === "account" && !showAccount ? "Manage this computer's licence." : item.description}</span>
+        </Button>)}
+      </nav>
+    </> : <>
+    <div><Button className="secondary" onClick={() => onSectionChange(null)}>Back to settings</Button></div>
+    {category === "general" && <GeneralSection settings={settings} update={update} />}
+    {category === "input" && <InputSection settings={settings} update={update} />}
+    {category === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
+    {category === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}
+    {category === "about" && <AboutSection state={state} />}
+    {category === "account" && <>
+    {showAccount && <section className="setting-group" data-section="account" data-setting="account" aria-labelledby="settings-account-heading">
       <header><h2 id="settings-account-heading">Account</h2><p>Bring your settings to your other computers.</p></header>
       <div className="setting-controls"><AccountSection settings={settings} onSettingsChange={onChange} /></div>
     </section>}
-    <AlsoSee page="settings" ctx={ctx} jump={jump} />
+    <LicenceSection state={state} />
+    </>}
+    </>}
   </div>;
 }
