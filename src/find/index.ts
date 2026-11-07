@@ -5,7 +5,7 @@
 import { embed, similarity, type StaticModel } from "./semantic";
 import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, SwitchProfile } from "../types";
 import type { Binding } from "../scanning/useSwitches";
-import { actions } from "../scanning/useSwitches";
+import { actionLabel } from "../scanning/useSwitches";
 import { lastModeName, selectOpensHome, type PointScanConfig, type PointScanState } from "../scanning/useScanning";
 import { areaOptions, defaultScanPreferences, itemScanning, itemScanningLabels, sharedOptions, type ScanArea } from "../scanning/preferences";
 import { speedLevelLabel } from "../settings/pointerSpeedScale";
@@ -87,7 +87,7 @@ export const sections: Record<Page, Section[]> = {
 const catalogue = [
   // Switches
   { id: "switch-list", label: "Your switches", words: ["key", "button", "gamepad", "add switch", "remove", "select", "next", "previous", "assign", "learn", "space", "enter", "remote switch", "usb switch", "jack", "interface", "controller", "name", "edit"], page: "switches", section: "switches",
-    value: (c) => c.bindings ? (c.bindings.length ? c.bindings.map((b) => `${b.name || b.key}: ${actions[b.pressAction]}`).join(". ") : "None yet") : null, related: ["hold-interval", "movement", "practice"] },
+    value: (c) => c.bindings ? (c.bindings.length ? c.bindings.map((b) => `${b.name || b.key}: ${actionLabel(b.pressAction)}`).join(". ") : "None yet") : null, related: ["hold-interval", "movement", "practice"] },
   { id: "hold-interval", label: "Hold action interval", words: ["hold", "long press", "hold timing", "emergency exit", "escape", "reset"], page: "switches", section: "hold",
     value: (c) => c.holdIntervalMs == null ? null : seconds(c.holdIntervalMs), related: ["switch-list", "scan-rate"] },
   { id: "accept-time", label: "Hold before a press counts", words: ["acceptance time", "tremor", "accidental press", "bump", "too sensitive", "minimum press", "press length", "filter"], page: "switches", section: "timing",

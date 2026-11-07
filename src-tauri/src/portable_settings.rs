@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 11;
+pub const SCHEMA_VERSION: u32 = 12;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -233,7 +233,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             7 => upgrade_v7(value)?,
             8 => upgrade_v8(value)?,
             9 => upgrade_v9(value)?,
-            _ => upgrade_v10(value)?,
+            10 => upgrade_v10(value)?,
+            _ => upgrade_v11(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -401,9 +402,19 @@ fn upgrade_v9(mut value: Value) -> Result<Value, ParseError> {
     Ok(value)
 }
 
-/// Version 10 had no switch timing and no first-item or in-group scan
-/// timing, all of which are off unless chosen. Switch timing that is off is
-/// left out, so version 10 switches already read as off.
+/// Version 12 adds panel-opening switch actions. Existing assignments keep
+/// their serialized form; the version gates older sync clients.
+fn upgrade_v11(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(11)) {
+        return Err(ParseError::Invalid(
+            "it does not match version 11 settings".into(),
+        ));
+    }
+    value["schemaVersion"] = Value::from(SCHEMA_VERSION);
+    Ok(value)
+}
+
+/// Version 10 had no switch timing or first-item and in-group scan timing.
 fn upgrade_v10(mut value: Value) -> Result<Value, ParseError> {
     if value.get("schemaVersion") != Some(&Value::from(10)) {
         return Err(ParseError::Invalid("version mismatch".into()));
@@ -421,7 +432,7 @@ fn upgrade_v10(mut value: Value) -> Result<Value, ParseError> {
         .ok_or_else(invalid)?;
     preferences.insert("firstItemMs".into(), Value::from(0));
     preferences.insert("groupRatePercent".into(), Value::from(100));
-    value["schemaVersion"] = Value::from(SCHEMA_VERSION);
+    value["schemaVersion"] = Value::from(11);
     Ok(value)
 }
 
@@ -859,6 +870,21 @@ mod tests {
         let mut early = version_nine.clone();
         early["panelExtras"]["mouse"] = json!({ "rows": [], "columns": [] });
         assert!(matches!(parse(early, 9), Err(ParseError::Invalid(_))));
+    }
+
+    #[test]
+    fn version_eleven_assignments_upgrade_and_panel_actions_round_trip() {
+        let original = local().document();
+        let old = written_by(serde_json::to_value(&original).unwrap(), 11);
+        assert_eq!(parse(old, 11).unwrap(), original);
+        let mut document = original;
+        document.remote_switches[0].press_action = Some(crate::scanning::Action::OpenMenu(
+            crate::scan_menu::Kind::Editing,
+        ));
+        document.remote_switches[0].hold_actions =
+            vec![crate::scanning::Action::OpenCustomPanel("greetings".into())];
+        let value = serde_json::to_value(&document).unwrap();
+        assert_eq!(parse(value, SCHEMA_VERSION).unwrap(), document);
     }
 
     #[test]

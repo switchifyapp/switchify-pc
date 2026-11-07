@@ -44,17 +44,11 @@ impl Gestures {
         if let Some(binding) = settings.bindings.iter().find(|b| b.id == id) {
             let mut binding = binding.clone();
             if countdown
-                && !binding.hold_actions.contains(&Action::OpenKeyboard)
-                && !binding.hold_actions.contains(&Action::OpenPoint)
-                && !binding.hold_actions.contains(&Action::OpenMouse)
+                && !binding.hold_actions.iter().any(Action::opens_panel)
+                && !binding.press_action.opens_panel()
                 && !matches!(
                     binding.press_action,
-                    Action::Stop
-                        | Action::Pause
-                        | Action::Cancel
-                        | Action::OpenKeyboard
-                        | Action::OpenPoint
-                        | Action::OpenMouse
+                    Action::Stop | Action::Pause | Action::Cancel
                 )
             {
                 binding.press_action = Action::Select;
@@ -78,7 +72,7 @@ impl Gestures {
         }
         let index =
             (held / self.interval_ms - 1).min(p.binding.hold_actions.len() as u64 - 1) as usize;
-        Some(p.binding.hold_actions[index])
+        Some(p.binding.hold_actions[index].clone())
     }
     pub fn prompt(&self, now: u64) -> Option<Prompt> {
         Some(Prompt {
@@ -92,7 +86,7 @@ impl Gestures {
         }
         let action = self
             .candidate(now)
-            .unwrap_or_else(|| self.press.as_ref().unwrap().binding.press_action);
+            .unwrap_or_else(|| self.press.as_ref().unwrap().binding.press_action.clone());
         let started = self.press.take().unwrap().started;
         // Too short to count, such as a tremor or a bump.
         if now.saturating_sub(started) < self.accept_ms {
@@ -177,10 +171,31 @@ mod tests {
         }
     }
     #[test]
+    fn panel_actions_survive_countdown_press_hold_and_cancel() {
+        for action in [
+            Action::OpenMenu(crate::scan_menu::Kind::Home),
+            Action::OpenCustomPanel("greetings".into()),
+        ] {
+            let mut settings = settings();
+            settings.bindings[0].press_action = action.clone();
+            settings.bindings[0].hold_actions = vec![action.clone()];
+            let mut gestures = Gestures::default();
+            gestures.pressed_for_scan("one", 0, &settings, true);
+            assert_eq!(gestures.released("one", 100), Some(action.clone()));
+            gestures.pressed_for_scan("one", 200, &settings, true);
+            assert_eq!(gestures.prompt(1200).unwrap().action, action);
+            assert_eq!(gestures.released("one", 1200), Some(action.clone()));
+            gestures.pressed_for_scan("one", 1400, &settings, true);
+            gestures.cancel();
+            assert_eq!(gestures.released("one", 2500), None);
+        }
+    }
+
+    #[test]
     fn countdown_preserves_safety_switches_and_cancellation() {
         for action in [Action::Stop, Action::Pause, Action::Cancel] {
             let mut settings = settings();
-            settings.bindings[0].press_action = action;
+            settings.bindings[0].press_action = action.clone();
             let mut gestures = Gestures::default();
             gestures.pressed_for_scan("one", 0, &settings, true);
             assert_eq!(gestures.released("one", 10), Some(action));

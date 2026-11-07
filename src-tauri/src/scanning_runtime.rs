@@ -584,13 +584,13 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         let steps_back = d
             .engine
             .as_ref()
-            .is_some_and(|e| e.technique.steps_back(action));
-        if (matches!(
-            action,
-            Action::OpenKeyboard | Action::OpenPoint | Action::OpenMouse
-        ) && !steps_back)
+            .is_some_and(|e| e.technique.steps_back(action.clone()));
+        if (action.opens_panel() && !steps_back)
             || (d.engine.as_ref().is_none_or(|e| !e.active()) && action == Action::Select)
         {
+            if matches!(action, Action::OpenMenu(_) | Action::OpenCustomPanel(_)) {
+                crate::prediction::close();
+            }
             let (mut engine, display) = A::create(app, d.config.clone())?;
             if let Some(previous) = d.engine.as_ref() {
                 A::carry_over(&previous.technique, &mut engine);
@@ -1274,6 +1274,14 @@ fn show_prompt(
         hide_hold_prompt();
         return Ok(());
     };
+    let action_label = match &prompt.action {
+        Action::OpenCustomPanel(id) => crate::custom_panels::list(app)
+            .iter()
+            .find(|panel| panel.id == *id)
+            .map(|panel| format!("Open {}", panel.name))
+            .unwrap_or_else(|| "Custom panel unavailable".into()),
+        action => action.label().to_string(),
+    };
     let (cursor, displays) = crate::display_navigation::displays(app).map_err(|e| e.message)?;
     let display = crate::display_navigation::current_display(cursor, &displays)
         .ok_or("No display for the switch prompt.")?;
@@ -1297,11 +1305,7 @@ fn show_prompt(
             *p = Some(Host::new()?);
         }
         p.as_mut().unwrap().hud_prompt(
-            &format!(
-                "Release {} for {}",
-                prompt.switch_name,
-                prompt.action.label()
-            ),
+            &format!("Release {} for {}", prompt.switch_name, action_label),
             rect,
             scale,
             crate::scanning::HudPresentation {

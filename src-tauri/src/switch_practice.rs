@@ -162,13 +162,13 @@ impl Practice {
         }
     }
     fn action(&mut self, action: Action) {
-        self.view.action = Some(action);
+        self.view.action = Some(action.clone());
         if matches!(action, Action::Stop | Action::Cancel) {
             self.view.active = false;
             return;
         }
         let was_idle = !self.engine.active();
-        if let Some(block) = self.engine.action(action) {
+        if let Some(block) = self.engine.action(action.clone()) {
             self.complete(&block);
         } else if was_idle && matches!(action, Action::Next | Action::Back) {
             self.view.message =

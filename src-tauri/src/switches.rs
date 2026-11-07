@@ -76,7 +76,7 @@ impl Settings {
             }
             if std::iter::once(&b.press_action)
                 .chain(&b.hold_actions)
-                .any(|a| *a == Action::Cancel)
+                .any(|a| !a.valid_assignment())
             {
                 return Err("Choose a scanning action for each switch.".into());
             }
@@ -164,6 +164,32 @@ mod tests {
             settings
         );
     }
+    #[test]
+    fn panel_assignments_round_trip_and_reject_invalid_targets() {
+        let mut settings = Settings::migrate(&crate::point_scan::Config::default());
+        settings.bindings[0].press_action = Action::OpenMenu(crate::scan_menu::Kind::Home);
+        settings.bindings[0].hold_actions = vec![Action::OpenCustomPanel("greetings".into())];
+        settings.validate().unwrap();
+        let value = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            value["bindings"][0]["pressAction"],
+            serde_json::json!({"openMenu":"home"})
+        );
+        assert_eq!(
+            value["bindings"][0]["holdActions"][0],
+            serde_json::json!({"openCustomPanel":"greetings"})
+        );
+        assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
+        for action in [
+            Action::OpenMenu(crate::scan_menu::Kind::ConfirmDrag),
+            Action::OpenCustomPanel("".into()),
+            Action::OpenCustomPanel("x".repeat(65)),
+        ] {
+            settings.bindings[0].hold_actions = vec![action];
+            assert!(settings.validate().is_err());
+        }
+    }
+
     #[test]
     fn switch_timing_is_saved_only_when_chosen_and_bounded() {
         let mut s = Settings::migrate(&crate::point_scan::Config::default());

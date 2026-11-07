@@ -12,7 +12,16 @@ export const actions = {
   stop: "Stop scanning",
   pause: "Pause / resume",
 } as const;
-export type SwitchAction = keyof typeof actions;
+export type SwitchAction = keyof typeof actions | { openMenu: import("../types").MenuKind } | { openCustomPanel: string };
+export const panelMenus = {
+  home: "Home", more: "More", mouse: "Mouse menu", editing: "Editing", windows: "Apps and windows",
+  browser: "Browser", tabs: "Tabs", zoom: "Zoom", media: "Media", displays: "Displays", scanning: "Scanning",
+} as const;
+export function actionLabel(action: SwitchAction, panels?: { id: string; name: string }[]): string {
+  if (typeof action === "string") return actions[action];
+  if ("openMenu" in action) return `Open ${panelMenus[action.openMenu as keyof typeof panelMenus] ?? action.openMenu}`;
+  return `Open ${panels?.find((p) => p.id === action.openCustomPanel)?.name ?? (panels ? "custom panel (unavailable)" : "custom panel")}`;
+}
 export type Binding = {
   id: string;
   name: string;

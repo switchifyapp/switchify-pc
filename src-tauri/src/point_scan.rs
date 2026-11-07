@@ -356,7 +356,9 @@ impl Engine {
             | Action::Cancel
             | Action::OpenKeyboard
             | Action::OpenPoint
-            | Action::OpenMouse => {}
+            | Action::OpenMouse
+            | Action::OpenMenu(_)
+            | Action::OpenCustomPanel(_) => {}
         }
         None
     }
