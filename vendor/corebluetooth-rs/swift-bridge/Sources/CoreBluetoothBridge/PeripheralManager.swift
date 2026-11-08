@@ -8,8 +8,7 @@ struct CBPeripheralManagerOptionsPayload: Codable {
     var restore_identifier: String?
 }
 
-public typealias CBPeripheralManagerEventCallback =
-    @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+public typealias CBPeripheralManagerEventCallback = CBEventCallback
 
 private func cb_peripheral_manager_authorization_value(_ manager: CBPeripheralManager?) -> Int32 {
     guard manager != nil else {
@@ -34,56 +33,40 @@ private func cb_peripheral_manager_options(_ payload: CBPeripheralManagerOptions
     return options.isEmpty ? nil : options
 }
 
-private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManagerDelegate {
-    let callback: CBPeripheralManagerEventCallback
-    let userInfo: UnsafeMutableRawPointer?
-    private var isActive = true
-
-    init(callback: @escaping CBPeripheralManagerEventCallback, userInfo: UnsafeMutableRawPointer?) {
-        self.callback = callback
-        self.userInfo = userInfo
-        super.init()
-    }
-
-    func deactivate() {
-        isActive = false
-    }
-
-    private func send(_ payload: [String: Any]) {
-        guard isActive else { return }
-        let json = cb_json_string(payload)
-        json.withCString { callback(userInfo, $0) }
-    }
+final class CBPeripheralManagerHub: NSObject, CBPeripheralManagerDelegate {
+    let sinks = CBEventSinkList()
 
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        send([
-            "event": "didUpdateState",
-            "state": peripheral.state.rawValue,
-            "authorization": cb_peripheral_manager_authorization_value(peripheral),
-        ])
+        sinks.broadcast("didUpdateState") {
+            [
+                "state": peripheral.state.rawValue,
+                "authorization": cb_peripheral_manager_authorization_value(peripheral),
+            ]
+        }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, willRestoreState dict: [String: Any]) {
-        send([
-            "event": "willRestoreState",
-            "service_handles": (dict[CBPeripheralManagerRestoredStateServicesKey] as? [CBMutableService] ?? []).map(cb_retained_handle),
-            "advertisement_data": cb_optional(dict[CBPeripheralManagerRestoredStateAdvertisementDataKey]),
-        ])
+        sinks.broadcast("willRestoreState") {
+            [
+                "service_handles": (dict[CBPeripheralManagerRestoredStateServicesKey] as? [CBMutableService] ?? []).map(cb_retained_handle),
+                "advertisement_data": cb_optional(dict[CBPeripheralManagerRestoredStateAdvertisementDataKey]),
+            ]
+        }
     }
 
     func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
-        send([
-            "event": "didStartAdvertising",
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didStartAdvertising") {
+            ["error": cb_optional(error.map(cb_error_object))]
+        }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
-        send([
-            "event": "didAddService",
-            "service_handle": cb_retained_handle(service),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didAddService") {
+            [
+                "service_handle": cb_retained_handle(service),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheralManager(
@@ -91,11 +74,12 @@ private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManag
         central: CBCentral,
         didSubscribeTo characteristic: CBCharacteristic
     ) {
-        send([
-            "event": "didSubscribeToCharacteristic",
-            "central_handle": cb_retained_handle(central),
-            "characteristic_handle": cb_retained_handle(characteristic),
-        ])
+        sinks.broadcast("didSubscribeToCharacteristic") {
+            [
+                "central_handle": cb_retained_handle(central),
+                "characteristic_handle": cb_retained_handle(characteristic),
+            ]
+        }
     }
 
     func peripheralManager(
@@ -103,29 +87,28 @@ private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManag
         central: CBCentral,
         didUnsubscribeFrom characteristic: CBCharacteristic
     ) {
-        send([
-            "event": "didUnsubscribeFromCharacteristic",
-            "central_handle": cb_retained_handle(central),
-            "characteristic_handle": cb_retained_handle(characteristic),
-        ])
+        sinks.broadcast("didUnsubscribeFromCharacteristic") {
+            [
+                "central_handle": cb_retained_handle(central),
+                "characteristic_handle": cb_retained_handle(characteristic),
+            ]
+        }
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
-        send(["event": "isReadyToUpdateSubscribers"])
+        sinks.broadcast("isReadyToUpdateSubscribers") { [:] }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
-        send([
-            "event": "didReceiveReadRequest",
-            "request_handle": cb_retained_handle(request),
-        ])
+        sinks.broadcast("didReceiveReadRequest") {
+            ["request_handle": cb_retained_handle(request)]
+        }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
-        send([
-            "event": "didReceiveWriteRequests",
-            "request_handles": requests.map(cb_retained_handle),
-        ])
+        sinks.broadcast("didReceiveWriteRequests") {
+            ["request_handles": requests.map(cb_retained_handle)]
+        }
     }
 
     func peripheralManager(
@@ -133,11 +116,12 @@ private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManag
         didPublishL2CAPChannel psm: CBL2CAPPSM,
         error: Error?
     ) {
-        send([
-            "event": "didPublishL2CAPChannel",
-            "psm": Int(psm),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didPublishL2CAPChannel") {
+            [
+                "psm": Int(psm),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheralManager(
@@ -145,11 +129,12 @@ private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManag
         didUnpublishL2CAPChannel psm: CBL2CAPPSM,
         error: Error?
     ) {
-        send([
-            "event": "didUnpublishL2CAPChannel",
-            "psm": Int(psm),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didUnpublishL2CAPChannel") {
+            [
+                "psm": Int(psm),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheralManager(
@@ -157,33 +142,43 @@ private final class CBRustPeripheralManagerDelegate: NSObject, CBPeripheralManag
         didOpen channel: CBL2CAPChannel?,
         error: Error?
     ) {
-        send([
-            "event": "didOpenL2CAPChannel",
-            "channel_handle": cb_optional(channel.map(cb_retained_handle)),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didOpenL2CAPChannel") {
+            [
+                "channel_handle": cb_optional(channel.map(cb_retained_handle)),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 }
 
 private final class CBPeripheralManagerBox: NSObject {
     let manager: CBPeripheralManager
-    let delegateBox: CBRustPeripheralManagerDelegate?
+    let hub: CBPeripheralManagerHub
     let queue: DispatchQueue
+    private var delegateSink: CBEventSink?
 
     init(
         manager: CBPeripheralManager,
-        delegateBox: CBRustPeripheralManagerDelegate?,
+        hub: CBPeripheralManagerHub,
+        delegateSink: CBEventSink?,
         queue: DispatchQueue
     ) {
         self.manager = manager
-        self.delegateBox = delegateBox
+        self.hub = hub
+        self.delegateSink = delegateSink
         self.queue = queue
         super.init()
-        self.manager.delegate = delegateBox
+    }
+
+    func detachDelegate() {
+        guard let sink = delegateSink else { return }
+        delegateSink = nil
+        hub.sinks.remove(sink)
+        sink.deactivate()
     }
 
     deinit {
-        delegateBox?.deactivate()
+        detachDelegate()
         manager.delegate = nil
     }
 }
@@ -201,6 +196,8 @@ public func cb_peripheral_manager_new(
     _ optionsJSON: UnsafePointer<CChar>?,
     _ callback: CBPeripheralManagerEventCallback?,
     _ userInfo: UnsafeMutableRawPointer?,
+    _ contextRetain: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,
+    _ contextRelease: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,
     _ outManager: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
     _ errorOut: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
@@ -209,9 +206,21 @@ public func cb_peripheral_manager_new(
     do {
         let payload = try cb_decode_json_if_present(optionsJSON, as: CBPeripheralManagerOptionsPayload.self) ?? CBPeripheralManagerOptionsPayload()
         let queue = DispatchQueue(label: payload.queue_label ?? "corebluetooth-rs.peripheral")
-        let delegateBox = callback.map { CBRustPeripheralManagerDelegate(callback: $0, userInfo: userInfo) }
-        let manager = CBPeripheralManager(delegate: nil, queue: queue, options: cb_peripheral_manager_options(payload))
-        let box = CBPeripheralManagerBox(manager: manager, delegateBox: delegateBox, queue: queue)
+        let hub = CBPeripheralManagerHub()
+        let delegateSink = callback.map {
+            CBEventSink(
+                callback: $0,
+                context: userInfo,
+                retainContext: contextRetain,
+                releaseContext: contextRelease,
+                drainsOnDeactivate: false
+            )
+        }
+        if let delegateSink {
+            hub.sinks.add(delegateSink)
+        }
+        let manager = CBPeripheralManager(delegate: hub, queue: queue, options: cb_peripheral_manager_options(payload))
+        let box = CBPeripheralManagerBox(manager: manager, hub: hub, delegateSink: delegateSink, queue: queue)
         outManager.pointee = cb_retain(box)
         return CBR_OK
     } catch {
@@ -414,6 +423,11 @@ public func cb_central_maximum_update_value_length(_ centralPtr: UnsafeMutableRa
     cb_central(centralPtr)?.maximumUpdateValueLength ?? 0
 }
 
-func cb_peripheral_manager_get_manager(_ ptr: UnsafeMutableRawPointer?) -> CBPeripheralManager? {
-    cb_peripheral_manager_box(ptr)?.manager
+@_cdecl("cb_peripheral_manager_detach_delegate")
+public func cb_peripheral_manager_detach_delegate(_ managerPtr: UnsafeMutableRawPointer?) {
+    cb_peripheral_manager_box(managerPtr)?.detachDelegate()
+}
+
+func cb_peripheral_manager_hub(_ ptr: UnsafeMutableRawPointer?) -> CBPeripheralManagerHub? {
+    cb_peripheral_manager_box(ptr)?.hub
 }

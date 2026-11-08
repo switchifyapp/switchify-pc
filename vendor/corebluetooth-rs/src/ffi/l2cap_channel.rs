@@ -13,4 +13,16 @@ extern "C" {
     pub fn cb_output_stream_has_space_available(stream: *mut c_void) -> bool;
     pub fn cb_stream_open(stream: *mut c_void);
     pub fn cb_stream_close(stream: *mut c_void);
+    pub fn cb_input_stream_read(
+        stream: *mut c_void,
+        buffer: *mut u8,
+        capacity: usize,
+        error_out: *mut *mut c_char,
+    ) -> isize;
+    pub fn cb_output_stream_write(
+        stream: *mut c_void,
+        bytes: *const u8,
+        length: usize,
+        error_out: *mut *mut c_char,
+    ) -> isize;
 }

@@ -6,6 +6,7 @@ use crate::error::{from_swift, CoreBluetoothError};
 use crate::ffi;
 use crate::peripheral_manager::Central;
 use crate::private::{retain_raw, take_retained_pointer_array};
+use crate::retained::cb_retained;
 use crate::uuid::BluetoothUuid;
 
 /// Wraps `CBMutableCharacteristic`.
@@ -34,8 +35,8 @@ impl MutableCharacteristic {
                 value.map_or(core::ptr::null(), <[u8]>::as_ptr),
                 value.map_or(0, <[u8]>::len),
                 permissions.bits(),
-                &mut raw,
-                &mut error,
+                &raw mut raw,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -58,11 +59,6 @@ impl MutableCharacteristic {
     /// Returns the `CBUUID` exposed by `CBMutableCharacteristic`.
     pub fn uuid_object(&self) -> BluetoothUuid {
         self.as_characteristic().uuid_object()
-    }
-
-    /// Returns whether both handles refer to the same CoreBluetooth characteristic object.
-    pub fn is_same_characteristic(&self, other: &Characteristic) -> bool {
-        self.raw == other.raw
     }
 
     /// Returns the `CBCharacteristicProperties` exposed by `CBMutableCharacteristic`.
@@ -123,7 +119,7 @@ impl MutableCharacteristic {
                 self.raw,
                 descriptors.as_ptr(),
                 descriptors.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -148,7 +144,7 @@ impl MutableCharacteristic {
                 self.raw,
                 descriptors.as_ptr(),
                 descriptors.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -163,7 +159,11 @@ impl MutableCharacteristic {
         let mut array = core::ptr::null_mut();
         let mut count = 0;
         unsafe {
-            ffi::cb_mutable_characteristic_subscribed_centrals(self.raw, &mut array, &mut count);
+            ffi::cb_mutable_characteristic_subscribed_centrals(
+                self.raw,
+                &raw mut array,
+                &raw mut count,
+            );
         }
         take_retained_pointer_array(array, count)
             .into_iter()
@@ -172,14 +172,4 @@ impl MutableCharacteristic {
     }
 }
 
-impl Clone for MutableCharacteristic {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for MutableCharacteristic {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(MutableCharacteristic);

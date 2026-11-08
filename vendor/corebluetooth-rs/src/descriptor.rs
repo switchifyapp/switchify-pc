@@ -7,6 +7,7 @@ use crate::characteristic::Characteristic;
 use crate::error::{from_swift, take_owned_c_string, CoreBluetoothError};
 use crate::ffi;
 use crate::private::{decode_optional_json, encode_json, retain_raw, retained_handle_to_raw};
+use crate::retained::cb_retained;
 use crate::uuid::BluetoothUuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,17 +156,7 @@ impl Descriptor {
     }
 }
 
-impl Clone for Descriptor {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for Descriptor {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(Descriptor);
 
 /// Wraps `CBMutableDescriptor`.
 pub struct MutableDescriptor {
@@ -183,7 +174,7 @@ impl MutableDescriptor {
         let mut raw = core::ptr::null_mut();
         let mut error = core::ptr::null_mut();
         let status = unsafe {
-            ffi::cb_mutable_descriptor_new(uuid.raw, value.as_ptr(), &mut raw, &mut error)
+            ffi::cb_mutable_descriptor_new(uuid.raw, value.as_ptr(), &raw mut raw, &raw mut error)
         };
         if status == ffi::status::OK {
             Ok(Self { raw })
@@ -213,14 +204,4 @@ impl MutableDescriptor {
     }
 }
 
-impl Clone for MutableDescriptor {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for MutableDescriptor {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(MutableDescriptor);

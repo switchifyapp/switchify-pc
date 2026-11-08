@@ -5,6 +5,7 @@ use crate::error::{from_swift, CoreBluetoothError};
 use crate::ffi;
 use crate::mutable_characteristic::MutableCharacteristic;
 use crate::private::{retain_raw, retained_handle_to_raw};
+use crate::retained::cb_retained;
 use crate::service::Service;
 use crate::uuid::BluetoothUuid;
 
@@ -26,8 +27,9 @@ impl MutableService {
     pub fn new(uuid: &BluetoothUuid, is_primary: bool) -> Result<Self, CoreBluetoothError> {
         let mut raw = core::ptr::null_mut();
         let mut error = core::ptr::null_mut();
-        let status =
-            unsafe { ffi::cb_mutable_service_new(uuid.raw, is_primary, &mut raw, &mut error) };
+        let status = unsafe {
+            ffi::cb_mutable_service_new(uuid.raw, is_primary, &raw mut raw, &raw mut error)
+        };
         if status == ffi::status::OK {
             Ok(Self { raw })
         } else {
@@ -48,11 +50,6 @@ impl MutableService {
     /// Returns the `CBUUID` exposed by `CBMutableService`.
     pub fn uuid_object(&self) -> BluetoothUuid {
         self.as_service().uuid_object()
-    }
-
-    /// Returns whether both handles refer to the same CoreBluetooth service object.
-    pub fn is_same_service(&self, other: &Service) -> bool {
-        self.raw == other.raw
     }
 
     /// Returns whether `CBMutableService.isPrimary` is set.
@@ -79,7 +76,7 @@ impl MutableService {
                 self.raw,
                 services.as_ptr(),
                 services.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -101,7 +98,7 @@ impl MutableService {
                 self.raw,
                 services.as_ptr(),
                 services.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -126,7 +123,7 @@ impl MutableService {
                 self.raw,
                 characteristics.as_ptr(),
                 characteristics.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -151,7 +148,7 @@ impl MutableService {
                 self.raw,
                 characteristics.as_ptr(),
                 characteristics.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -162,14 +159,4 @@ impl MutableService {
     }
 }
 
-impl Clone for MutableService {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for MutableService {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(MutableService);
