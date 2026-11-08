@@ -326,7 +326,9 @@ it("returns focus to the row after Done and to Add switch after saving a new one
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit Head switch" }));
   fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
   await screen.findByRole("dialog");
-  event({ ...current, capture: { active: false, key: "Enter", error: null } });
+  // The backend reports the finished capture from then on, including in the save reply.
+  current = { ...current, capture: { active: false, key: "Enter", error: null } };
+  event(current);
   await screen.findByText("Enter");
   fireEvent.change(screen.getByLabelText("New switch name"), { target: { value: "Foot" } });
   fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
