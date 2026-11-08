@@ -42,7 +42,7 @@ tauri-plugin-opener = "2.7.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
-corebluetooth-rs = "=0.3.6"
+corebluetooth-rs = "=0.4.2"
 core-foundation = "0.10"
 core-graphics = { version = "0.25", features = ["highsierra"] }
 libc = "0.2"

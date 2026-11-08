@@ -18,7 +18,8 @@ private func cb_uuid_constant_value(_ kind: Int32) -> String {
     case 6:
         return CBUUIDCharacteristicValidRangeString
     case 7:
-        return CBUUIDCharacteristicObservationScheduleString
+        // Apple no longer exports this SIG-assigned descriptor constant at runtime.
+        return "2906"
     case 8:
         return CBUUIDL2CAPPSMCharacteristicString
     default:

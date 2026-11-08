@@ -110,9 +110,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apple-cf"
-version = "0.9.3"
+version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7fd680cd0f3f02ee717b2014b26d18985c57b784384ba47213fcf8791e8c250"
+checksum = "5a47effd5b5e7afd1c51ef8d1bacf86060565461c1fb6cf67aae433417c4048c"
 dependencies = [
  "doom-fish-utils",
 ]
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "corebluetooth-rs"
-version = "0.3.6"
+version = "0.4.2"
 dependencies = [
  "apple-cf",
  "libc",
@@ -891,15 +891,6 @@ name = "crossbeam-channel"
 version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03e8bd762f7479489c70ed6c768ddca99d7296857de437a68dcb2a94365b3fae"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1199,13 +1190,9 @@ dependencies = [
 
 [[package]]
 name = "doom-fish-utils"
-version = "0.3.3"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c801f6c2a0db1a1909d89fc395b9dccc594de9ef599659fbde9bb3b55ef67f9f"
-dependencies = [
- "crossbeam-queue",
- "futures-util",
-]
+checksum = "b17b6b508be066ed1f17547113c170b9105d9b7d9ba0a9c86b6dc767167ec0f3"
 
 [[package]]
 name = "downcast-rs"
