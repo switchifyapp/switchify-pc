@@ -53,6 +53,19 @@ pub fn take_retained_pointer_array(array: *mut c_void, count: usize) -> Vec<*mut
     values
 }
 
+pub fn take_copied_bytes(copy: impl FnOnce(*mut *mut u8, *mut usize) -> bool) -> Option<Vec<u8>> {
+    let mut bytes = core::ptr::null_mut();
+    let mut length = 0;
+    let has_value = copy(&raw mut bytes, &raw mut length);
+    let value = if bytes.is_null() || length == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(bytes, length) }.to_vec()
+    };
+    unsafe { libc::free(bytes.cast()) };
+    has_value.then_some(value)
+}
+
 pub fn retain_raw(raw: *mut c_void) -> *mut c_void {
     unsafe { ffi::cb_object_retain(raw) }
 }

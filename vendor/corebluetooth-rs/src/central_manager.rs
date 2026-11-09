@@ -1,5 +1,6 @@
 use core::ffi::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -488,12 +489,65 @@ impl CentralManagerDelegate for CentralManagerCallbacks {
 
 struct CallbackState {
     delegate: Mutex<Box<dyn CentralManagerDelegate>>,
+    ref_count: AtomicUsize,
+}
+
+impl CallbackState {
+    fn into_raw(delegate: Box<dyn CentralManagerDelegate>) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            delegate: Mutex::new(delegate),
+            ref_count: AtomicUsize::new(1),
+        }))
+    }
+
+    /// Increment the reference count.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a valid, live `CallbackState`.
+    unsafe fn retain(ptr: *mut Self) {
+        unsafe { &*ptr }.ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Decrement the reference count, freeing the state if it reaches zero.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be null or point to a valid `CallbackState`. After this call
+    /// the pointer must not be used if the state was freed.
+    unsafe fn release(ptr: *mut Self) {
+        if ptr.is_null() {
+            return;
+        }
+        let prev = unsafe { &*ptr }.ref_count.fetch_sub(1, Ordering::Release);
+        if prev == 1 {
+            std::sync::atomic::fence(Ordering::Acquire);
+            drop(unsafe { Box::from_raw(ptr) });
+        }
+    }
 }
 
 /// Wraps `CBCentralManager`.
 pub struct CentralManager {
     raw: *mut c_void,
-    callback_state: Option<Box<CallbackState>>,
+    callback_state: *mut CallbackState,
+}
+
+// C trampoline handed to Swift so the delegate bridge object can take a +1
+// reference on the `CallbackState` for the duration of its own lifetime. This
+// keeps the Rust context alive while any scan/connect callback can still be
+// dispatched on the central-manager dispatch queue.
+unsafe extern "C" fn central_manager_context_retain(user_info: *mut c_void) {
+    if !user_info.is_null() {
+        unsafe { CallbackState::retain(user_info.cast::<CallbackState>()) };
+    }
+}
+
+// C trampoline handed to Swift, invoked from the delegate's `deinit` to drop
+// the +1 reference taken in `central_manager_context_retain`.
+// `CallbackState::release` null-checks internally.
+unsafe extern "C" fn central_manager_context_release(user_info: *mut c_void) {
+    unsafe { CallbackState::release(user_info.cast::<CallbackState>()) };
 }
 
 unsafe extern "C" fn central_manager_event_trampoline(
@@ -658,20 +712,16 @@ impl CentralManager {
 
         let mut raw = core::ptr::null_mut();
         let mut error = core::ptr::null_mut();
-        let mut callback_state = delegate.map(|delegate| {
-            Box::new(CallbackState {
-                delegate: Mutex::new(delegate),
-            })
-        });
-        let user_info = callback_state
-            .as_deref_mut()
-            .map_or(core::ptr::null_mut(), |state| {
-                std::ptr::from_mut::<CallbackState>(state).cast::<c_void>()
-            });
-        let callback = if callback_state.is_some() {
-            Some(central_manager_event_trampoline as ffi::JsonCallback)
+        let callback_state = delegate.map_or(core::ptr::null_mut(), CallbackState::into_raw);
+        let user_info = callback_state.cast::<c_void>();
+        let (callback, context_retain, context_release) = if callback_state.is_null() {
+            (None, None, None)
         } else {
-            None
+            (
+                Some(central_manager_event_trampoline as ffi::JsonCallback),
+                Some(central_manager_context_retain as ffi::ContextRefCallback),
+                Some(central_manager_context_release as ffi::ContextRefCallback),
+            )
         };
 
         let status = unsafe {
@@ -679,8 +729,10 @@ impl CentralManager {
                 options_json.as_ptr(),
                 callback,
                 user_info,
-                &mut raw,
-                &mut error,
+                context_retain,
+                context_release,
+                &raw mut raw,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -689,6 +741,7 @@ impl CentralManager {
                 callback_state,
             })
         } else {
+            unsafe { CallbackState::release(callback_state) };
             Err(from_swift(status, error))
         }
     }
@@ -742,7 +795,7 @@ impl CentralManager {
                     .as_ref()
                     .map_or(core::ptr::null(), |value| value.as_ptr()),
                 scan_options.as_ptr(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -777,7 +830,12 @@ impl CentralManager {
         })?;
         let mut error = core::ptr::null_mut();
         let status = unsafe {
-            ffi::cb_manager_connect(self.raw, peripheral.raw, options_json.as_ptr(), &mut error)
+            ffi::cb_manager_connect(
+                self.raw,
+                peripheral.raw,
+                options_json.as_ptr(),
+                &raw mut error,
+            )
         };
         if status == ffi::status::OK {
             Ok(())
@@ -804,9 +862,9 @@ impl CentralManager {
             ffi::cb_manager_retrieve_connected_peripherals(
                 self.raw,
                 service_uuids.as_ptr(),
-                &mut array,
-                &mut count,
-                &mut error,
+                &raw mut array,
+                &raw mut count,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -832,9 +890,9 @@ impl CentralManager {
             ffi::cb_manager_retrieve_peripherals_with_identifiers(
                 self.raw,
                 identifiers.as_ptr(),
-                &mut array,
-                &mut count,
-                &mut error,
+                &raw mut array,
+                &raw mut count,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -849,8 +907,17 @@ impl CentralManager {
 }
 
 impl Drop for CentralManager {
+    // Detach and deactivate the delegate sink, then release the Swift manager
+    // box (async streams may keep it alive). The sink's own `deinit` releases
+    // the Swift-held +1 on the `CallbackState` via the context-release
+    // trampoline. Only afterwards do we drop this Rust-held reference, so a
+    // scan/connect callback already in flight on the central-manager dispatch
+    // queue can never observe a freed context.
     fn drop(&mut self) {
+        if !self.callback_state.is_null() {
+            unsafe { ffi::cb_manager_detach_delegate(self.raw) };
+        }
         unsafe { ffi::cb_object_release(self.raw) };
-        let _ = self.callback_state.take();
+        unsafe { CallbackState::release(self.callback_state) };
     }
 }

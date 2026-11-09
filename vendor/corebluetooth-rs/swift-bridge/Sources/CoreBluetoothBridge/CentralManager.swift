@@ -21,8 +21,7 @@ struct CBCentralManagerConnectOptionsPayload: Codable {
     var enable_auto_reconnect: Bool?
 }
 
-public typealias CBCentralManagerEventCallback =
-    @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+public typealias CBCentralManagerEventCallback = CBEventCallback
 
 private func cb_manager_authorization_value(_ manager: CBCentralManager?) -> Int32 {
     guard manager != nil else {
@@ -89,42 +88,26 @@ private func cb_connect_options(_ payload: CBCentralManagerConnectOptionsPayload
     return options.isEmpty ? nil : options
 }
 
-private final class CBRustCentralManagerDelegate: NSObject, CBCentralManagerDelegate {
-    let callback: CBCentralManagerEventCallback
-    let userInfo: UnsafeMutableRawPointer?
-    private var isActive = true
-
-    init(callback: @escaping CBCentralManagerEventCallback, userInfo: UnsafeMutableRawPointer?) {
-        self.callback = callback
-        self.userInfo = userInfo
-        super.init()
-    }
-
-    func deactivate() {
-        isActive = false
-    }
-
-    private func send(_ payload: [String: Any]) {
-        guard isActive else { return }
-        let json = cb_json_string(payload)
-        json.withCString { callback(userInfo, $0) }
-    }
+final class CBCentralManagerHub: NSObject, CBCentralManagerDelegate {
+    let sinks = CBEventSinkList()
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        send([
-            "event": "didUpdateState",
-            "state": central.state.rawValue,
-            "authorization": cb_manager_authorization_value(central),
-        ])
+        sinks.broadcast("didUpdateState") {
+            [
+                "state": central.state.rawValue,
+                "authorization": cb_manager_authorization_value(central),
+            ]
+        }
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
-        send([
-            "event": "willRestoreState",
-            "peripheral_handles": (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []).map(cb_retained_handle),
-            "scan_service_uuids": (dict[CBCentralManagerRestoredStateScanServicesKey] as? [CBUUID] ?? []).map(\.uuidString),
-            "scan_options": cb_optional(cb_restored_scan_options_payload(dict[CBCentralManagerRestoredStateScanOptionsKey] as? [String: Any])),
-        ])
+        sinks.broadcast("willRestoreState") {
+            [
+                "peripheral_handles": (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []).map(cb_retained_handle),
+                "scan_service_uuids": (dict[CBCentralManagerRestoredStateScanServicesKey] as? [CBUUID] ?? []).map(\.uuidString),
+                "scan_options": cb_optional(cb_restored_scan_options_payload(dict[CBCentralManagerRestoredStateScanOptionsKey] as? [String: Any])),
+            ]
+        }
     }
 
     func centralManager(
@@ -133,19 +116,19 @@ private final class CBRustCentralManagerDelegate: NSObject, CBCentralManagerDele
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        send([
-            "event": "didDiscoverPeripheral",
-            "peripheral_handle": cb_retained_handle(peripheral),
-            "rssi": RSSI.intValue,
-            "advertisement_data": advertisementData,
-        ])
+        sinks.broadcast("didDiscoverPeripheral") {
+            [
+                "peripheral_handle": cb_retained_handle(peripheral),
+                "rssi": RSSI.intValue,
+                "advertisement_data": advertisementData,
+            ]
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        send([
-            "event": "didConnectPeripheral",
-            "peripheral_handle": cb_retained_handle(peripheral),
-        ])
+        sinks.broadcast("didConnectPeripheral") {
+            ["peripheral_handle": cb_retained_handle(peripheral)]
+        }
     }
 
     func centralManager(
@@ -153,11 +136,12 @@ private final class CBRustCentralManagerDelegate: NSObject, CBCentralManagerDele
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        send([
-            "event": "didFailToConnectPeripheral",
-            "peripheral_handle": cb_retained_handle(peripheral),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didFailToConnectPeripheral") {
+            [
+                "peripheral_handle": cb_retained_handle(peripheral),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func centralManager(
@@ -165,11 +149,12 @@ private final class CBRustCentralManagerDelegate: NSObject, CBCentralManagerDele
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
     ) {
-        send([
-            "event": "didDisconnectPeripheral",
-            "peripheral_handle": cb_retained_handle(peripheral),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didDisconnectPeripheral") {
+            [
+                "peripheral_handle": cb_retained_handle(peripheral),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func centralManager(
@@ -179,35 +164,45 @@ private final class CBRustCentralManagerDelegate: NSObject, CBCentralManagerDele
         isReconnecting: Bool,
         error: Error?
     ) {
-        send([
-            "event": "didDisconnectPeripheral",
-            "peripheral_handle": cb_retained_handle(peripheral),
-            "timestamp": timestamp,
-            "is_reconnecting": isReconnecting,
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        sinks.broadcast("didDisconnectPeripheral") {
+            [
+                "peripheral_handle": cb_retained_handle(peripheral),
+                "timestamp": timestamp,
+                "is_reconnecting": isReconnecting,
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 }
 
 private final class CBCentralManagerBox: NSObject {
     let manager: CBCentralManager
-    let delegateBox: CBRustCentralManagerDelegate?
+    let hub: CBCentralManagerHub
     let queue: DispatchQueue
+    private var delegateSink: CBEventSink?
 
     init(
         manager: CBCentralManager,
-        delegateBox: CBRustCentralManagerDelegate?,
+        hub: CBCentralManagerHub,
+        delegateSink: CBEventSink?,
         queue: DispatchQueue
     ) {
         self.manager = manager
-        self.delegateBox = delegateBox
+        self.hub = hub
+        self.delegateSink = delegateSink
         self.queue = queue
         super.init()
-        self.manager.delegate = delegateBox
+    }
+
+    func detachDelegate() {
+        guard let sink = delegateSink else { return }
+        delegateSink = nil
+        hub.sinks.remove(sink)
+        sink.deactivate()
     }
 
     deinit {
-        delegateBox?.deactivate()
+        detachDelegate()
         manager.delegate = nil
     }
 }
@@ -225,6 +220,8 @@ public func cb_manager_new(
     _ optionsJSON: UnsafePointer<CChar>?,
     _ callback: CBCentralManagerEventCallback?,
     _ userInfo: UnsafeMutableRawPointer?,
+    _ contextRetain: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,
+    _ contextRelease: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,
     _ outManager: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
     _ errorOut: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
@@ -233,9 +230,21 @@ public func cb_manager_new(
     do {
         let payload = try cb_decode_json_if_present(optionsJSON, as: CBCentralManagerOptionsPayload.self) ?? CBCentralManagerOptionsPayload()
         let queue = DispatchQueue(label: payload.queue_label ?? "corebluetooth-rs.central")
-        let delegateBox = callback.map { CBRustCentralManagerDelegate(callback: $0, userInfo: userInfo) }
-        let manager = CBCentralManager(delegate: nil, queue: queue, options: cb_central_manager_options(payload))
-        let box = CBCentralManagerBox(manager: manager, delegateBox: delegateBox, queue: queue)
+        let hub = CBCentralManagerHub()
+        let delegateSink = callback.map {
+            CBEventSink(
+                callback: $0,
+                context: userInfo,
+                retainContext: contextRetain,
+                releaseContext: contextRelease,
+                drainsOnDeactivate: false
+            )
+        }
+        if let delegateSink {
+            hub.sinks.add(delegateSink)
+        }
+        let manager = CBCentralManager(delegate: hub, queue: queue, options: cb_central_manager_options(payload))
+        let box = CBCentralManagerBox(manager: manager, hub: hub, delegateSink: delegateSink, queue: queue)
         outManager.pointee = cb_retain(box)
         return CBR_OK
     } catch {
@@ -379,6 +388,11 @@ public func cb_manager_retrieve_peripherals_with_identifiers(
     }
 }
 
-func cb_central_manager_get_manager(_ ptr: UnsafeMutableRawPointer?) -> CBCentralManager? {
-    cb_manager_box(ptr)?.manager
+@_cdecl("cb_manager_detach_delegate")
+public func cb_manager_detach_delegate(_ managerPtr: UnsafeMutableRawPointer?) {
+    cb_manager_box(managerPtr)?.detachDelegate()
+}
+
+func cb_central_manager_hub(_ ptr: UnsafeMutableRawPointer?) -> CBCentralManagerHub? {
+    cb_manager_box(ptr)?.hub
 }

@@ -6,7 +6,8 @@ use serde_json::Value;
 
 use crate::error::{take_owned_c_string, CoreBluetoothError};
 use crate::ffi;
-use crate::private::{decode_json, retain_raw, to_cstring};
+use crate::private::{decode_json, to_cstring};
+use crate::retained::cb_retained;
 
 const UUID_CONSTANT_EXTENDED_PROPERTIES: i32 = 0;
 const UUID_CONSTANT_USER_DESCRIPTION: i32 = 1;
@@ -124,17 +125,7 @@ impl BluetoothUuid {
     }
 }
 
-impl Clone for BluetoothUuid {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for BluetoothUuid {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(BluetoothUuid);
 
 impl fmt::Debug for BluetoothUuid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,5 +1,6 @@
 use core::ffi::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use serde::Deserialize;
@@ -481,12 +482,65 @@ impl PeripheralDelegate for PeripheralCallbacks {
 
 struct CallbackState {
     delegate: Mutex<Box<dyn PeripheralDelegate>>,
+    ref_count: AtomicUsize,
+}
+
+impl CallbackState {
+    fn into_raw(delegate: Box<dyn PeripheralDelegate>) -> *mut Self {
+        Box::into_raw(Box::new(Self {
+            delegate: Mutex::new(delegate),
+            ref_count: AtomicUsize::new(1),
+        }))
+    }
+
+    /// Increment the reference count.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a valid, live `CallbackState`.
+    unsafe fn retain(ptr: *mut Self) {
+        unsafe { &*ptr }.ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Decrement the reference count, freeing the state if it reaches zero.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be null or point to a valid `CallbackState`. After this call
+    /// the pointer must not be used if the state was freed.
+    unsafe fn release(ptr: *mut Self) {
+        if ptr.is_null() {
+            return;
+        }
+        let prev = unsafe { &*ptr }.ref_count.fetch_sub(1, Ordering::Release);
+        if prev == 1 {
+            std::sync::atomic::fence(Ordering::Acquire);
+            drop(unsafe { Box::from_raw(ptr) });
+        }
+    }
 }
 
 /// Wraps `CBPeripheral`.
 pub struct Peripheral {
     pub(crate) raw: *mut c_void,
-    callback_state: Option<Box<CallbackState>>,
+    callback_state: *mut CallbackState,
+}
+
+// C trampoline handed to Swift so the delegate bridge object can take a +1
+// reference on the `CallbackState` for the duration of its own lifetime. This
+// keeps the Rust context alive while any delegate callback can still be
+// dispatched on the Bluetooth dispatch queue.
+unsafe extern "C" fn peripheral_context_retain(user_info: *mut c_void) {
+    if !user_info.is_null() {
+        unsafe { CallbackState::retain(user_info.cast::<CallbackState>()) };
+    }
+}
+
+// C trampoline handed to Swift, invoked from the delegate's `deinit` to drop
+// the +1 reference taken in `peripheral_context_retain`.
+// `CallbackState::release` null-checks internally.
+unsafe extern "C" fn peripheral_context_release(user_info: *mut c_void) {
+    unsafe { CallbackState::release(user_info.cast::<CallbackState>()) };
 }
 
 #[allow(clippy::too_many_lines)]
@@ -625,7 +679,7 @@ impl Peripheral {
     pub(crate) fn from_retained_raw(raw: *mut c_void) -> Self {
         Self {
             raw,
-            callback_state: None,
+            callback_state: core::ptr::null_mut(),
         }
     }
 
@@ -643,28 +697,29 @@ impl Peripheral {
     where
         D: PeripheralDelegate + 'static,
     {
-        let callback_state = Box::new(CallbackState {
-            delegate: Mutex::new(Box::new(delegate)),
-        });
+        let callback_state = CallbackState::into_raw(Box::new(delegate));
+        let user_info = callback_state.cast::<c_void>();
         let mut error = core::ptr::null_mut();
-        let mut callback_state = Some(callback_state);
-        let user_info = callback_state
-            .as_deref_mut()
-            .map_or(core::ptr::null_mut(), |state| {
-                std::ptr::from_mut::<CallbackState>(state).cast::<c_void>()
-            });
         let status = unsafe {
             ffi::cb_peripheral_set_delegate(
                 self.raw,
                 Some(peripheral_event_trampoline as ffi::JsonCallback),
                 user_info,
-                &mut error,
+                Some(peripheral_context_retain as ffi::ContextRefCallback),
+                Some(peripheral_context_release as ffi::ContextRefCallback),
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
+            // Swift stored a new delegate (taking its own +1 on the new state
+            // and dropping its +1 on any previous one via the old delegate's
+            // `deinit`). Release this Rust-held reference to the previous state.
+            unsafe { CallbackState::release(self.callback_state) };
             self.callback_state = callback_state;
             Ok(())
         } else {
+            // Swift did not take a reference; drop our +1 to free the state.
+            unsafe { CallbackState::release(callback_state) };
             Err(from_swift(status, error))
         }
     }
@@ -679,8 +734,14 @@ impl Peripheral {
 
     /// Clears the current `CBPeripheralDelegate` bridge.
     pub fn clear_delegate(&mut self) {
-        unsafe { ffi::cb_peripheral_clear_delegate(self.raw) };
-        self.callback_state = None;
+        // Swift drops the stored delegate if this handle installed it, and its
+        // `deinit` releases the Swift-held +1 via the context-release
+        // trampoline. Afterwards we drop this Rust-held reference. The state is
+        // freed only once both sides have released, so an in-flight callback
+        // can never observe a freed context.
+        unsafe { ffi::cb_peripheral_clear_delegate(self.raw, self.callback_state.cast()) };
+        unsafe { CallbackState::release(self.callback_state) };
+        self.callback_state = core::ptr::null_mut();
     }
 
     /// Returns the name exposed by `CBPeripheral`.
@@ -704,7 +765,7 @@ impl Peripheral {
     pub fn services(&self) -> Vec<Service> {
         let mut array = core::ptr::null_mut();
         let mut count = 0;
-        unsafe { ffi::cb_peripheral_services(self.raw, &mut array, &mut count) };
+        unsafe { ffi::cb_peripheral_services(self.raw, &raw mut array, &raw mut count) };
         take_retained_pointer_array(array, count)
             .into_iter()
             .map(Service::from_retained_raw)
@@ -732,7 +793,7 @@ impl Peripheral {
                 service_uuids
                     .as_ref()
                     .map_or(core::ptr::null(), |value| value.as_ptr()),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -760,7 +821,7 @@ impl Peripheral {
                 included_service_uuids
                     .as_ref()
                     .map_or(core::ptr::null(), |value| value.as_ptr()),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -773,7 +834,7 @@ impl Peripheral {
     /// Invokes `readRSSI`.
     pub fn read_rssi(&self) -> Result<(), CoreBluetoothError> {
         let mut error = core::ptr::null_mut();
-        let status = unsafe { ffi::cb_peripheral_read_rssi(self.raw, &mut error) };
+        let status = unsafe { ffi::cb_peripheral_read_rssi(self.raw, &raw mut error) };
         if status == ffi::status::OK {
             Ok(())
         } else {
@@ -799,7 +860,7 @@ impl Peripheral {
                 characteristic_uuids
                     .as_ref()
                     .map_or(core::ptr::null(), |value| value.as_ptr()),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -819,7 +880,7 @@ impl Peripheral {
             ffi::cb_peripheral_read_value_for_characteristic(
                 self.raw,
                 characteristic.raw,
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -849,7 +910,7 @@ impl Peripheral {
                 value.as_ptr(),
                 value.len(),
                 matches!(write_type, CharacteristicWriteType::WithResponse),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -867,7 +928,12 @@ impl Peripheral {
     ) -> Result<(), CoreBluetoothError> {
         let mut error = core::ptr::null_mut();
         let status = unsafe {
-            ffi::cb_peripheral_set_notify_value(self.raw, characteristic.raw, enabled, &mut error)
+            ffi::cb_peripheral_set_notify_value(
+                self.raw,
+                characteristic.raw,
+                enabled,
+                &raw mut error,
+            )
         };
         if status == ffi::status::OK {
             Ok(())
@@ -883,7 +949,7 @@ impl Peripheral {
     ) -> Result<(), CoreBluetoothError> {
         let mut error = core::ptr::null_mut();
         let status = unsafe {
-            ffi::cb_peripheral_discover_descriptors(self.raw, characteristic.raw, &mut error)
+            ffi::cb_peripheral_discover_descriptors(self.raw, characteristic.raw, &raw mut error)
         };
         if status == ffi::status::OK {
             Ok(())
@@ -899,7 +965,7 @@ impl Peripheral {
     ) -> Result<(), CoreBluetoothError> {
         let mut error = core::ptr::null_mut();
         let status = unsafe {
-            ffi::cb_peripheral_read_value_for_descriptor(self.raw, descriptor.raw, &mut error)
+            ffi::cb_peripheral_read_value_for_descriptor(self.raw, descriptor.raw, &raw mut error)
         };
         if status == ffi::status::OK {
             Ok(())
@@ -914,6 +980,11 @@ impl Peripheral {
         descriptor: &Descriptor,
         value: &[u8],
     ) -> Result<(), CoreBluetoothError> {
+        if is_client_characteristic_configuration(&descriptor.uuid()) {
+            return Err(CoreBluetoothError::InvalidArgument(
+                "the Client Characteristic Configuration descriptor (0x2902) cannot be written; use Peripheral::set_notify_value".into(),
+            ));
+        }
         let mut error = core::ptr::null_mut();
         let status = unsafe {
             ffi::cb_peripheral_write_value_for_descriptor(
@@ -921,7 +992,7 @@ impl Peripheral {
                 descriptor.raw,
                 value.as_ptr(),
                 value.len(),
-                &mut error,
+                &raw mut error,
             )
         };
         if status == ffi::status::OK {
@@ -934,13 +1005,19 @@ impl Peripheral {
     /// Invokes `openL2CAPChannel:`.
     pub fn open_l2cap_channel(&self, psm: u16) -> Result<(), CoreBluetoothError> {
         let mut error = core::ptr::null_mut();
-        let status = unsafe { ffi::cb_peripheral_open_l2cap_channel(self.raw, psm, &mut error) };
+        let status =
+            unsafe { ffi::cb_peripheral_open_l2cap_channel(self.raw, psm, &raw mut error) };
         if status == ffi::status::OK {
             Ok(())
         } else {
             Err(from_swift(status, error))
         }
     }
+}
+
+fn is_client_characteristic_configuration(uuid: &str) -> bool {
+    uuid.eq_ignore_ascii_case("2902")
+        || uuid.eq_ignore_ascii_case("00002902-0000-1000-8000-00805F9B34FB")
 }
 
 impl Clone for Peripheral {
@@ -951,9 +1028,31 @@ impl Clone for Peripheral {
 
 impl Drop for Peripheral {
     fn drop(&mut self) {
-        if self.callback_state.is_some() {
-            unsafe { ffi::cb_peripheral_clear_delegate(self.raw) };
+        if !self.callback_state.is_null() {
+            unsafe { ffi::cb_peripheral_clear_delegate(self.raw, self.callback_state.cast()) };
         }
         unsafe { ffi::cb_object_release(self.raw) };
+        unsafe { CallbackState::release(self.callback_state) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_client_characteristic_configuration;
+    use crate::uuid::BluetoothUuid;
+
+    #[test]
+    fn detects_the_client_characteristic_configuration_descriptor() {
+        assert!(is_client_characteristic_configuration("2902"));
+        assert!(is_client_characteristic_configuration(
+            "00002902-0000-1000-8000-00805f9b34fb"
+        ));
+        assert!(is_client_characteristic_configuration(
+            &BluetoothUuid::client_characteristic_configuration().uuid_string()
+        ));
+        assert!(!is_client_characteristic_configuration("2901"));
+        assert!(!is_client_characteristic_configuration(
+            &BluetoothUuid::server_characteristic_configuration().uuid_string()
+        ));
     }
 }

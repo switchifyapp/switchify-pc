@@ -21,12 +21,13 @@ public func cb_characteristic_properties(_ characteristicPtr: UnsafeMutableRawPo
     UInt64(cb_characteristic(characteristicPtr)?.properties.rawValue ?? 0)
 }
 
-@_cdecl("cb_characteristic_value_json")
-public func cb_characteristic_value_json(_ characteristicPtr: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>? {
-    guard let characteristic = cb_characteristic(characteristicPtr), let value = characteristic.value else {
-        return nil
-    }
-    return cb_string(cb_json_string([UInt8](value)))
+@_cdecl("cb_characteristic_copy_value")
+public func cb_characteristic_copy_value(
+    _ characteristicPtr: UnsafeMutableRawPointer?,
+    _ outBytes: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    _ outLength: UnsafeMutablePointer<Int>
+) -> Bool {
+    cb_copy_bytes(cb_characteristic(characteristicPtr)?.value, outBytes, outLength)
 }
 
 @_cdecl("cb_characteristic_is_notifying")

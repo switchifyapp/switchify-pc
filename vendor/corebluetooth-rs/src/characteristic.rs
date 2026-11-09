@@ -3,9 +3,8 @@ use core::ffi::c_void;
 use crate::descriptor::Descriptor;
 use crate::error::{take_owned_c_string, CoreBluetoothError};
 use crate::ffi;
-use crate::private::{
-    decode_optional_json, retain_raw, retained_handle_to_raw, take_retained_pointer_array,
-};
+use crate::private::{retained_handle_to_raw, take_copied_bytes, take_retained_pointer_array};
+use crate::retained::cb_retained;
 use crate::service::Service;
 use crate::uuid::BluetoothUuid;
 
@@ -129,8 +128,9 @@ impl Characteristic {
 
     /// Returns the value exposed by `CBCharacteristic`.
     pub fn value(&self) -> Result<Option<Vec<u8>>, CoreBluetoothError> {
-        let json = unsafe { ffi::cb_characteristic_value_json(self.raw) };
-        decode_optional_json(json)
+        Ok(take_copied_bytes(|bytes, length| unsafe {
+            ffi::cb_characteristic_copy_value(self.raw, bytes, length)
+        }))
     }
 
     /// Returns whether `CBCharacteristic.isNotifying` is set.
@@ -142,7 +142,7 @@ impl Characteristic {
     pub fn descriptors(&self) -> Vec<Descriptor> {
         let mut array = core::ptr::null_mut();
         let mut count = 0;
-        unsafe { ffi::cb_characteristic_descriptors(self.raw, &mut array, &mut count) };
+        unsafe { ffi::cb_characteristic_descriptors(self.raw, &raw mut array, &raw mut count) };
         take_retained_pointer_array(array, count)
             .into_iter()
             .map(Descriptor::from_retained_raw)
@@ -150,14 +150,4 @@ impl Characteristic {
     }
 }
 
-impl Clone for Characteristic {
-    fn clone(&self) -> Self {
-        Self::from_retained_raw(retain_raw(self.raw))
-    }
-}
-
-impl Drop for Characteristic {
-    fn drop(&mut self) {
-        unsafe { ffi::cb_object_release(self.raw) };
-    }
-}
+cb_retained!(Characteristic);

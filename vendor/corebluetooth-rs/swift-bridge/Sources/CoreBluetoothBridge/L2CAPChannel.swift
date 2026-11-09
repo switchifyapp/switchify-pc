@@ -50,3 +50,39 @@ public func cb_stream_open(_ streamPtr: UnsafeMutableRawPointer?) {
 public func cb_stream_close(_ streamPtr: UnsafeMutableRawPointer?) {
     cb_stream(streamPtr)?.close()
 }
+
+@_cdecl("cb_input_stream_read")
+public func cb_input_stream_read(
+    _ streamPtr: UnsafeMutableRawPointer?,
+    _ buffer: UnsafeMutablePointer<UInt8>?,
+    _ capacity: Int,
+    _ errorOut: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int {
+    guard let stream = cb_input_stream(streamPtr), let buffer, capacity > 0 else {
+        cb_write_error(errorOut, "input stream and a non-empty buffer must not be null")
+        return -1
+    }
+    let count = stream.read(buffer, maxLength: capacity)
+    if count < 0 {
+        cb_write_error(errorOut, stream.streamError?.localizedDescription ?? "the input stream is not open")
+    }
+    return count
+}
+
+@_cdecl("cb_output_stream_write")
+public func cb_output_stream_write(
+    _ streamPtr: UnsafeMutableRawPointer?,
+    _ bytes: UnsafePointer<UInt8>?,
+    _ length: Int,
+    _ errorOut: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int {
+    guard let stream = cb_output_stream(streamPtr), let bytes, length > 0 else {
+        cb_write_error(errorOut, "output stream and non-empty bytes must not be null")
+        return -1
+    }
+    let count = stream.write(bytes, maxLength: length)
+    if count < 0 {
+        cb_write_error(errorOut, stream.streamError?.localizedDescription ?? "the output stream is not open")
+    }
+    return count
+}

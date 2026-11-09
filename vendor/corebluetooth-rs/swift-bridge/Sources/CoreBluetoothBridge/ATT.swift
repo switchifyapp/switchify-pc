@@ -16,12 +16,13 @@ public func cb_att_request_offset(_ requestPtr: UnsafeMutableRawPointer?) -> Int
     cb_att_request(requestPtr)?.offset ?? 0
 }
 
-@_cdecl("cb_att_request_value_json")
-public func cb_att_request_value_json(_ requestPtr: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>? {
-    guard let request = cb_att_request(requestPtr), let value = request.value else {
-        return nil
-    }
-    return cb_string(cb_json_string([UInt8](value)))
+@_cdecl("cb_att_request_copy_value")
+public func cb_att_request_copy_value(
+    _ requestPtr: UnsafeMutableRawPointer?,
+    _ outBytes: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    _ outLength: UnsafeMutablePointer<Int>
+) -> Bool {
+    cb_copy_bytes(cb_att_request(requestPtr)?.value, outBytes, outLength)
 }
 
 @_cdecl("cb_att_request_set_value")

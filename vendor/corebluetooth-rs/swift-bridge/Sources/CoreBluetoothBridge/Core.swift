@@ -7,6 +7,94 @@ public let CBR_INVALID_ARGUMENT: Int32 = -1
 public let CBR_FRAMEWORK_ERROR: Int32 = -2
 public let CBR_UNKNOWN: Int32 = -99
 
+public typealias CBEventCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+public typealias CBContextCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
+
+final class CBEventSink {
+    let context: UnsafeMutableRawPointer?
+    private let callback: CBEventCallback
+    private let releaseContext: CBContextCallback?
+    private let drainsOnDeactivate: Bool
+    private let ignoredEvents: Set<String>
+    private let lock = NSRecursiveLock()
+    private var active = true
+
+    init(
+        callback: @escaping CBEventCallback,
+        context: UnsafeMutableRawPointer?,
+        retainContext: CBContextCallback?,
+        releaseContext: CBContextCallback?,
+        drainsOnDeactivate: Bool,
+        ignoredEvents: Set<String> = []
+    ) {
+        self.callback = callback
+        self.context = context
+        self.releaseContext = releaseContext
+        self.drainsOnDeactivate = drainsOnDeactivate
+        self.ignoredEvents = ignoredEvents
+        retainContext?(context)
+    }
+
+    deinit {
+        releaseContext?(context)
+    }
+
+    func send(_ event: String, _ payload: () -> [String: Any]) {
+        guard !ignoredEvents.contains(event) else { return }
+        if drainsOnDeactivate {
+            lock.lock()
+            defer { lock.unlock() }
+            guard active else { return }
+            deliver(event, payload)
+        } else {
+            lock.lock()
+            let isActive = active
+            lock.unlock()
+            guard isActive else { return }
+            deliver(event, payload)
+        }
+    }
+
+    func deactivate() {
+        lock.lock()
+        active = false
+        lock.unlock()
+    }
+
+    private func deliver(_ event: String, _ payload: () -> [String: Any]) {
+        var object = payload()
+        object["event"] = event
+        let json = cb_json_string(object)
+        json.withCString { callback(context, $0) }
+    }
+}
+
+final class CBEventSinkList {
+    private let lock = NSLock()
+    private var sinks: [CBEventSink] = []
+
+    func add(_ sink: CBEventSink) {
+        lock.lock()
+        sinks.append(sink)
+        lock.unlock()
+    }
+
+    func remove(_ sink: CBEventSink) {
+        lock.lock()
+        sinks.removeAll { $0 === sink }
+        lock.unlock()
+    }
+
+    func broadcast(_ event: String, _ payload: () -> [String: Any]) {
+        lock.lock()
+        let targets = sinks
+        lock.unlock()
+        for sink in targets {
+            sink.send(event, payload)
+        }
+    }
+}
+
 @inline(__always)
 public func cb_retain<T: AnyObject>(_ object: T) -> UnsafeMutableRawPointer {
     Unmanaged.passRetained(object).toOpaque()
@@ -109,6 +197,23 @@ func cb_json_string(_ value: Any) -> String {
         return String(encodedScalar.dropFirst().dropLast())
     }
     return "null"
+}
+
+func cb_copy_bytes(
+    _ data: Data?,
+    _ outBytes: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+    _ outLength: UnsafeMutablePointer<Int>
+) -> Bool {
+    outBytes.pointee = nil
+    outLength.pointee = 0
+    guard let data else { return false }
+    guard !data.isEmpty, let buffer = malloc(data.count)?.assumingMemoryBound(to: UInt8.self) else {
+        return true
+    }
+    data.copyBytes(to: buffer, count: data.count)
+    outBytes.pointee = buffer
+    outLength.pointee = data.count
+    return true
 }
 
 func cb_error_object(_ error: Error) -> [String: Any] {

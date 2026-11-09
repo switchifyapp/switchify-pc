@@ -1,47 +1,58 @@
 import CoreBluetooth
 import Foundation
 
-public typealias CBPeripheralEventCallback =
-    @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+public typealias CBPeripheralEventCallback = CBEventCallback
 
-private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
-    let callback: CBPeripheralEventCallback
-    let userInfo: UnsafeMutableRawPointer?
-    private var isActive = true
+final class CBPeripheralHub: NSObject, CBPeripheralDelegate {
+    let streams = CBEventSinkList()
+    private let lock = NSLock()
+    private var delegateSink: CBEventSink?
 
-    init(callback: @escaping CBPeripheralEventCallback, userInfo: UnsafeMutableRawPointer?) {
-        self.callback = callback
-        self.userInfo = userInfo
-        super.init()
+    func replaceDelegate(with sink: CBEventSink) {
+        lock.lock()
+        let previous = delegateSink
+        delegateSink = sink
+        lock.unlock()
+        previous?.deactivate()
     }
 
-    func deactivate() {
-        isActive = false
+    func clearDelegate(context: UnsafeMutableRawPointer?) {
+        lock.lock()
+        let previous = delegateSink
+        if previous?.context == context {
+            delegateSink = nil
+        }
+        lock.unlock()
+        if previous?.context == context {
+            previous?.deactivate()
+        }
     }
 
-    private func send(_ payload: [String: Any]) {
-        guard isActive else { return }
-        let json = cb_json_string(payload)
-        json.withCString { callback(userInfo, $0) }
+    private func broadcast(_ event: String, _ payload: () -> [String: Any]) {
+        lock.lock()
+        let sink = delegateSink
+        lock.unlock()
+        sink?.send(event, payload)
+        streams.broadcast(event, payload)
     }
 
     func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
-        send(["event": "didUpdateName"])
+        broadcast("didUpdateName") { [:] }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
-        send([
-            "event": "didModifyServices",
-            "invalidated_service_handles": invalidatedServices.map(cb_retained_handle),
-        ])
+        broadcast("didModifyServices") {
+            ["invalidated_service_handles": invalidatedServices.map(cb_retained_handle)]
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        send([
-            "event": "didDiscoverServices",
-            "service_handles": (peripheral.services ?? []).map(cb_retained_handle),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didDiscoverServices") {
+            [
+                "service_handles": (peripheral.services ?? []).map(cb_retained_handle),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -49,11 +60,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didDiscoverIncludedServicesFor service: CBService,
         error: Error?
     ) {
-        send([
-            "event": "didDiscoverIncludedServicesForService",
-            "service_handle": cb_retained_handle(service),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didDiscoverIncludedServicesForService") {
+            [
+                "service_handle": cb_retained_handle(service),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -61,12 +73,13 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didDiscoverCharacteristicsFor service: CBService,
         error: Error?
     ) {
-        send([
-            "event": "didDiscoverCharacteristicsForService",
-            "service_handle": cb_retained_handle(service),
-            "characteristic_handles": (service.characteristics ?? []).map(cb_retained_handle),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didDiscoverCharacteristicsForService") {
+            [
+                "service_handle": cb_retained_handle(service),
+                "characteristic_handles": (service.characteristics ?? []).map(cb_retained_handle),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -74,11 +87,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didUpdateValueFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        send([
-            "event": "didUpdateValueForCharacteristic",
-            "characteristic_handle": cb_retained_handle(characteristic),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didUpdateValueForCharacteristic") {
+            [
+                "characteristic_handle": cb_retained_handle(characteristic),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -86,11 +100,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didWriteValueFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        send([
-            "event": "didWriteValueForCharacteristic",
-            "characteristic_handle": cb_retained_handle(characteristic),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didWriteValueForCharacteristic") {
+            [
+                "characteristic_handle": cb_retained_handle(characteristic),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -98,11 +113,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        send([
-            "event": "didUpdateNotificationStateForCharacteristic",
-            "characteristic_handle": cb_retained_handle(characteristic),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didUpdateNotificationStateForCharacteristic") {
+            [
+                "characteristic_handle": cb_retained_handle(characteristic),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -110,11 +126,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didDiscoverDescriptorsFor characteristic: CBCharacteristic,
         error: Error?
     ) {
-        send([
-            "event": "didDiscoverDescriptorsForCharacteristic",
-            "characteristic_handle": cb_retained_handle(characteristic),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didDiscoverDescriptorsForCharacteristic") {
+            [
+                "characteristic_handle": cb_retained_handle(characteristic),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -122,11 +139,12 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didUpdateValueFor descriptor: CBDescriptor,
         error: Error?
     ) {
-        send([
-            "event": "didUpdateValueForDescriptor",
-            "descriptor_handle": cb_retained_handle(descriptor),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didUpdateValueForDescriptor") {
+            [
+                "descriptor_handle": cb_retained_handle(descriptor),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -134,23 +152,25 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didWriteValueFor descriptor: CBDescriptor,
         error: Error?
     ) {
-        send([
-            "event": "didWriteValueForDescriptor",
-            "descriptor_handle": cb_retained_handle(descriptor),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didWriteValueForDescriptor") {
+            [
+                "descriptor_handle": cb_retained_handle(descriptor),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-        send(["event": "isReadyToSendWriteWithoutResponse"])
+        broadcast("isReadyToSendWriteWithoutResponse") { [:] }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
-        send([
-            "event": "didReadRSSI",
-            "rssi": RSSI.intValue,
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didReadRSSI") {
+            [
+                "rssi": RSSI.intValue,
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 
     func peripheral(
@@ -158,34 +178,29 @@ private final class CBRustPeripheralDelegate: NSObject, CBPeripheralDelegate {
         didOpen channel: CBL2CAPChannel?,
         error: Error?
     ) {
-        send([
-            "event": "didOpenL2CAPChannel",
-            "channel_handle": cb_optional(channel.map(cb_retained_handle)),
-            "error": cb_optional(error.map(cb_error_object)),
-        ])
+        broadcast("didOpenL2CAPChannel") {
+            [
+                "channel_handle": cb_optional(channel.map(cb_retained_handle)),
+                "error": cb_optional(error.map(cb_error_object)),
+            ]
+        }
     }
 }
 
-private let peripheralDelegateLock = NSLock()
-private var peripheralDelegates: [ObjectIdentifier: CBRustPeripheralDelegate] = [:]
+private let peripheralHubLock = NSLock()
+private var peripheralHubKey: UInt8 = 0
 
-private func cb_store_peripheral_delegate(
-    _ delegate: CBRustPeripheralDelegate?,
-    for peripheral: CBPeripheral
-) {
-    peripheralDelegateLock.lock()
-    defer { peripheralDelegateLock.unlock() }
+func cb_peripheral_hub(_ peripheral: CBPeripheral) -> CBPeripheralHub {
+    peripheralHubLock.lock()
+    defer { peripheralHubLock.unlock() }
 
-    let key = ObjectIdentifier(peripheral)
-    if let delegate {
-        peripheralDelegates[key] = delegate
-        peripheral.delegate = delegate
-    } else {
-        peripheral.delegate = nil
-        if let previous = peripheralDelegates.removeValue(forKey: key) {
-            previous.deactivate()
-        }
+    if let hub = objc_getAssociatedObject(peripheral, &peripheralHubKey) as? CBPeripheralHub {
+        return hub
     }
+    let hub = CBPeripheralHub()
+    objc_setAssociatedObject(peripheral, &peripheralHubKey, hub, .OBJC_ASSOCIATION_RETAIN)
+    peripheral.delegate = hub
+    return hub
 }
 
 @_cdecl("cb_peripheral_set_delegate")
@@ -193,27 +208,36 @@ public func cb_peripheral_set_delegate(
     _ peripheralPtr: UnsafeMutableRawPointer?,
     _ callback: CBPeripheralEventCallback?,
     _ userInfo: UnsafeMutableRawPointer?,
+    _ contextRetain: CBContextCallback?,
+    _ contextRelease: CBContextCallback?,
     _ errorOut: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    guard let peripheral = cb_peripheral(peripheralPtr) else {
-        cb_write_error(errorOut, "peripheral must not be null")
+    guard let peripheral = cb_peripheral(peripheralPtr), let callback else {
+        cb_write_error(errorOut, "peripheral and callback must not be null")
         return CBR_INVALID_ARGUMENT
     }
 
-    if let callback {
-        cb_store_peripheral_delegate(CBRustPeripheralDelegate(callback: callback, userInfo: userInfo), for: peripheral)
-    } else {
-        cb_store_peripheral_delegate(nil, for: peripheral)
-    }
+    cb_peripheral_hub(peripheral).replaceDelegate(
+        with: CBEventSink(
+            callback: callback,
+            context: userInfo,
+            retainContext: contextRetain,
+            releaseContext: contextRelease,
+            drainsOnDeactivate: false
+        )
+    )
     return CBR_OK
 }
 
 @_cdecl("cb_peripheral_clear_delegate")
-public func cb_peripheral_clear_delegate(_ peripheralPtr: UnsafeMutableRawPointer?) {
+public func cb_peripheral_clear_delegate(
+    _ peripheralPtr: UnsafeMutableRawPointer?,
+    _ userInfo: UnsafeMutableRawPointer?
+) {
     guard let peripheral = cb_peripheral(peripheralPtr) else {
         return
     }
-    cb_store_peripheral_delegate(nil, for: peripheral)
+    cb_peripheral_hub(peripheral).clearDelegate(context: userInfo)
 }
 
 @_cdecl("cb_peripheral_name")
@@ -423,6 +447,13 @@ public func cb_peripheral_write_value_for_descriptor(
 ) -> Int32 {
     guard let peripheral = cb_peripheral(peripheralPtr), let descriptor = cb_descriptor(descriptorPtr), let bytes else {
         cb_write_error(errorOut, "peripheral, descriptor, and value bytes must not be null")
+        return CBR_INVALID_ARGUMENT
+    }
+    guard descriptor.uuid != CBUUID(string: CBUUIDClientCharacteristicConfigurationString) else {
+        cb_write_error(
+            errorOut,
+            "the Client Characteristic Configuration descriptor (0x2902) cannot be written; use set_notify_value"
+        )
         return CBR_INVALID_ARGUMENT
     }
 
