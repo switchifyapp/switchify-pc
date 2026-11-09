@@ -17,6 +17,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## New in v1.7.1
+
+This maintenance update includes a fix for Mac Bluetooth connection handling and updated dependencies.
+
 ## New in v1.7.0
 
 Assign a switch press or hold action to open one of your panels. Settings now opens a category menu, so you can view one group of controls at a time. Dialogs and confirmations use consistent keyboard focus and navigation.
