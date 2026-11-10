@@ -64,6 +64,7 @@ mod switch_practice;
 mod switch_runtime;
 mod switches;
 mod telemetry;
+mod tray_icon;
 mod updater;
 #[cfg(target_os = "windows")]
 mod windows_power;
@@ -153,6 +154,8 @@ fn request_profile_exit(app: &AppHandle, action: ProfileExitAction) {
 }
 
 const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
+
+const TRAY_ID: &str = "switchify";
 
 fn show_tray_menu_on_left_click() -> bool {
     cfg!(target_os = "macos")
@@ -1716,13 +1719,12 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     };
     controller.sync(&app.state::<AppModel>().snapshot());
     app.manage(controller);
-    let mut builder = TrayIconBuilder::with_id("switchify")
+    let builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(show_tray_menu_on_left_click())
-        .tooltip("Switchify PC");
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
+        .tooltip("Switchify PC")
+        .icon(tray_icon::image())
+        .icon_as_template(tray_icon::is_template());
     let builder = builder.on_menu_event(|app, event| match event.id.as_ref() {
         "show" => {
             show_main_window(app, None);
@@ -1765,6 +1767,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
         }
     });
     builder.build(app)?;
+    tray_icon::follow_system(app.handle());
     Ok(())
 }
 
