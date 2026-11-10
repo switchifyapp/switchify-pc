@@ -7,6 +7,8 @@ description: Optional sign-in that carries your settings between computers, auto
 
 Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with live connection status. From there you can show the window, open Settings and the Switch Forwarding profiles, disconnect devices, pause listening for switch keys, or quit. **Start with system** launches it quietly when you sign in.
 
+Look for the Switchify mark there: two dots joined by a curve, in one colour. It is light on a dark taskbar or menu bar and dark on a light one. With a Windows contrast theme it takes the theme's text colour.
+
 **Pause listening** hands your switch keys back to other apps until you choose **Resume listening**. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
 
 ## Account
