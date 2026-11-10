@@ -2,8 +2,8 @@
 //! so it sits with the system's other status icons.
 //!
 //! macOS tints a template image itself. Windows does not, so the mark is drawn
-//! white for a dark taskbar and black for a light one, and redrawn when the
-//! Windows mode changes.
+//! white for a dark taskbar and black for a light one, or in the text colour
+//! of a contrast theme, and redrawn when those settings change.
 
 use tauri::image::Image;
 
@@ -81,33 +81,49 @@ fn colour_for_taskbar(light: bool) -> [u8; 3] {
     }
 }
 
-/// The icon to start the tray with.
-pub fn image() -> Image<'static> {
+/// Draws the tray icon and keeps it matched to the taskbar or menu bar.
+pub struct TrayIcon {
     #[cfg(target_os = "windows")]
-    {
-        windows::image(windows::taskbar_is_light())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        // 18 points at 2x: the height the menu bar draws a status icon. The
-        // colour is ignored for a template image; only the alpha is used.
-        const SIZE: u32 = 36;
-        Image::new_owned(render(SIZE, [0, 0, 0]), SIZE, SIZE)
-    }
+    colour: [u8; 3],
 }
 
-/// Whether the system recolours the icon itself.
-pub fn is_template() -> bool {
-    cfg!(target_os = "macos")
-}
+impl TrayIcon {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(target_os = "windows")]
+            colour: windows::colour(),
+        }
+    }
 
-/// Keeps the icon matched to the taskbar while the app runs. macOS needs
-/// nothing here: the menu bar retints a template image on its own.
-pub fn follow_system(app: &tauri::AppHandle) {
-    #[cfg(target_os = "windows")]
-    windows::follow_taskbar(app.clone());
-    #[cfg(not(target_os = "windows"))]
-    let _ = app;
+    /// The icon to start the tray with.
+    pub fn image(&self) -> Image<'static> {
+        #[cfg(target_os = "windows")]
+        {
+            windows::image(self.colour)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // 18 points at 2x: the height the menu bar draws a status icon.
+            // The colour is ignored for a template image; only the alpha is
+            // used.
+            const SIZE: u32 = 36;
+            Image::new_owned(render(SIZE, [0, 0, 0]), SIZE, SIZE)
+        }
+    }
+
+    /// Whether the system recolours the icon itself.
+    pub fn is_template(&self) -> bool {
+        cfg!(target_os = "macos")
+    }
+
+    /// Keeps the icon matched to the taskbar while the app runs. macOS needs
+    /// nothing here: the menu bar retints a template image on its own.
+    pub fn follow_system(self, app: &tauri::AppHandle) {
+        #[cfg(target_os = "windows")]
+        windows::follow_taskbar(app.clone(), self.colour);
+        #[cfg(not(target_os = "windows"))]
+        let _ = app;
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -115,68 +131,147 @@ mod windows {
     use super::{colour_for_taskbar, render};
     use std::time::Duration;
     use tauri::image::Image;
+    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
     use windows::Win32::System::Registry::{
         RegNotifyChangeKeyValue, HKEY, REG_NOTIFY_CHANGE_LAST_SET,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+    use windows::Win32::System::Threading::{CreateEventW, WaitForMultipleObjects, INFINITE};
+    use windows_sys::Win32::Graphics::Gdi::{GetSysColor, COLOR_WINDOWTEXT};
+    use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SystemParametersInfoW, SM_CXSMICON, SPI_GETHIGHCONTRAST,
+    };
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
     use winreg::RegKey;
 
     const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     // The taskbar follows the Windows mode, not the app mode.
     const SYSTEM_LIGHT: &str = "SystemUsesLightTheme";
+    const HIGH_CONTRAST: &str = r"Control Panel\Accessibility\HighContrast";
+    // A change of mode or contrast theme writes several values and takes a
+    // moment to settle, so the colour is read twice after a change.
+    const SETTLE: [Duration; 2] = [Duration::from_millis(250), Duration::from_millis(1500)];
 
-    fn personalize() -> std::io::Result<RegKey> {
-        RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(PERSONALIZE, KEY_READ)
+    fn open(path: &str) -> std::io::Result<RegKey> {
+        RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(path, KEY_READ)
     }
 
     /// A missing value means a Windows that predates the light taskbar.
-    pub fn taskbar_is_light() -> bool {
-        personalize()
+    fn taskbar_is_light() -> bool {
+        open(PERSONALIZE)
             .and_then(|key| key.get_value::<u32, _>(SYSTEM_LIGHT))
             .map(|value| value != 0)
             .unwrap_or(false)
     }
 
-    pub fn image(light: bool) -> Image<'static> {
+    fn contrast_theme_on() -> bool {
+        let mut info = HIGHCONTRASTW {
+            cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32,
+            dwFlags: 0,
+            lpszDefaultScheme: std::ptr::null_mut(),
+        };
+        // SAFETY: `info` is a correctly sized HIGHCONTRASTW that the call
+        // fills in and that outlives it.
+        let read = unsafe {
+            SystemParametersInfoW(
+                SPI_GETHIGHCONTRAST,
+                info.cbSize,
+                std::ptr::addr_of_mut!(info).cast(),
+                0,
+            )
+        };
+        read != 0 && info.dwFlags & HCF_HIGHCONTRASTON != 0
+    }
+
+    /// A contrast theme sets its own taskbar colours, so the mark takes the
+    /// theme's text colour. Otherwise it contrasts with the Windows mode.
+    pub fn colour() -> [u8; 3] {
+        if contrast_theme_on() {
+            // SAFETY: GetSysColor takes an index and only reads system state.
+            let text = unsafe { GetSysColor(COLOR_WINDOWTEXT) };
+            // A COLORREF is 0x00BBGGRR.
+            [text as u8, (text >> 8) as u8, (text >> 16) as u8]
+        } else {
+            colour_for_taskbar(taskbar_is_light())
+        }
+    }
+
+    pub fn image(colour: [u8; 3]) -> Image<'static> {
         // SAFETY: GetSystemMetrics takes an index and only reads system state.
         let small_icon = unsafe { GetSystemMetrics(SM_CXSMICON) };
         let size = small_icon.clamp(16, 64) as u32;
-        Image::new_owned(render(size, colour_for_taskbar(light)), size, size)
+        Image::new_owned(render(size, colour), size, size)
     }
 
-    pub fn follow_taskbar(app: tauri::AppHandle) {
+    /// Asks for `event` to be set the next time a value under `key` changes.
+    fn watch(key: &RegKey, event: HANDLE) -> bool {
+        // SAFETY: winreg and the windows crate both hold a registry key as the
+        // same raw pointer. The key and the event stay open for as long as the
+        // watcher thread runs, and that thread is the one that registers.
+        unsafe {
+            RegNotifyChangeKeyValue(
+                HKEY(key.raw_handle() as _),
+                false,
+                REG_NOTIFY_CHANGE_LAST_SET,
+                Some(event),
+                true,
+            )
+        }
+        .is_ok()
+    }
+
+    pub fn follow_taskbar(app: tauri::AppHandle, mut shown: [u8; 3]) {
         let spawned = std::thread::Builder::new()
             .name("tray-icon-theme".into())
             .spawn(move || {
-                let Ok(key) = personalize() else {
-                    return;
-                };
-                let mut light = taskbar_is_light();
-                loop {
-                    // SAFETY: `key` is an open registry key that outlives the
-                    // call, which blocks until a value under it changes.
-                    let waited = unsafe {
-                        RegNotifyChangeKeyValue(
-                            HKEY(key.raw_handle() as _),
-                            false,
-                            REG_NOTIFY_CHANGE_LAST_SET,
-                            None,
-                            false,
-                        )
+                let mut keys = Vec::new();
+                let mut events = Vec::new();
+                for path in [PERSONALIZE, HIGH_CONTRAST] {
+                    let Ok(key) = open(path) else {
+                        continue;
                     };
-                    if waited.is_err() {
+                    // SAFETY: creates an unnamed auto-reset event; no pointers
+                    // are passed in.
+                    let Ok(event) = (unsafe { CreateEventW(None, false, false, None) }) else {
+                        continue;
+                    };
+                    if watch(&key, event) {
+                        keys.push(key);
+                        events.push(event);
+                    }
+                }
+                if events.is_empty() {
+                    return;
+                }
+                let apply = |shown: &mut [u8; 3]| {
+                    let now = colour();
+                    if now == *shown {
                         return;
                     }
-                    // Switching mode writes several values in a row.
-                    std::thread::sleep(Duration::from_millis(250));
-                    let now = taskbar_is_light();
-                    if now == light {
-                        continue;
-                    }
-                    light = now;
                     if let Some(tray) = app.tray_by_id(crate::TRAY_ID) {
-                        let _ = tray.set_icon(Some(image(light)));
+                        if tray.set_icon(Some(image(now))).is_ok() {
+                            *shown = now;
+                        }
+                    }
+                };
+                // Catches a change made between drawing the first icon and
+                // starting to watch.
+                apply(&mut shown);
+                loop {
+                    // SAFETY: `events` holds open event handles owned by this
+                    // thread.
+                    let woken = unsafe { WaitForMultipleObjects(&events, false, INFINITE) };
+                    let index = woken.0.wrapping_sub(WAIT_OBJECT_0.0) as usize;
+                    if index >= events.len() {
+                        return;
+                    }
+                    // A registration fires once, so renew it before reading.
+                    if !watch(&keys[index], events[index]) {
+                        return;
+                    }
+                    for pause in SETTLE {
+                        std::thread::sleep(pause);
+                        apply(&mut shown);
                     }
                 }
             });

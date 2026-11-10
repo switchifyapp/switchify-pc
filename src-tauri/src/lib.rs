@@ -1719,12 +1719,13 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     };
     controller.sync(&app.state::<AppModel>().snapshot());
     app.manage(controller);
+    let icon = tray_icon::TrayIcon::new();
     let builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(show_tray_menu_on_left_click())
         .tooltip("Switchify PC")
-        .icon(tray_icon::image())
-        .icon_as_template(tray_icon::is_template());
+        .icon(icon.image())
+        .icon_as_template(icon.is_template());
     let builder = builder.on_menu_event(|app, event| match event.id.as_ref() {
         "show" => {
             show_main_window(app, None);
@@ -1767,7 +1768,7 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
         }
     });
     builder.build(app)?;
-    tray_icon::follow_system(app.handle());
+    icon.follow_system(app.handle());
     Ok(())
 }
 
