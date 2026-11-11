@@ -13,7 +13,10 @@ python scripts/benchmark-nearby-layouts.py --output docs/nearby-key-results.json
 The runner requires a clean checkout, builds the release-profile library test,
 uses the executable Cargo reports, and records its hash without publishing local
 paths. `CARGO_TARGET_DIR` is supported. The report records the measurement commit,
-fixture/model/source hashes, compiler and platform. Each policy/group receives 20 warm-up queries. Timings are descriptive.
+fixture/model/source hashes, compiler and platform. Source hashes use committed
+Git blobs with LF line endings. The runner checks that the compiled source hashes
+match the working files and that those files differ from the commit only in line
+endings. Each policy/group receives 20 warm-up queries. Timings are descriptive.
 
 The three maps come from the renderer's built-in QWERTY, Simple QWERTY and Common
 Letters frames with default settings and no custom tiles. Centers share one

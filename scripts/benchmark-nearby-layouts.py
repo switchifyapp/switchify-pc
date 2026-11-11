@@ -41,6 +41,17 @@ def main():
                         '--ignored', '--nocapture', '--test-threads=1'], cwd=ROOT, env=env, check=True)
         result = json.loads(report.read_text(encoding='utf-8'))
     assert result['protocol'] == 'pc-nearby-v1' and len(result['rows']) == 27
+    sources = {'nearby.rs': 'src-tauri/src/prediction/nearby.rs',
+               'scan_keyboard.rs': 'src-tauri/src/scan_keyboard.rs',
+               'scan_panel.rs': 'src-tauri/src/scan_panel.rs',
+               'fixtures': 'scripts/nearby-layout-fixtures.json'}
+    for key, name in sources.items():
+        working = (ROOT / name).read_bytes()
+        committed = subprocess.check_output(['git', 'show', head + ':' + name], cwd=ROOT)
+        assert working.replace(b'\r\n', b'\n') == committed
+        assert hashlib.sha256(working).hexdigest() == result['source_hashes'][key]
+        result['source_hashes'][key] = hashlib.sha256(committed).hexdigest()
+    result['source_hashes_format'] = 'committed Git blobs with LF line endings'
     result.update(measurement_commit=head, executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
                   rustc=subprocess.check_output(['rustc', '--version'], text=True).strip(),
                   platform=platform.platform(), logical_cpus=os.cpu_count(), complete=True)
