@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/switchify-pc-startup", "binaries/switchify-smol-worker"]
+  }
+}

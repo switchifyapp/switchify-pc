@@ -1,10 +1,19 @@
+param(
+  # Rust target triple the package was built for. Defaults to the host.
+  [string]$Target
+)
+
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'WindowsTarget.ps1')
 $root = Split-Path -Parent $PSScriptRoot
-$releaseDirectory = Join-Path $root 'src-tauri\target\release'
+$windowsTarget = Resolve-WindowsTarget $Target (Find-Rustc)
+$releaseDirectory = Join-Path $root "src-tauri\target\$($windowsTarget.ReleaseRelative)"
 $main = Join-Path $releaseDirectory 'switchify-pc.exe'
 $launcher = Join-Path $releaseDirectory 'switchify-pc-startup.exe'
-$generatedInstaller = Join-Path $releaseDirectory 'nsis\x64\installer.nsi'
-$installer = Get-ChildItem (Join-Path $releaseDirectory 'bundle\nsis') -Filter '*.exe' |
+$generatedInstaller = Join-Path $releaseDirectory "nsis\$($windowsTarget.Nsis)\installer.nsi"
+$workerNames = @('switchify-smol-worker.exe')
+if ($windowsTarget.Accelerated) { $workerNames += 'switchify-smol-worker-avx2.exe' }
+$installer = Get-ChildItem (Join-Path $releaseDirectory 'bundle\nsis') -Filter "*_$($windowsTarget.Nsis)-setup.exe" |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 
 function Get-WindowsSdkTool([string]$Name) {
@@ -54,11 +63,9 @@ $installerScript = Get-Content -LiteralPath $generatedInstaller -Raw
 foreach ($expected in @(
   '!define INSTALLMODE "perMachine"',
   'switchify-pc-startup.exe',
-  'switchify-smol-worker.exe',
-  'switchify-smol-worker-avx2.exe',
   'model.gguf',
   'installer-hooks.nsh'
-)) {
+) + $workerNames) {
   if (-not $installerScript.Contains($expected)) {
     throw "Generated NSIS script is missing: $expected"
   }
@@ -80,7 +87,11 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Could not extract the installer for verification.' }
   & node (Join-Path $PSScriptRoot 'check-packaged-prediction.mjs') $unpacked --signed
   if ($LASTEXITCODE -ne 0) { throw 'Installed prediction resources failed verification.' }
-  foreach ($name in @('switchify-smol-worker.exe', 'switchify-smol-worker-avx2.exe')) {
+  if (-not $windowsTarget.Accelerated -and
+      @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter 'switchify-smol-worker-avx2.exe').Count -ne 0) {
+    throw 'The AVX2 worker must only ship in the x64 package.'
+  }
+  foreach ($name in $workerNames) {
     $workers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $name)
     if ($workers.Count -ne 1) { throw "Expected one installed $name" }
     Assert-Signature $workers[0].FullName

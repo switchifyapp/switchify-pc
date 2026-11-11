@@ -5,7 +5,7 @@ description: What you need, how to install Switchify PC on Windows or Mac, and w
 
 ## What you need
 
-- **Windows:** Windows 10 or later.
+- **Windows:** Windows 10 or later on a PC with an Intel or AMD processor, or Windows 11 on a PC with an ARM processor, such as Snapdragon.
 - **Mac:** A Mac with an M1 chip or later (Apple silicon) on macOS 13.3 or later. Intel Macs are not supported.
 - **Bluetooth Low Energy**, only if you want to pair with Switchify on Android.
 - **A switch** that reaches the computer as a key press, through a switch interface or a USB switch. See [Add a switch](/get-started/add-a-switch/).
@@ -16,8 +16,16 @@ Linux is not supported.
 
 Download the latest release from [GitHub releases](https://github.com/switchifyapp/switchify-pc/releases).
 
-- On Windows, run the installer.
+- On Windows, run the installer. There are two, so pick the one for your PC's processor:
+  - The file ending in `x64-setup.exe` is for PCs with an Intel or AMD processor. Most Windows PCs have one of these.
+  - The file ending in `arm64-setup.exe` is for PCs with an ARM processor, such as Snapdragon.
+
+  Not sure which you have? Open **Settings**, **System**, **About**, and look at **System type**. "x64-based processor" means the x64 installer; "ARM-based processor" means the arm64 installer.
 - On a Mac, open the disk image and drag Switchify PC to Applications.
+
+### If you installed the x64 version on an ARM PC
+
+Before version 1.7.3 there was only an x64 installer, and it runs on ARM PCs through Windows emulation. That copy keeps working and keeps updating to new x64 versions. To change to the ARM version, uninstall Switchify PC from **Settings**, **Apps**, then run the `arm64-setup.exe` installer.
 
 ## Trial and upgrading to 1.4.0
 

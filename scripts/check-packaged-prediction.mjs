@@ -2,7 +2,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { bundlePins } from './fetch-prediction-neural.mjs';
+import { bundlePins, bundlesAcceleratedWorker } from './fetch-prediction-neural.mjs';
 import { verified } from './fetch-prediction-model.mjs';
 const root = resolve(process.argv[2]);
 const files = await readdir(root, { recursive: true });
@@ -19,12 +19,12 @@ const build = JSON.parse(await readFile(join(neural, 'worker-notices/BUILD.json'
 if (build.commit !== pin.revision || build.version !== '0.5.1' || build.worker_protocol !== 3) throw new Error('Wrong worker provenance');
 const workerPin = pin.workers[build.target];
 if (!workerPin) throw new Error('Unsupported packaged worker');
-const windows = build.target.includes('windows');
+const accelerated = bundlesAcceleratedWorker(build.target);
 let portable;
 for (const [name, expected] of Object.entries(workerPin.files)) {
   const file = name.split('/').at(-1);
   if (!file.startsWith('switchify-smol-worker')) continue;
-  if (file.includes('avx2') && !windows) continue;
+  if (file.includes('avx2') && !accelerated) continue;
   const matches = files.filter(p => p.split(/[\\/]/).at(-1) === file);
   if (matches.length !== 1) throw new Error(`Expected one packaged ${file}`);
   const path = join(root, matches[0]);

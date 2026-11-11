@@ -17,6 +17,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## New in v1.7.3
+
+Switchify PC now has a Windows installer for PCs with an ARM processor, such as Snapdragon, so it no longer needs Windows emulation on those PCs. See [Install](/get-started/install/) to pick the right installer.
+
 ## New in v1.7.2
 
 The Windows tray and Mac menu bar now use a single-colour Switchify icon that follows the system light or dark setting.
@@ -53,6 +57,6 @@ Right-clicking in the Switchify PC window does not open a menu. To copy or paste
 
 ## Get it
 
-- [Download Switchify PC from GitHub releases](https://github.com/switchifyapp/switchify-pc/releases): a Windows installer and a Mac disk image.
+- [Download Switchify PC from GitHub releases](https://github.com/switchifyapp/switchify-pc/releases): Windows installers for Intel or AMD (x64) and ARM PCs, and a Mac disk image.
 - [Install](/get-started/install/) walks through the first-run setup.
 - The marketing site is at [www.theswitchify.app](https://www.theswitchify.app/pc).
