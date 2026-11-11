@@ -18,7 +18,7 @@ $installer = Get-ChildItem (Join-Path $releaseDirectory 'bundle\nsis') -Filter "
 
 function Get-WindowsSdkTool([string]$Name) {
   $tool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter $Name -Recurse |
-    Where-Object { $_.FullName -match "\\x64\\$([regex]::Escape($Name))$" } |
+    Where-Object { $_.FullName -match "\\(x64|arm64)\\$([regex]::Escape($Name))$" } |
     Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
   if (-not $tool) { throw "Windows SDK tool $Name was not found." }
   return $tool

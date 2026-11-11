@@ -27,6 +27,7 @@ Initialize-WindowsCrossTools $windowsTarget
 $tauriArgs = @('run', 'tauri', 'build', '--', '--bundles', 'nsis', '--config', $TauriConfig)
 if (-not $windowsTarget.Accelerated) {
   # Applied last so it replaces the externalBin list that names the AVX2 worker.
+  # Keep it in step with tauri.windows-uiaccess.conf.json and render-updater-config.mjs.
   $tauriArgs += @('--config', 'src-tauri/tauri.windows-arm64.conf.json')
 }
 if ($windowsTarget.Cross) { $tauriArgs += @('--target', $triple) }
