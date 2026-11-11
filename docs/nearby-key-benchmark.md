@@ -33,3 +33,7 @@ policy leaves empty and one-letter prefixes exact. Empty and one-to-four-letter
 latency probes are included separately. Neural inference, UI, transport and text
 insertion are outside this measurement. Runtime prediction behavior is unchanged
 by this benchmark PR.
+
+## Recorded run
+
+The checked-in JSON was measured at `8a07fe050f13ea732e4a14b727f0fb059a8c2805` with the release profile. The fill-unused-slots policy retained every exact top-three hit in these fixtures and recovered targets in each layout?s geometric-error group. This is a policy check on invented cases, not a user accuracy result. The JSON contains the complete counts and separate scan-row results.
