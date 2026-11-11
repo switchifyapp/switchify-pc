@@ -300,6 +300,7 @@ pub struct Keyboard {
     scan: ItemScanner<Key>,
     activation: Option<u64>,
     prediction_enabled: bool,
+    pub(crate) nearby_predictions: bool,
     prediction_failed: bool,
     pub(crate) prediction_loading: bool,
     predictions: Option<crate::prediction::worker::Batch>,
@@ -352,6 +353,7 @@ impl Keyboard {
             scan,
             activation: None,
             prediction_enabled: false,
+            nearby_predictions: false,
             prediction_failed: false,
             prediction_loading: false,
             predictions: None,
@@ -365,6 +367,16 @@ impl Keyboard {
             capital_context: None,
             pending_typed: None,
         }
+    }
+    pub fn set_nearby_predictions(&mut self, enabled: bool) {
+        if self.nearby_predictions != enabled {
+            self.nearby_predictions = enabled;
+            self.predictions(None, self.prediction_failed);
+        }
+    }
+    pub fn with_nearby_predictions(mut self, enabled: bool) -> Self {
+        self.set_nearby_predictions(enabled);
+        self
     }
     pub fn with_wait_after_typing(mut self, enabled: bool) -> Self {
         self.wait_after_typing = enabled;
@@ -499,6 +511,9 @@ impl Keyboard {
     }
     pub fn set_layout(&mut self, layout: crate::point_scan::KeyboardLayout) {
         if self.layout != layout {
+            if self.nearby_predictions {
+                self.predictions(None, self.prediction_failed);
+            }
             self.layout = layout;
             self.rebuild_rows_keeping_pause();
         }

@@ -1,14 +1,17 @@
 //! English word prediction, with optional personal learning. Only the
 //! isolated worker holds context.
+use crate::point_scan::KeyboardLayout;
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
-use switchify_prediction::{Options, Predictor};
+use switchify_prediction::{KeyHitMap, KeySubstitution, Predictor};
 
 const DATABASE_SHA256: &str = "c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Prediction {
     pub words: [Option<String>; SLOTS],
+    /// Only statistical instant candidates can carry correction provenance.
+    pub corrections: [Option<KeySubstitution>; SLOTS],
 }
 
 #[cfg(test)]
@@ -18,6 +21,7 @@ pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<Stri
 }
 
 pub trait Predict: Send {
+    fn set_nearby_layout(&mut self, _layout: Option<KeyboardLayout>) {}
     #[cfg(test)]
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
         None
@@ -53,6 +57,13 @@ struct Refining {
     generated: Vec<String>,
 }
 
+#[derive(Default)]
+struct Nearby {
+    layout: Option<KeyboardLayout>,
+    map: Option<KeyHitMap>,
+    corrections: [Option<KeySubstitution>; 3],
+}
+
 pub struct Model {
     predictor: Predictor,
     neural: Option<switchify_prediction_neural::Refiner>,
@@ -60,6 +71,7 @@ pub struct Model {
     instant: [Option<String>; 3],
     config: Option<switchify_prediction_neural::Config>,
     learning: bool,
+    nearby: Nearby,
 }
 
 impl Model {
@@ -137,6 +149,7 @@ impl Model {
             config,
             refining: Refining::default(),
             instant: Default::default(),
+            nearby: Nearby::default(),
             learning,
         })
     }
@@ -178,7 +191,31 @@ fn merged(
         }
     })
 }
+fn merged_prediction(
+    instant: &[Option<String>; 3],
+    corrections: &[Option<KeySubstitution>; 3],
+    generated: &[String],
+    phrases: Vec<Vec<String>>,
+) -> Prediction {
+    let metadata: Vec<_> = instant
+        .iter()
+        .zip(corrections)
+        .filter_map(|(word, correction)| word.as_ref().map(|_| correction.clone()))
+        .collect();
+    Prediction {
+        words: merged(instant, generated, phrases),
+        corrections: std::array::from_fn(|i| metadata.get(i).cloned().flatten()),
+    }
+}
+
 impl Predict for Model {
+    fn set_nearby_layout(&mut self, layout: Option<KeyboardLayout>) {
+        if self.nearby.layout != layout {
+            self.reset();
+            self.nearby.layout = layout;
+            self.nearby.map = layout.map(super::nearby::hit_map);
+        }
+    }
     #[cfg(test)]
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
         self.neural.as_ref().map(|n| n.status())
@@ -189,17 +226,11 @@ impl Predict for Model {
         if let Some(config) = self.config.take() {
             self.neural = switchify_prediction_neural::Refiner::new(config).ok();
         }
-        let options = Options {
-            limit: 3,
-            min_chars: 0,
-            unigram_only: false,
-        };
-        let words: Vec<String> = self
-            .predictor
-            .predict(before, prefix, options)
-            .into_iter()
-            .map(|s| s.word)
-            .collect();
+        let candidates =
+            super::nearby::suggestions(&self.predictor, before, prefix, self.nearby.map.as_ref());
+        self.nearby.corrections =
+            std::array::from_fn(|i| candidates.get(i).and_then(|s| s.substitution.clone()));
+        let words: Vec<String> = candidates.into_iter().map(|s| s.word).collect();
         self.instant = std::array::from_fn(|i| words.get(i).cloned().map(display_word));
         self.refining = Refining {
             before: before.to_owned(),
@@ -213,6 +244,7 @@ impl Predict for Model {
         };
         Ok(Prediction {
             words: std::array::from_fn(|i| self.instant.get(i).cloned().flatten()),
+            corrections: std::array::from_fn(|i| self.nearby.corrections.get(i).cloned().flatten()),
         })
     }
     fn poll(&mut self) -> Option<Prediction> {
@@ -240,9 +272,12 @@ impl Predict for Model {
         } else {
             return None;
         };
-        Some(Prediction {
-            words: merged(&self.instant, &refining.generated, phrases),
-        })
+        Some(merged_prediction(
+            &self.instant,
+            &self.nearby.corrections,
+            &refining.generated,
+            phrases,
+        ))
     }
     fn pending(&self) -> bool {
         (self.refining.words.is_some() || self.refining.phrases.is_some())
@@ -257,6 +292,7 @@ impl Predict for Model {
     fn reset(&mut self) {
         self.refining = Refining::default();
         self.instant = Default::default();
+        self.nearby.corrections = Default::default();
         if let Some(n) = &mut self.neural {
             n.reset();
         }
@@ -271,6 +307,61 @@ impl Predict for Model {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn instant_corrections_do_not_mark_generated_words_or_phrases() {
+        let substitution = KeySubstitution {
+            grapheme_index: 1,
+            typed: "r".into(),
+            intended: "e".into(),
+        };
+        let result = merged_prediction(
+            &[None, Some("hello".into()), None],
+            &[None, Some(substitution.clone()), None],
+            &["hrlog".into(), "hrlong".into()],
+            vec![vec!["hrlog".into(), "today".into()]],
+        );
+        assert_eq!(result.words[0].as_deref(), Some("hello"));
+        assert_eq!(result.words[1].as_deref(), Some("hrlog"));
+        assert_eq!(result.corrections[0], Some(substitution));
+        assert!(result.corrections[1..].iter().all(Option::is_none));
+    }
+    #[test]
+    fn production_model_only_adds_corrections_after_explicit_opt_in() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/prediction-model/english.ngrams");
+        let mut model = Model::open(&path, None).unwrap();
+        model.config = None;
+        assert!(!model
+            .predict("I need ", "hrl")
+            .unwrap()
+            .words
+            .iter()
+            .any(|w| w.as_deref() == Some("help")));
+        for layout in [
+            KeyboardLayout::Qwerty,
+            KeyboardLayout::SimpleQwerty,
+            KeyboardLayout::CommonLetters,
+        ] {
+            model.set_nearby_layout(Some(layout));
+            let result = model.predict("I need ", "hrl").unwrap();
+            let slot = result
+                .words
+                .iter()
+                .position(|w| w.as_deref() == Some("help"))
+                .unwrap();
+            assert!(result.corrections[slot].is_some());
+            assert!(result.corrections[3..].iter().all(Option::is_none));
+        }
+        model.set_nearby_layout(None);
+        assert!(model
+            .predict("I need ", "hrl")
+            .unwrap()
+            .corrections
+            .iter()
+            .all(Option::is_none));
+    }
+
     use super::*;
     use std::{fs, time::Instant};
 
@@ -344,6 +435,7 @@ mod tests {
             config: None,
             refining: Refining::default(),
             instant: Default::default(),
+            nearby: Nearby::default(),
             learning,
         };
         let first = |model: &mut Model| model.predict("I need ", "h").unwrap().words[0].clone();
@@ -374,6 +466,7 @@ mod tests {
             config: None,
             refining: Refining::default(),
             instant: Default::default(),
+            nearby: Nearby::default(),
             learning: false,
         };
         model.config = Some(switchify_prediction_neural::Config {

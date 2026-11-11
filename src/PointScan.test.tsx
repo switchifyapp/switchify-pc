@@ -762,3 +762,43 @@ it("saves first-item and in-group timing, which start off", async () => {
   fireEvent.click(within(group).getByRole("button", { name: "Twice as long" }));
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.groupRatePercent).toBe(200));
 });
+
+
+it("defaults nearby-key suggestions off for old settings and keeps the choice when prediction is disabled", async () => {
+  const legacy = { ...initial.config };
+  delete legacy.nearbyKeyPredictions;
+  mocks.invoke.mockImplementation(async (command, args) => {
+    if (command === "get_point_scan") return { ...initial, config: legacy };
+    if (command === "configure_point_scan") {
+      const saved = { ...args.config };
+      if (!saved.nearbyKeyPredictions) delete saved.nearbyKeyPredictions;
+      return { ...initial, config: saved };
+    }
+    return { ...initial, ...args };
+  });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  const nearby = screen.getByRole("checkbox", { name: "Nearby-key suggestions" });
+  expect(nearby).not.toBeChecked();
+  fireEvent.click(nearby);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ nearbyKeyPredictions: true })
+  }));
+  fireEvent.click(nearby);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ nearbyKeyPredictions: false })
+  }));
+  await waitFor(() => expect(nearby).not.toBeChecked());
+  fireEvent.click(nearby);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ nearbyKeyPredictions: true })
+  }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
+  expect(nearby).toBeDisabled();
+  expect(nearby).toBeChecked();
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ wordPrediction: false, nearbyKeyPredictions: true })
+  }));
+});

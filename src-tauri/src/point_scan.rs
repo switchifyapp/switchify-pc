@@ -51,6 +51,9 @@ pub struct Config {
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
+    /// Opt-in corrections for unused instant-word slots.
+    #[serde(skip_serializing_if = "is_false")]
+    pub nearby_key_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
     /// Retained for saved-settings compatibility; the model is always used
     /// when `word_prediction` is enabled.
@@ -75,6 +78,9 @@ pub struct Config {
     pub back_key: String,
     pub pause_key: String,
 }
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -83,6 +89,7 @@ impl Default for Config {
             mouse_repeat_stop_edge: MouseRepeatStopEdge::Release,
             scan_preferences: Default::default(),
             word_prediction: true,
+            nearby_key_predictions: false,
             keyboard_layout: KeyboardLayout::Qwerty,
             enhanced_word_prediction: false,
             keyboard_wait_after_typing: false,
@@ -159,6 +166,7 @@ impl Config {
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
+            nearby_key_predictions: self.nearby_key_predictions,
             keyboard_layout: self.keyboard_layout,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
@@ -188,6 +196,7 @@ pub struct PointSettings {
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
+    pub nearby_key_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
@@ -602,6 +611,29 @@ impl Technique for Engine {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn nearby_predictions_are_opt_in_and_saved_settings_remain_compatible() {
+        let legacy: Config =
+            serde_json::from_str(r#"{"wordPrediction":true,"keyboardLayout":"commonLetters"}"#)
+                .unwrap();
+        assert!(!legacy.nearby_key_predictions);
+        assert!(serde_json::to_value(&legacy)
+            .unwrap()
+            .get("nearbyKeyPredictions")
+            .is_none());
+        let enabled = Config {
+            nearby_key_predictions: true,
+            ..legacy
+        };
+        let saved = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(saved["nearbyKeyPredictions"], true);
+        let restored: Config = serde_json::from_value(saved).unwrap();
+        assert!(restored.nearby_key_predictions);
+        assert!(restored.point().nearby_key_predictions);
+        assert_eq!(restored.keyboard_layout, KeyboardLayout::CommonLetters);
+    }
+
     #[test]
     fn auto_scan_interval_bounds_and_legacy_values_roundtrip() {
         for interval in [100, 200, 250, 750, 1000, 10000] {
