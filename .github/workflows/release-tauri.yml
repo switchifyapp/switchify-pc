@@ -484,6 +484,17 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
 
+      - name: Put clang on PATH for ring on ARM64 Windows
+        shell: pwsh
+        run: |
+          if (Get-Command clang.exe -ErrorAction SilentlyContinue) { exit 0 }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -property installationPath
+          $candidates = @("$vs\VC\Tools\Llvm\ARM64\bin", "$vs\VC\Tools\Llvm\x64\bin", "$env:ProgramFiles\LLVM\bin")
+          $found = $candidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'clang.exe') } | Select-Object -First 1
+          if (-not $found) { throw 'clang.exe was not found; ring needs it on ARM64 Windows.' }
+          $found >> $env:GITHUB_PATH
+
       - name: Install dependencies
         run: npm ci
 

@@ -71,8 +71,16 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
 // Only x64 Windows ships the optional AVX2 worker; ARM64 has none.
 export const bundlesAcceleratedWorker = target => target === 'x86_64-pc-windows-msvc';
 
+// Cargo builds for rustc's host, which can differ from Node's CPU (x64 Node
+// on an ARM PC, for example), so ask rustc first.
+export function rustHostTarget(runner = spawnSync) {
+  const result = runner('rustc', ['-vV'], { encoding: 'utf8' });
+  const host = result.status === 0 ? /^host: (\S+)$/m.exec(result.stdout ?? '')?.[1] : undefined;
+  return host ?? hostTarget();
+}
+
 export async function prepare() {
-  const target = process.env.TAURI_ENV_TARGET_TRIPLE ?? hostTarget();
+  const target = process.env.TAURI_ENV_TARGET_TRIPLE ?? rustHostTarget();
   const workerPin = manifest.workers[target];
   if (!workerPin) throw new Error(`Unsupported neural target: ${target}`);
   const cache = join(root, '.cache/prediction-neural');

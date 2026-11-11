@@ -25,7 +25,7 @@ Download the latest release from [GitHub releases](https://github.com/switchifya
 
 ### If you installed the x64 version on an ARM PC
 
-Before version 1.7.3 there was only an x64 installer, and it runs on ARM PCs through Windows emulation. That copy keeps working and keeps updating to new x64 versions. To change to the ARM version, uninstall Switchify PC from **Settings**, **Apps**, then run the `arm64-setup.exe` installer.
+Before version 1.7.3 there was only an x64 installer, and it runs on Windows 11 ARM PCs through Windows emulation. That copy keeps working and keeps updating to new x64 versions. To change to the ARM version, uninstall Switchify PC from **Settings**, **Apps**, then run the `arm64-setup.exe` installer.
 
 ## Trial and upgrading to 1.4.0
 

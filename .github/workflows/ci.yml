@@ -166,6 +166,17 @@ jobs:
           components: rustfmt, clippy
       - run: npm ci
         if: needs.changes.outputs.app == 'true'
+      - name: Put clang on PATH for ring on ARM64 Windows
+        if: needs.changes.outputs.app == 'true' && runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: |
+          if (Get-Command clang.exe -ErrorAction SilentlyContinue) { exit 0 }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -property installationPath
+          $candidates = @("$vs\VC\Tools\Llvm\ARM64\bin", "$vs\VC\Tools\Llvm\x64\bin", "$env:ProgramFiles\LLVM\bin")
+          $found = $candidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'clang.exe') } | Select-Object -First 1
+          if (-not $found) { throw 'clang.exe was not found; ring needs it on ARM64 Windows.' }
+          $found >> $env:GITHUB_PATH
       - name: Fetch prediction model and released companion workers
         if: needs.changes.outputs.app == 'true'
         run: npm run prediction-model
@@ -244,7 +255,7 @@ jobs:
         if: needs.changes.outputs.app == 'true' && (always())
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: prediction-benchmark-${{ runner.os }}
+          name: prediction-benchmark-${{ runner.os }}-${{ runner.arch }}
           path: |
             src-tauri/prediction-benchmark.json
             src-tauri/neural-benchmark.json
