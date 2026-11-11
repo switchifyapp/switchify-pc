@@ -95,7 +95,7 @@ Switchify PC is provided as it is, without any warranty, as set out in sections 
 
 Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in each project's source code.
 
-- **Word prediction**: [switchify-prediction](https://github.com/switchifyapp/switchify-prediction), MIT licence. Its word list is built from these sources, each under its own terms:
+- **Word prediction**: [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/tree/v0.5.1), MIT licence. Its word list is built from these sources, each under its own terms:
   - English sentences from [Tatoeba](https://tatoeba.org), by way of [WorldAlphabets](https://github.com/AACTools/WorldAlphabets) (CC0 and CC BY 2.0 FR)
   - [Taskmaster-1](https://github.com/google-research-datasets/Taskmaster) by Google LLC ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))
   - [The Imagination of Crowds](https://aactext.org/imagine/) AAC sentences by Keith Vertanen and Per Ola Kristensson ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))

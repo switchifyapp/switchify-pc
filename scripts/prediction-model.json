@@ -1,8 +1,8 @@
 {
   "model": "en-aac-oanc-v1",
-  "revision": "577ac0b05881b184a75b1edf2e0b4b1180367ec5",
-  "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.5.0/switchify-english-en-aac-oanc-v1.zip",
-  "archive_sha256": "0d89caeeaa10bc4e27499af66ff4bb9e17c2c9713a33de61b7751a71b148bafd",
+  "revision": "1f86c99add4e699309cd0f725733fa02e4565204",
+  "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.5.1/switchify-english-en-aac-oanc-v1.zip",
+  "archive_sha256": "b7e46c36ff0aa3e497f6fa4da9df268cea6d7601381a2b4fe123f246f50f9aeb",
   "files": {
     "english.ngrams": {
       "sha256": "c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a",
@@ -21,8 +21,8 @@
       "size": 3015
     },
     "ATTRIBUTION.md": {
-      "sha256": "3922703e6f3bb669ded05674f034d7f9ccfd7d359805d12439191496c7755266",
-      "size": 4188
+      "sha256": "9eb6d340f9226bcaf1832c20e89544b622cc775954dfe377693ffceffda764c6",
+      "size": 4698
     },
     "LICENSE": {
       "sha256": "1e5643d5431cc5b2d04534dee7b3f716b24fc3b82493a1659534cbfa4fc8732c",
