@@ -13,7 +13,12 @@ pub trait Adapter: Send + Sync + 'static {
     fn deferred(_request: &<Self::Technique as Technique>::Selection) -> bool {
         false
     }
-    fn preserve_visuals(_request: &<Self::Technique as Technique>::Selection) -> bool {
+    /// Whether the scan panels stay on screen while `request` runs.
+    fn preserve_visuals(
+        _app: &AppHandle,
+        _technique: &Self::Technique,
+        _request: &<Self::Technique as Technique>::Selection,
+    ) -> bool {
         false
     }
     fn cursor_feedback(_technique: &Self::Technique) -> Option<crate::input::PointerFeedback> {
@@ -657,7 +662,13 @@ fn dispatch<A: Adapter>(
     if !c.enabled.load(Ordering::SeqCst) || !input_active(app, input_generation, remote) {
         return Err("Scan action was cancelled.".into());
     }
-    if !A::preserve_visuals(&request) {
+    let preserve = {
+        let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        d.engine
+            .as_ref()
+            .is_some_and(|engine| A::preserve_visuals(app, &engine.technique, &request))
+    };
+    if !preserve {
         hide_scan_visuals();
     }
     let deferred = A::deferred(&request);

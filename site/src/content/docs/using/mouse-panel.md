@@ -26,6 +26,10 @@ Pointer speed has ten levels plus fine tuning. The panel, the **Mouse pointer** 
 
 The panel can move itself out of the way when the pointer approaches it.
 
+## Clicking
+
+**Left click**, **Right click** and **Double click** click wherever the pointer is. The panel stays on screen while it clicks. Clicks pass through the panel, so a click with the pointer over the panel reaches the window behind it. The [Settings bar](#settings-bar) is the exception: with the pointer over the bar, the panel is hidden for a moment while it clicks, so the click reaches the window behind the bar rather than opening Settings.
+
 ## Settings bar
 
 Every scanning panel has a slim bar along its top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The panel stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work, as it does from the tray or menu bar.

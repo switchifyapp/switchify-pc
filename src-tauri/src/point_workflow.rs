@@ -667,6 +667,13 @@ impl Workflow {
     pub fn panel_avoids_pointer(&self) -> bool {
         self.point.config.panel_avoids_pointer
     }
+    /// Whether `pointer` is over the menu bar of the panel showing now. The
+    /// bar takes mouse clicks; the rest of the panel passes them through.
+    pub fn menu_bar_contains(&self, (x, y): (f64, f64)) -> bool {
+        crate::scan_panel::menu_bar(&self.frame()).is_some_and(|bar| {
+            x >= bar.x && x < bar.x + bar.width && y >= bar.y && y < bar.y + bar.height
+        })
+    }
     pub fn set_pointer(&mut self, pointer: Option<(f64, f64)>) {
         self.pointer = pointer;
         if self.stage == Stage::Menu && self.mouse_actions_open {
@@ -4190,6 +4197,9 @@ mod tests {
         let menu = next.frame().tiles[0].rect;
         assert_eq!(menu, chosen.rect(screen, (menu.width, menu.height)));
         let bar = crate::scan_panel::menu_bar(&next.frame()).unwrap();
+        assert!(next.menu_bar_contains((bar.x + 1.0, bar.y + 1.0)));
+        assert!(!next.menu_bar_contains((bar.x + 1.0, bar.y + bar.height + 1.0)));
+        assert!(!next.menu_bar_contains((bar.x - 1.0, bar.y + 1.0)));
         next.set_pointer(Some((bar.x + 1.0, bar.y + 1.0)));
         assert_eq!(
             next.frame().tiles[0].rect,
