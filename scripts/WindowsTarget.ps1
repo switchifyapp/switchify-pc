@@ -36,25 +36,28 @@ function Find-Rustc {
   return $rustc
 }
 
-# Every ARM64 build needs clang for ring, and the MSVC ARM64 build tools
-# (installed by default on an ARM64 host). Visual Studio's Clang component
+# Every ARM64 build needs clang for ring. A cross build from x64 also needs
+# the MSVC ARM64 build tools. Visual Studio's Clang component
 # does not add itself to PATH.
 function Initialize-WindowsCrossTools($WindowsTarget) {
   if ($WindowsTarget.Triple -ne 'aarch64-pc-windows-msvc') { return }
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
   if (-not (Test-Path -LiteralPath $vswhere)) { throw 'vswhere.exe was not found. Install Visual Studio with C++ build tools.' }
-  # An ARM64 host has native ARM64 tools, so only a cross build requires the component.
-  $requires = if ($WindowsTarget.Cross) { @('-requires', 'Microsoft.VisualStudio.Component.VC.Tools.ARM64') } else { @() }
-  $vs = & $vswhere -latest -products * @requires -property installationPath | Select-Object -First 1
-  if (-not $vs) {
-    throw 'The MSVC ARM64 build tools are missing. Add the Visual Studio component Microsoft.VisualStudio.Component.VC.Tools.ARM64.'
-  }
-  if (-not (Get-Command clang.exe -ErrorAction SilentlyContinue)) {
-    $clang = @('ARM64', 'x64') | ForEach-Object { Join-Path $vs "VC\Tools\Llvm\$_\bin" } |
-      Where-Object { Test-Path -LiteralPath (Join-Path $_ 'clang.exe') } | Select-Object -First 1
-    if (-not $clang) {
-      throw 'clang.exe is missing. Add the Visual Studio component Microsoft.VisualStudio.Component.VC.Llvm.Clang.'
+  if ($WindowsTarget.Cross) {
+    $arm64Tools = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+    if (-not $arm64Tools) {
+      throw 'The MSVC ARM64 build tools are missing. Add the Visual Studio component Microsoft.VisualStudio.Component.VC.Tools.ARM64.'
     }
-    $env:PATH = "$clang;$env:PATH"
   }
+  if (Get-Command clang.exe -ErrorAction SilentlyContinue) { return }
+  $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath |
+    Select-Object -First 1
+  # Visual Studio installs LLVM for each host CPU. Use the one this host runs:
+  # a cross build here is always from x64, a native build runs on ARM64.
+  $hostFolder = if ($WindowsTarget.Cross) { 'x64' } else { 'ARM64' }
+  $clang = if ($vs) { Join-Path $vs "VC\Tools\Llvm\$hostFolder\bin" }
+  if (-not $clang -or -not (Test-Path -LiteralPath (Join-Path $clang 'clang.exe'))) {
+    throw 'clang.exe is missing. Add the Visual Studio component Microsoft.VisualStudio.Component.VC.Llvm.Clang.'
+  }
+  $env:PATH = "$clang;$env:PATH"
 }
