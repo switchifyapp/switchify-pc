@@ -3,6 +3,8 @@ mod context;
 mod database;
 mod model;
 #[cfg(test)]
+mod nearby;
+#[cfg(test)]
 pub(crate) use model::slots;
 pub(crate) use model::{PHRASE_SLOTS, SLOTS};
 pub mod worker;

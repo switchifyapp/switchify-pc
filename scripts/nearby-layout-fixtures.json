@@ -1,0 +1,14 @@
+[
+  ["I need ", "help"], ["I need ", "water"], ["I want ", "coffee"],
+  ["I want ", "food"], ["I feel ", "happy"], ["I feel ", "tired"],
+  ["I am ", "hungry"], ["I am ", "cold"], ["please open the ", "door"],
+  ["please close the ", "window"], ["where is my ", "phone"], ["call my ", "friend"],
+  ["I would like to go ", "outside"], ["I want to go ", "home"],
+  ["can you play some ", "music"], ["I need a ", "blanket"],
+  ["my ", "mother"], ["my ", "father"], ["my ", "family"],
+  ["see you ", "tomorrow"], ["good ", "morning"], ["I feel ", "better"],
+  ["I need to go to the ", "toilet"], ["I want to ", "read"],
+  ["I do not ", "know"], ["thank you for your ", "help"],
+  ["please ", "wait"], ["I want to ", "leave"], ["I need my ", "clothes"],
+  ["I need to go to the ", "hospital"]
+]
