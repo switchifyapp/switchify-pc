@@ -389,7 +389,13 @@ impl Keyboard {
     /// The built-in keys of the QWERTY Letters page, for a picture of the
     /// keyboard.
     pub fn fixed_picture(mac: bool) -> Vec<Vec<(String, f64)>> {
-        let keyboard = Self::configured(mac, Default::default());
+        Self::layout_picture(mac, crate::point_scan::KeyboardLayout::Qwerty)
+    }
+    pub(crate) fn layout_picture(
+        mac: bool,
+        layout: crate::point_scan::KeyboardLayout,
+    ) -> Vec<Vec<(String, f64)>> {
+        let keyboard = Self::configured(mac, Default::default()).with_layout(layout);
         keyboard
             .rows
             .iter()
