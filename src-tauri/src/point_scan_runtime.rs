@@ -128,6 +128,26 @@ pub fn pause(app: &AppHandle) {
 pub fn interrupt(app: &AppHandle) {
     scanning_runtime::interrupt::<PointScan>(app);
 }
+/// Whether the panels stay on screen while `request` runs. The panels are
+/// click-through, so a mouse panel click reaches the window under them. The
+/// menu bar is the exception: it takes clicks, so a click over it hides the
+/// panels first and reaches the window underneath, as it did before.
+fn keeps_visuals(request: &Request, over_menu_bar: bool) -> bool {
+    match request {
+        Request::MouseClick { .. } => !over_menu_bar,
+        request => matches!(
+            request,
+            Request::Keyboard(_)
+                | Request::Prediction { .. }
+                | Request::PredictionRetry
+                | Request::MouseMove { .. }
+                | Request::MouseMoveAbsolute { .. }
+                | Request::MouseScroll { .. }
+                | Request::KeyboardPunctuation(_)
+                | Request::Setting(crate::scan_menu::Setting::KeyboardLayout(_))
+        ),
+    }
+}
 pub fn install(app: &AppHandle) {
     scanning_runtime::install::<PointScan>(app);
 }
@@ -511,18 +531,13 @@ impl Adapter for PointScan {
         }
         Ok(true)
     }
-    fn preserve_visuals(request: &Request) -> bool {
-        matches!(
-            request,
-            Request::Keyboard(_)
-                | Request::Prediction { .. }
-                | Request::PredictionRetry
-                | Request::MouseMove { .. }
-                | Request::MouseMoveAbsolute { .. }
-                | Request::MouseScroll { .. }
-                | Request::KeyboardPunctuation(_)
-                | Request::Setting(crate::scan_menu::Setting::KeyboardLayout(_))
-        )
+    fn preserve_visuals(app: &AppHandle, technique: &Workflow, request: &Request) -> bool {
+        // A click lands wherever the pointer is. An unreadable pointer counts
+        // as over the menu bar, so the panel hides as it always has.
+        let over_menu_bar = matches!(request, Request::MouseClick { .. })
+            && display_navigation::pointer(app)
+                .map_or(true, |pointer| technique.menu_bar_contains(pointer));
+        keeps_visuals(request, over_menu_bar)
     }
     fn deferred(request: &Request) -> bool {
         matches!(request, Request::Prediction { .. })
@@ -657,30 +672,31 @@ mod tests {
     }
 
     #[test]
-    fn typing_preserves_visuals_but_pointer_execution_hides_them() {
-        assert!(PointScan::preserve_visuals(&Request::Keyboard(
-            crate::scan_keyboard::Stroke {
-                key: crate::scan_keyboard::Key::Character('a', 'A'),
-                modifiers: [false; 4],
-                caps: false,
-            }
-        )));
-        assert!(PointScan::preserve_visuals(&Request::Prediction {
-            token: 1,
-            index: 0
-        }));
-        assert!(PointScan::preserve_visuals(&Request::PredictionRetry));
-        assert!(PointScan::preserve_visuals(&Request::Setting(
+    fn typing_and_mouse_panel_clicks_keep_visuals_but_point_clicks_hide_them() {
+        let keeps = |request: Request| keeps_visuals(&request, false);
+        assert!(keeps(Request::Keyboard(crate::scan_keyboard::Stroke {
+            key: crate::scan_keyboard::Key::Character('a', 'A'),
+            modifiers: [false; 4],
+            caps: false,
+        })));
+        assert!(keeps(Request::Prediction { token: 1, index: 0 }));
+        assert!(keeps(Request::PredictionRetry));
+        assert!(keeps(Request::Setting(
             crate::scan_menu::Setting::KeyboardLayout(
                 crate::point_scan::KeyboardLayout::CommonLetters,
             ),
         )));
-        assert!(PointScan::preserve_visuals(&Request::MouseScroll { dy: 5 }));
-        assert!(!PointScan::preserve_visuals(
-            &crate::point_workflow::default_click((10, 20))
-        ));
-        assert!(!PointScan::preserve_visuals(&Request::OpenKeyboard));
-        assert!(!PointScan::preserve_visuals(&Request::DragStart((10, 20))));
+        assert!(keeps(Request::MouseScroll { dy: 5 }));
+        // Mouse panel clicks keep the panel, unless the pointer is over the
+        // menu bar, which takes clicks itself.
+        for (right, count) in [(false, 1), (true, 1), (false, 2)] {
+            let click = Request::MouseClick { right, count };
+            assert!(keeps_visuals(&click, false));
+            assert!(!keeps_visuals(&click, true));
+        }
+        assert!(!keeps(crate::point_workflow::default_click((10, 20))));
+        assert!(!keeps(Request::OpenKeyboard));
+        assert!(!keeps(Request::DragStart((10, 20))));
     }
     fn display(name: &str, x: i32, width: u32) -> Display {
         Display {
