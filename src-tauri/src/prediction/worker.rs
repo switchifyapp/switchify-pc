@@ -2,6 +2,7 @@ use super::{
     activity, context,
     database::{Database, Status},
 };
+use crate::point_scan::KeyboardLayout;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -74,6 +75,8 @@ pub enum Request {
         /// a sentence start: it saw the punctuation, and whether the person
         /// cancelled the capital since.
         sentence_start: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nearby_layout: Option<KeyboardLayout>,
     },
     Accept {
         generation: u64,
@@ -101,7 +104,8 @@ pub enum Response {
     Insert {
         generation: u64,
         /// Characters to delete before typing `text`: the typed prefix, when
-        /// accepting restores a capital in it. Never more than the prefix.
+        /// accepting restores a capital or validates a nearby-key correction.
+        /// Never more than the owned prefix.
         backspaces: usize,
         text: Option<String>,
         foreground: Option<usize>,
@@ -152,6 +156,8 @@ pub struct Engine {
     inserts: Inserts,
     token: u64,
     case: (Shift, bool, bool),
+    nearby_layout: Option<KeyboardLayout>,
+    nearby_map: Option<switchify_prediction::KeyHitMap>,
     displayed: Option<(Batch, Inserts)>,
     generation: u64,
 }
@@ -175,6 +181,8 @@ impl Engine {
             inserts: Default::default(),
             token: 0,
             case: (Shift::Off, false, false),
+            nearby_layout: None,
+            nearby_map: None,
             displayed: None,
             generation: 0,
         }
@@ -337,17 +345,17 @@ impl Engine {
             && self.case == (shift, caps, sentence_start)
             && self.status != Status::Loading;
         let ctx = context::extract(&self.buffer, self.clipped);
-        let (words, refined) = if same {
+        let (prediction, refined) = if same {
             match self.database.poll() {
-                Some(prediction) => (prediction.words, true),
+                Some(prediction) => (prediction, true),
                 None => return self.batch.clone(),
             }
         } else {
             self.database.reset();
             self.displayed = None;
-            let (status, prediction) = self.database.predict(&ctx);
+            let (status, prediction) = self.database.predict_with_layout(&ctx, self.nearby_layout);
             self.status = status;
-            (prediction.words, false)
+            (prediction, false)
         };
         self.token = self.token.wrapping_add(1);
         self.inserts = Default::default();
@@ -356,13 +364,27 @@ impl Engine {
         // Phrases do the same within the phrase slots, whose tiles are wider.
         let mut next_word = 0;
         let mut next_phrase = super::PHRASE_SLOTS.start;
-        for (slot, word) in words.into_iter().enumerate() {
+        for (slot, word) in prediction.words.into_iter().enumerate() {
             let Some(word) = word else {
                 continue;
             };
             let phrase = super::PHRASE_SLOTS.contains(&slot);
             let index = if phrase { next_phrase } else { next_word };
-            let Some(offset) = prefix_offset(&word, &ctx.prefix) else {
+            let corrected = if let Some(substitution) = &prediction.corrections[slot] {
+                if slot >= 3 {
+                    continue;
+                }
+                let Some(corrected) = self.nearby_map.as_ref().and_then(|map| {
+                    super::nearby::corrected_prefix(&ctx.prefix, substitution, map)
+                }) else {
+                    continue;
+                };
+                Some(corrected)
+            } else {
+                None
+            };
+            let typed = corrected.as_deref().unwrap_or(&ctx.prefix);
+            let Some(offset) = prefix_offset(&word, typed) else {
                 continue;
             };
             let suffix = if shouting(&ctx.prefix) {
@@ -380,8 +402,9 @@ impl Engine {
             let head = if shouting(&ctx.prefix) {
                 None
             } else {
-                restored(&ctx.prefix, &word[..offset])
-            };
+                restored(typed, &word[..offset])
+            }
+            .or_else(|| corrected.as_ref().cloned());
             let (label, insert) = match head {
                 Some(head) => (
                     format!("{head}{suffix}"),
@@ -452,8 +475,16 @@ impl Engine {
                 shift,
                 caps,
                 sentence_start,
+                nearby_layout,
             } => {
-                if self.generation != generation {
+                let mode_changed = self.nearby_layout != nearby_layout;
+                if mode_changed {
+                    self.nearby_layout = nearby_layout;
+                    self.nearby_map = nearby_layout.map(super::nearby::hit_map);
+                    self.batch = None;
+                    self.inserts = Default::default();
+                }
+                if self.generation != generation || mode_changed {
                     self.database.reset();
                     self.displayed = None;
                     self.snapshot = None;
@@ -653,6 +684,231 @@ pub fn run_from_args() -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[derive(Clone)]
+    struct NearbyCandidate(super::super::model::Prediction);
+    impl super::super::model::Predict for NearbyCandidate {
+        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            Ok(self.0.clone())
+        }
+    }
+    fn correction() -> switchify_prediction::KeySubstitution {
+        switchify_prediction::KeySubstitution {
+            grapheme_index: 1,
+            typed: "r".into(),
+            intended: "e".into(),
+        }
+    }
+    fn correction_engine(
+        slot: usize,
+        word: &str,
+        metadata: Option<switchify_prediction::KeySubstitution>,
+    ) -> Engine {
+        let mut prediction = super::super::model::Prediction::default();
+        prediction.words[slot] = Some(word.into());
+        prediction.corrections[slot] = metadata;
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(NearbyCandidate(prediction)));
+        e
+    }
+    fn nearby_request(
+        edits: Vec<RecordedEdit>,
+        revision: u64,
+        displayed: Option<u64>,
+        layout: Option<KeyboardLayout>,
+    ) -> Request {
+        let mut r = request(edits, revision, displayed);
+        if let Request::Query { nearby_layout, .. } = &mut r {
+            *nearby_layout = layout;
+        }
+        r
+    }
+    #[test]
+    fn correction_replaces_only_owned_prefix_and_preserves_typed_case() {
+        for (prefix, expected) in [
+            ("hrl", "hello "),
+            ("Hrl", "Hello "),
+            ("HRL", "HELLO "),
+            ("hrL", "heLlo "),
+        ] {
+            let mut e = correction_engine(0, "hello", Some(correction()));
+            let b = response_batch(e.respond(nearby_request(
+                vec![append(&format!("I need {prefix}"))],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            assert_eq!(b.words[0].as_deref(), Some(expected.trim_end()));
+            assert_eq!(e.accept(b.token, 0), Some((3, expected.into())));
+        }
+    }
+    #[test]
+    fn corrections_require_current_mode_valid_metadata_and_instant_origin() {
+        let mut invalid = vec![None, Some(correction())];
+        let mut wrong = correction();
+        wrong.grapheme_index = 99;
+        invalid.push(Some(wrong));
+        let mut wrong = correction();
+        wrong.typed = "x".into();
+        invalid.push(Some(wrong));
+        let mut wrong = correction();
+        wrong.intended = "z".into();
+        invalid.push(Some(wrong));
+        let mut wrong = correction();
+        wrong.intended = "ee".into();
+        invalid.push(Some(wrong));
+        for (i, metadata) in invalid.into_iter().enumerate() {
+            let mut e = correction_engine(0, "hello", metadata);
+            let mode = if i == 1 {
+                None
+            } else {
+                Some(KeyboardLayout::Qwerty)
+            };
+            let b = response_batch(e.respond(nearby_request(vec![append("hrl")], 1, None, mode)));
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        for slot in [3, 5] {
+            let mut e = correction_engine(slot, "hello", Some(correction()));
+            let b = response_batch(e.respond(nearby_request(
+                vec![append("hrl")],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        for prefix in [
+            "h?L",
+            "he\u{301}l",
+            "hr'l",
+            "r",
+            "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+        ] {
+            let mut e = correction_engine(0, "hello", Some(correction()));
+            let b = response_batch(e.respond(nearby_request(
+                vec![append(prefix)],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        let mut e = correction_engine(0, "world", Some(correction()));
+        let b = response_batch(e.respond(nearby_request(
+            vec![append("hrl")],
+            1,
+            None,
+            Some(KeyboardLayout::Qwerty),
+        )));
+        assert!(b.words.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn prefix_and_neighbor_guards_block_otherwise_matching_forged_candidates() {
+        for (prefix, word) in [
+            ("hrl?", "hel?phant"),
+            ("hrle\u{301}", "hel?phant"),
+            ("hr'l", "he'llo"),
+        ] {
+            let mut e = correction_engine(0, word, Some(correction()));
+            let b = response_batch(e.respond(nearby_request(
+                vec![append(prefix)],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        let mut not_a_neighbor = correction();
+        not_a_neighbor.intended = "a".into();
+        let mut wrong_typed = correction();
+        wrong_typed.typed = "f".into();
+        for (word, metadata) in [("halo", not_a_neighbor), ("hello", wrong_typed)] {
+            let mut e = correction_engine(0, word, Some(metadata));
+            let b = response_batch(e.respond(nearby_request(
+                vec![append("hrl")],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        let prefix = "h".to_owned() + "r" + &"l".repeat(31);
+        let word = "h".to_owned() + "e" + &"l".repeat(31) + "o";
+        let mut e = correction_engine(0, &word, Some(correction()));
+        let b = response_batch(e.respond(nearby_request(
+            vec![append(&prefix)],
+            1,
+            None,
+            Some(KeyboardLayout::Qwerty),
+        )));
+        assert!(b.words.iter().all(Option::is_none));
+        let mut metadata = correction();
+        metadata.grapheme_index = 0;
+        let mut e = correction_engine(0, "ello", Some(metadata));
+        let b = response_batch(e.respond(nearby_request(
+            vec![append("r")],
+            1,
+            None,
+            Some(KeyboardLayout::Qwerty),
+        )));
+        assert!(b.words.iter().all(Option::is_none));
+    }
+    #[test]
+    fn changed_layout_mode_edits_focus_and_activity_reject_old_corrections() {
+        for mode in [
+            None,
+            Some(KeyboardLayout::SimpleQwerty),
+            Some(KeyboardLayout::CommonLetters),
+        ] {
+            let mut e = correction_engine(0, "hello", Some(correction()));
+            let old = response_batch(e.respond(nearby_request(
+                vec![append("hrl")],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            e.respond(nearby_request(vec![], 1, Some(old.token), mode));
+            assert!(e.accept(old.token, 0).is_none());
+        }
+        for change in 0..4 {
+            let mut e = correction_engine(0, "hello", Some(correction()));
+            let old = response_batch(e.respond(nearby_request(
+                vec![append("hrl")],
+                1,
+                None,
+                Some(KeyboardLayout::Qwerty),
+            )));
+            match change {
+                0 => {
+                    e.respond(nearby_request(
+                        vec![append("x")],
+                        2,
+                        Some(old.token),
+                        Some(KeyboardLayout::Qwerty),
+                    ));
+                }
+                1 => e.foreground = || Ok(2),
+                2 => e.observe = || (1, true),
+                _ => e.observe = || (0, false),
+            }
+            assert!(e.accept(old.token, 0).is_none());
+        }
+    }
+    #[test]
+    fn old_private_queries_default_to_exact_matching() {
+        let legacy = serde_json::json!({"Query":{"generation":1,"edits":[],"displayed":null,"revision":0,"shift":"Off","caps":false,"sentence_start":false}});
+        let r: Request = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(matches!(
+            r,
+            Request::Query {
+                nearby_layout: None,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(r).unwrap(), legacy);
+    }
+
     use super::*;
     fn engine() -> Engine {
         let mut e = Engine::new(Database::fixture(), true);
@@ -683,6 +939,7 @@ mod tests {
                 shift: Shift::Off,
                 caps: false,
                 sentence_start: false,
+                nearby_layout: None,
             },
         )
         .unwrap();
@@ -695,6 +952,7 @@ mod tests {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
             self.pending = true;
             Ok(super::super::model::Prediction {
+                corrections: Default::default(),
                 words: crate::prediction::slots(["water", "walk", "waffle"]),
             })
         }
@@ -702,7 +960,10 @@ mod tests {
             std::mem::take(&mut self.pending).then(|| {
                 let mut words = crate::prediction::slots(["water", "walk", "waffle", "walnut"]);
                 words[crate::prediction::PHRASE_SLOTS.start] = Some("wavy hair".into());
-                super::super::model::Prediction { words }
+                super::super::model::Prediction {
+                    words,
+                    corrections: Default::default(),
+                }
             })
         }
         fn pending(&self) -> bool {
@@ -721,6 +982,7 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
+            nearby_layout: None,
         }
     }
     fn response_batch(response: Response) -> Batch {
@@ -895,6 +1157,7 @@ mod tests {
         impl super::super::model::Predict for Gappy {
             fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
                 Ok(super::super::model::Prediction {
+                    corrections: Default::default(),
                     words: [
                         None,
                         Some("water".into()),
@@ -939,11 +1202,13 @@ mod tests {
             fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
                 self.pending = true;
                 Ok(super::super::model::Prediction {
+                    corrections: Default::default(),
                     words: crate::prediction::slots(["water"]),
                 })
             }
             fn poll(&mut self) -> Option<super::super::model::Prediction> {
                 std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
+                    corrections: Default::default(),
                     words: crate::prediction::slots(["water", "walnut", "wavy"]),
                 })
             }
@@ -1557,7 +1822,10 @@ mod tests {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
             let mut words = crate::prediction::slots(["water"]);
             words[crate::prediction::PHRASE_SLOTS.start] = Some(self.0.into());
-            Ok(super::super::model::Prediction { words })
+            Ok(super::super::model::Prediction {
+                words,
+                corrections: Default::default(),
+            })
         }
     }
     #[test]
@@ -1718,6 +1986,7 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
+            nearby_layout: None,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
     }

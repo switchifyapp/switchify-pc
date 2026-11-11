@@ -11,6 +11,7 @@ export type PointScanConfig = {
   mouseRepeatStopEdge: "press" | "release";
   scanPreferences?: import("./preferences").ScanPreferences;
   wordPrediction: boolean;
+  nearbyKeyPredictions?: boolean;
   keyboardLayout: KeyboardLayout;
   enhancedWordPrediction: boolean;
   keyboardWaitAfterTyping: boolean;
@@ -54,6 +55,7 @@ export const defaultPointScanConfig: PointScanConfig = {
   startWith: "home",
   mouseRepeatStopEdge: "release",
   wordPrediction: true,
+  nearbyKeyPredictions: false,
   keyboardLayout: "qwerty",
   enhancedWordPrediction: false,
   keyboardWaitAfterTyping: false,

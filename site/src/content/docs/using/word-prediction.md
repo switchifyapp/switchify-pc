@@ -25,6 +25,23 @@ A long word shrinks a little to fit its slot. A word that is still too wide is s
 
 Suggestions only change when they need to, so the scan does not restart under you.
 
+## Nearby-key suggestions
+
+In **Settings > Scanning**, open **More options**, then **Customise keyboard**.
+Under **Suggestions**, turn on **Nearby-key suggestions** to allow one nearby
+letter change in an unfinished word. It is off by default.
+
+Matching instant completions keep their order. When there are fewer than three,
+this option can fill the remaining instant slots. On QWERTY, for example, `hrl`
+can produce `help` if a slot is available. Choosing the suggestion replaces the
+unfinished word and adds a space. Text changes only when you choose a suggestion.
+
+The setting uses the built-in letter positions for QWERTY, Simple QWERTY or Common
+Letters, following your chosen layout. Custom tile positions and switch timing
+are outside this model. It applies to unfinished prefixes of two to 32 English
+letters. Prefixes containing accents, apostrophes or other characters keep their
+usual completion behavior. Generated words and phrases keep their usual matching.
+
 ## It stays on the computer
 
 Prediction runs entirely on the computer. Nothing you type leaves it, and no model has to be downloaded. The AI model is included with the app.

@@ -2,7 +2,6 @@ mod activity;
 mod context;
 mod database;
 mod model;
-#[cfg(test)]
 mod nearby;
 #[cfg(test)]
 pub(crate) use model::slots;
@@ -339,6 +338,7 @@ struct Service {
     accept_activity: (u64, bool),
     accepting: bool,
     case: Option<(worker::Shift, bool, bool, bool)>,
+    nearby_layout: Option<crate::point_scan::KeyboardLayout>,
     tracking: bool,
 }
 #[derive(Clone, Copy)]
@@ -382,6 +382,16 @@ fn word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '\'' || c == '’'
 }
 impl Service {
+    fn configure_nearby(&mut self, keyboard: &mut Keyboard) {
+        let layout = keyboard.nearby_predictions.then_some(keyboard.layout);
+        if self.nearby_layout != layout {
+            self.nearby_layout = layout;
+            self.generation = self.generation.wrapping_add(1);
+            self.last = None;
+            self.accept = None;
+            keyboard.predictions(None, self.failed);
+        }
+    }
     fn in_word(&self) -> bool {
         self.shape.last().copied().unwrap_or(self.beyond)
     }
@@ -835,6 +845,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
         s.observe(activity::snapshot());
+        s.configure_nearby(keyboard);
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -1011,6 +1022,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
                 sentence_start: keyboard.prediction_sentence_start(),
+                nearby_layout: s.nearby_layout,
             }
         };
         let now = Instant::now();
@@ -1024,6 +1036,46 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn changing_nearby_mode_or_layout_invalidates_pending_acceptance() {
+        let mut keyboard = Keyboard::new(false).with_nearby_predictions(true);
+        keyboard.enable_predictions(true);
+        keyboard.predictions(
+            Some(worker::Batch {
+                token: 7,
+                refined: false,
+                words: slots(["hello"]),
+            }),
+            false,
+        );
+
+        let mut service = Service {
+            generation: 10,
+            accept: Some((7, 0)),
+            ..Default::default()
+        };
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 11);
+        assert!(service.accept.is_none());
+        assert!(keyboard.displayed_prediction().is_none());
+        assert_eq!(
+            service.nearby_layout,
+            Some(crate::point_scan::KeyboardLayout::Qwerty)
+        );
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 11);
+        service.accept = Some((8, 0));
+        keyboard.set_layout(crate::point_scan::KeyboardLayout::CommonLetters);
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 12);
+        assert!(service.accept.is_none());
+        keyboard.set_nearby_predictions(false);
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 13);
+        assert!(service.nearby_layout.is_none());
+    }
+
     use super::*;
     #[test]
     fn retry_discards_failed_worker_state_and_private_edits() {

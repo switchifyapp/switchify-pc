@@ -1,6 +1,39 @@
 //! Built-in letter positions, not measurements of a person's presses.
 use crate::{point_scan::KeyboardLayout, scan_keyboard::Keyboard, scanning::Rect};
-use switchify_prediction::{HitSuggestion, KeyHitMap, KeyPosition, Options, Predictor};
+use switchify_prediction::{
+    HitSuggestion, KeyHitMap, KeyPosition, KeySubstitution, Options, Predictor,
+};
+
+/// Backspace behavior for arbitrary Unicode differs between target apps. Only
+/// owned ASCII-letter prefixes are eligible for whole-prefix replacement.
+pub(super) fn corrected_prefix(
+    prefix: &str,
+    substitution: &KeySubstitution,
+    map: &KeyHitMap,
+) -> Option<String> {
+    if !(2..=32).contains(&prefix.len()) || !prefix.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return None;
+    }
+    let typed = prefix.as_bytes().get(substitution.grapheme_index)?;
+    if substitution.typed.as_bytes() != [typed.to_ascii_lowercase()]
+        || substitution.intended.len() != 1
+        || !substitution.intended.as_bytes()[0].is_ascii_lowercase()
+        || !map
+            .neighbors(&substitution.typed)
+            .iter()
+            .any(|a| a.key == substitution.intended)
+    {
+        return None;
+    }
+    let mut corrected = prefix.as_bytes().to_vec();
+    let intended = substitution.intended.as_bytes()[0];
+    corrected[substitution.grapheme_index] = if typed.is_ascii_uppercase() {
+        intended.to_ascii_uppercase()
+    } else {
+        intended
+    };
+    String::from_utf8(corrected).ok()
+}
 
 pub(super) fn positions(layout: KeyboardLayout) -> Vec<KeyPosition> {
     let keyboard = Keyboard::configured(false, Default::default()).with_layout(layout);
