@@ -353,6 +353,17 @@ enum InsertFailure {
     /// Another window took focus.
     Left,
 }
+impl InsertFailure {
+    /// Focus leaving outranks partial typing: typing continues in the new
+    /// window, whatever landed in the old one.
+    fn classify(changed: bool, same_window: bool) -> Self {
+        match (changed, same_window) {
+            (_, false) => Self::Left,
+            (true, true) => Self::Changed,
+            (false, true) => Self::Untouched,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 pub struct InputScope {
     foreground: usize,
@@ -975,6 +986,9 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 crate::point_scan_ready(app).map_err(|_| ())?;
                                 let scope = InputScope::capture();
                                 if Some(scope.foreground) != foreground || !scope.unchanged() {
+                                    let left = foreground.is_some_and(|f| f != scope.foreground)
+                                        || !scope.unchanged();
+                                    failure = InsertFailure::classify(false, !left);
                                     return Err(());
                                 }
                                 if !may_delete(backspaces, s.accept_activity, activity::snapshot())
@@ -985,16 +999,11 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                     scope.unchanged()
                                 })
                                 .map_err(|failed| {
-                                    failure = if !scope.unchanged() {
-                                        InsertFailure::Left
-                                    } else if failed.changed {
-                                        InsertFailure::Changed
-                                    } else {
-                                        InsertFailure::Untouched
-                                    };
+                                    failure =
+                                        InsertFailure::classify(failed.changed, scope.unchanged());
                                 })?;
                                 if !scope.unchanged() {
-                                    failure = InsertFailure::Left;
+                                    failure = InsertFailure::classify(true, false);
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
@@ -1409,6 +1418,14 @@ mod tests {
         s.typed(Edit::Backspace, scope);
         s.typed(Edit::Append(". ".into()), scope);
         assert!(!s.held && s.edit.is_empty());
+    }
+    #[test]
+    fn a_failed_suggestion_is_classified_with_focus_leaving_first() {
+        use InsertFailure::*;
+        assert_eq!(InsertFailure::classify(false, true), Untouched);
+        assert_eq!(InsertFailure::classify(true, true), Changed);
+        assert_eq!(InsertFailure::classify(false, false), Left);
+        assert_eq!(InsertFailure::classify(true, false), Left);
     }
     #[test]
     fn a_suggestion_not_fully_typed_resets_context_by_where_it_stopped() {

@@ -1190,14 +1190,17 @@ fn tick<A: Adapter>(app: &AppHandle) {
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
         let captured_keys = prediction_captured_keys(d.remote, &d.switches);
+        // Time spent in `poll`, such as typing an accepted suggestion, is not
+        // scan time: the next highlight still gets its full interval.
+        let mut polling = std::time::Duration::ZERO;
         if let Some(engine) = d.engine.as_mut() {
+            let started = Instant::now();
             A::poll(app, &mut engine.technique, &captured_keys);
+            polling = started.elapsed();
             engine.tick(elapsed, held);
             request = engine.take_selection();
         }
-        // Time spent in `poll`, such as typing an accepted suggestion, is not
-        // scan time: the next highlight still gets its full interval.
-        d.last_tick = Instant::now();
+        d.last_tick = now + polling;
         let environment = d.display.clone();
         let input_generation = d.input_generation;
         let remote = d.remote;
