@@ -227,57 +227,91 @@ const PREDICTION_DELETE_PAUSE: Duration = Duration::from_millis(15);
 /// 64-character limit a suggestion takes about 200 ms to type.
 const PREDICTION_CHARACTER_GAP: Duration = Duration::from_millis(3);
 
+/// An accepted suggestion that was not fully typed.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReplaceFailed {
+    /// Some of it was deleted or typed before it stopped, so the text near
+    /// the caret is no longer what it was.
+    pub changed: bool,
+}
+
 /// Types an accepted suggestion, first deleting `backspaces` characters when
 /// the worker is restoring a capital in the typed prefix. The worker only
-/// ever asks to delete the prefix, which Switchify typed itself.
-pub fn prediction_replace(backspaces: usize, text: &str) -> Result<(), String> {
+/// ever asks to delete the prefix, which Switchify typed itself. Typing
+/// stops before any character for which `proceed` is false.
+pub fn prediction_replace(
+    backspaces: usize,
+    text: &str,
+    mut proceed: impl FnMut() -> bool,
+) -> Result<(), ReplaceFailed> {
+    let unavailable = ReplaceFailed { changed: false };
     if !crate::scan_host::modifiers_released() {
-        return Err("Prediction input is unavailable.".into());
+        return Err(unavailable);
     }
     INPUT.with(|slot| {
         let mut slot = slot.borrow_mut();
-        let input = slot.as_mut().ok_or("Prediction input is unavailable.")?;
+        let input = slot.as_mut().ok_or(ReplaceFailed { changed: false })?;
         if input.has_active_switch_session() {
-            return Err("Prediction input is unavailable.".into());
+            return Err(unavailable);
         }
-        replace_text(input, backspaces, text, std::thread::sleep)
+        replace_text(input, backspaces, text, std::thread::sleep, || {
+            proceed() && crate::scan_host::modifiers_released()
+        })
     })
 }
 
 /// Deletes, then types the suggestion one character at a time with `pause`
-/// between steps, so slower apps keep up.
+/// between steps, so slower apps keep up. Before each character `proceed`
+/// confirms the same window still has focus and nothing is held.
 fn replace_text<T: crate::input::InputInjector>(
     input: &mut DesktopInput<T>,
     backspaces: usize,
     text: &str,
     mut pause: impl FnMut(Duration),
-) -> Result<(), String> {
+    mut proceed: impl FnMut() -> bool,
+) -> Result<(), ReplaceFailed> {
     if text.chars().count() > PREDICTION_TEXT
         || backspaces > PREDICTION_BACKSPACES
         || input.has_active_drag()
+        || input.release_all().is_err()
     {
-        return Err("Prediction input is unavailable.".into());
+        return Err(ReplaceFailed { changed: false });
     }
-    input.release_all()?;
-    let result = (0..backspaces)
-        .try_for_each(|_| input.scan_chord(&["Backspace"], None))
-        .and_then(|()| {
-            if backspaces > 0 {
-                pause(PREDICTION_DELETE_PAUSE);
+    let mut changed = false;
+    let mut result = Ok(());
+    for _ in 0..backspaces {
+        result = input.scan_chord(&["Backspace"], None);
+        if result.is_err() {
+            break;
+        }
+        changed = true;
+    }
+    if result.is_ok() {
+        if backspaces > 0 {
+            pause(PREDICTION_DELETE_PAUSE);
+        }
+        let mut buffer = [0; 4];
+        for (index, character) in text.chars().enumerate() {
+            if index > 0 {
+                pause(PREDICTION_CHARACTER_GAP);
             }
-            let mut buffer = [0; 4];
-            text.chars().enumerate().try_for_each(|(index, character)| {
-                if index > 0 {
-                    pause(PREDICTION_CHARACTER_GAP);
-                }
-                input.type_text(character.encode_utf8(&mut buffer))
-            })
-        });
+            if !proceed() {
+                result = Err(String::new());
+                break;
+            }
+            result = input.type_text(character.encode_utf8(&mut buffer));
+            if result.is_err() {
+                break;
+            }
+            changed = true;
+        }
+    }
     if result.is_err() {
         // Nothing stays held after a failure part-way through.
         let _ = input.release_all();
+        return Err(ReplaceFailed { changed });
     }
-    result
+    Ok(())
 }
 pub fn cleanup() -> Result<(), String> {
     INPUT.with(|slot| {
@@ -529,7 +563,7 @@ mod tests {
     fn accepted_predictions_delete_only_what_they_are_told_then_type() {
         let mut input = DesktopInput::new(Fake::default());
         let mut pauses = Vec::new();
-        replace_text(&mut input, 0, "ter ", |d| pauses.push(d)).unwrap();
+        replace_text(&mut input, 0, "ter ", |d| pauses.push(d), || true).unwrap();
         assert_eq!(
             input.injector.events,
             ["text t", "text e", "text r", "text  "]
@@ -538,7 +572,7 @@ mod tests {
         assert_eq!(pauses, [PREDICTION_CHARACTER_GAP; 3]);
         input.injector.events.clear();
         pauses.clear();
-        replace_text(&mut input, 2, "Wé ", |d| pauses.push(d)).unwrap();
+        replace_text(&mut input, 2, "Wé ", |d| pauses.push(d), || true).unwrap();
         assert_eq!(
             input.injector.events,
             [
@@ -561,26 +595,36 @@ mod tests {
         );
         input.injector.events.clear();
         pauses.clear();
-        assert!(
-            replace_text(&mut input, PREDICTION_BACKSPACES + 1, "x ", |d| pauses
-                .push(d))
-            .is_err()
-        );
-        assert!(replace_text(&mut input, 0, &"x".repeat(65), |d| pauses.push(d)).is_err());
+        assert!(replace_text(
+            &mut input,
+            PREDICTION_BACKSPACES + 1,
+            "x ",
+            |d| pauses.push(d),
+            || true
+        )
+        .is_err());
+        assert!(replace_text(&mut input, 0, &"x".repeat(65), |d| pauses.push(d), || true).is_err());
         assert!(input.injector.events.is_empty());
         assert!(pauses.is_empty());
         // The longest suggestion stays well under a quarter of a second.
         let mut total = Duration::ZERO;
-        replace_text(&mut input, PREDICTION_BACKSPACES, &"x".repeat(64), |d| {
-            total += d
-        })
+        replace_text(
+            &mut input,
+            PREDICTION_BACKSPACES,
+            &"x".repeat(64),
+            |d| total += d,
+            || true,
+        )
         .unwrap();
         assert!(total <= Duration::from_millis(250), "{total:?}");
         input.injector.events.clear();
         // Typing fails after the deletion: the error is reported, the rest
         // of the suggestion is not typed, and no key is left down.
         input.injector.fail_text = true;
-        assert!(replace_text(&mut input, 1, "I'm ", |_| {}).is_err());
+        assert_eq!(
+            replace_text(&mut input, 1, "I'm ", |_| {}, || true),
+            Err(ReplaceFailed { changed: true })
+        );
         assert_eq!(
             input.injector.events,
             ["key Backspace true", "key Backspace false", "text I"]
@@ -596,6 +640,38 @@ mod tests {
             downs(&input.injector.events, "false")
         );
         assert!(!input.has_active_drag());
+        // Failing on the first character with nothing deleted changes nothing.
+        input.injector.events.clear();
+        assert_eq!(
+            replace_text(&mut input, 0, "about ", |_| {}, || true),
+            Err(ReplaceFailed { changed: false })
+        );
+        assert_eq!(input.injector.events, ["text a"]);
+    }
+    #[test]
+    fn accepted_predictions_stop_typing_when_focus_moves() {
+        let mut input = DesktopInput::new(Fake::default());
+        let mut checks = 0;
+        let result = replace_text(
+            &mut input,
+            0,
+            "about ",
+            |_| {},
+            || {
+                checks += 1;
+                checks <= 3
+            },
+        );
+        // Focus moved after "abo": the rest goes nowhere.
+        assert_eq!(result, Err(ReplaceFailed { changed: true }));
+        assert_eq!(input.injector.events, ["text a", "text b", "text o"]);
+        // Focus already gone before the first character: nothing is typed.
+        input.injector.events.clear();
+        assert_eq!(
+            replace_text(&mut input, 0, "about ", |_| {}, || false),
+            Err(ReplaceFailed { changed: false })
+        );
+        assert!(input.injector.events.is_empty());
     }
     #[test]
     fn opening_keyboard_releases_a_drag_without_clicking_or_typing() {

@@ -1186,7 +1186,6 @@ fn tick<A: Adapter>(app: &AppHandle) {
         } else {
             now.duration_since(d.last_tick).as_millis() as u64
         };
-        d.last_tick = now;
         let held = d.pressed.held() || d.repeat_stop.held();
         let prompt = d.pressed.prompt(now_ms);
         let mut request = None;
@@ -1196,6 +1195,9 @@ fn tick<A: Adapter>(app: &AppHandle) {
             engine.tick(elapsed, held);
             request = engine.take_selection();
         }
+        // Time spent in `poll`, such as typing an accepted suggestion, is not
+        // scan time: the next highlight still gets its full interval.
+        d.last_tick = Instant::now();
         let environment = d.display.clone();
         let input_generation = d.input_generation;
         let remote = d.remote;

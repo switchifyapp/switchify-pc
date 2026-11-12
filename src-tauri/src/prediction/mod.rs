@@ -949,6 +949,8 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         foreground,
                     } => {
                         s.accepting = false;
+                        // Whether a failure left part of the suggestion typed.
+                        let mut changed = false;
                         let result = if generation == s.generation {
                             text.ok_or(()).and_then(|text| {
                                 crate::point_scan_ready(app).map_err(|_| ())?;
@@ -960,9 +962,12 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 {
                                     return Err(());
                                 }
-                                crate::scan_executor::prediction_replace(backspaces, &text)
-                                    .map_err(|_| ())?;
+                                crate::scan_executor::prediction_replace(backspaces, &text, || {
+                                    scope.unchanged()
+                                })
+                                .map_err(|failed| changed = failed.changed)?;
                                 if !scope.unchanged() {
+                                    changed = true;
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
@@ -988,7 +993,13 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 );
                             }
                         } else {
-                            s.interrupt();
+                            if changed {
+                                // Part of the suggestion landed, so the caret
+                                // is somewhere in text that was never seen.
+                                s.displaced(true);
+                            } else {
+                                s.interrupt();
+                            }
                             let _ = crate::scan_executor::cleanup();
                             keyboard.failed();
                         }
