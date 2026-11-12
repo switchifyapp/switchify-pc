@@ -19,7 +19,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 
 ## New in v1.7.3
 
-Switchify PC now has a Windows installer for PCs with an ARM processor, such as Snapdragon, so it no longer needs Windows emulation on those PCs. See [Install](/get-started/install/) to pick the right installer.
+- **Windows on ARM.** Switchify PC now has a Windows installer for PCs with an ARM processor, such as Snapdragon, so it no longer needs Windows emulation on those PCs. See [Install](/get-started/install/) to pick the right installer.
+- **Mouse panel clicks.** The mouse panel stays on screen when it clicks, instead of closing and reopening each time. See [Mouse panel](/using/mouse-panel/).
+- **Nearby-key suggestions.** A new option, off by default, lets the keyboard suggest words that differ from what you typed by one nearby letter. See [Word prediction](/using/word-prediction/#nearby-key-suggestions).
+- **Updated word prediction library.** The bundled prediction library is updated. The word list is unchanged.
 
 ## New in v1.7.2
 
