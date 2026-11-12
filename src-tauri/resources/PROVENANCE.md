@@ -1,13 +1,13 @@
 # English prediction baseline
 
-Switchify PC uses `switchify-prediction` v0.5.2 at commit
-`0230b753a903b4b1e4ec122dfa89e608d3a1ebe5` and model `en-aac-oanc-v1`.
+Switchify PC uses `switchify-prediction` v0.5.3 at commit
+`5c8dd9b4df698a7da3f6e4458cba43a56d4abdfd` and model `en-aac-oanc-v1`.
 The Rust dependency is pinned by commit and Cargo.lock. The baseline is the
 n-gram file `english.ngrams`, which contains 21,674 words and 539,151 n-grams.
 Its SHA-256 is
 `c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a`.
 
-`npm run prediction-model` downloads the [versioned release](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.5.2)
+`npm run prediction-model` downloads the [versioned release](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.5.3)
 and verifies the archive and each shipped resource against
 `scripts/prediction-model.json`. No raw training files or personal data are bundled.
 The installed app uses the baseline offline and read-only. No ONNX runtime,
