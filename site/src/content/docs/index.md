@@ -17,6 +17,11 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## New in v1.8.0
+
+- **Abbreviation suggestions.** A new option, off by default, lets the keyboard suggest a word from some of its letters typed in order, such as `abt` for *about*. See [Word prediction](/using/word-prediction/#abbreviation-suggestions).
+- **Updated word prediction library.** The bundled prediction library is updated. The word list is unchanged.
+
 ## New in v1.7.3
 
 - **Windows on ARM.** Switchify PC now has a Windows installer for PCs with an ARM processor, such as Snapdragon, so it no longer needs Windows emulation on those PCs. See [Install](/get-started/install/) to pick the right installer.
