@@ -14,8 +14,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-switchify-prediction = { git = "https://github.com/switchifyapp/switchify-prediction", rev = "1f86c99add4e699309cd0f725733fa02e4565204" }
-switchify-prediction-neural = { git = "https://github.com/switchifyapp/switchify-prediction", rev = "1f86c99add4e699309cd0f725733fa02e4565204" }
+switchify-prediction = { git = "https://github.com/switchifyapp/switchify-prediction", rev = "0230b753a903b4b1e4ec122dfa89e608d3a1ebe5" }
+switchify-prediction-neural = { git = "https://github.com/switchifyapp/switchify-prediction", rev = "0230b753a903b4b1e4ec122dfa89e608d3a1ebe5" }
 anyhow = "1"
 base64 = "0.23"
 directories = "6.0.0"
