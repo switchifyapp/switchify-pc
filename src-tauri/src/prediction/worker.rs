@@ -384,7 +384,7 @@ impl Engine {
                 {
                     continue;
                 }
-                let whole = abbreviated_case(&ctx.prefix, &word);
+                let whole = abbreviated_case(&ctx.prefix, &word, shift, caps);
                 (whole.clone(), (ctx.prefix.len(), whole + " "))
             } else {
                 let corrected = if let Some(substitution) = &prediction.corrections[slot] {
@@ -594,9 +594,10 @@ fn restored(typed: &str, head: &str) -> Option<String> {
 }
 
 /// An abbreviated word replaces the whole typed prefix. Capitals typed as
-/// capitals throughout stay so, and a typed capital first letter is kept.
-fn abbreviated_case(prefix: &str, word: &str) -> String {
-    if shouting(prefix) {
+/// capitals throughout stay so, as do Caps or Shift locked the way they apply
+/// to a completion, and a typed capital first letter is kept.
+fn abbreviated_case(prefix: &str, word: &str, shift: Shift, caps: bool) -> String {
+    if shouting(prefix) || caps ^ (shift == Shift::Locked) {
         return word.to_uppercase();
     }
     let mut chars = word.chars();
@@ -792,6 +793,17 @@ mod tests {
             assert_eq!(b.words[0].as_deref(), Some(expected.trim_end()));
             assert_eq!(e.accept(b.token, 0), Some((prefix.len(), expected.into())));
         }
+    }
+    #[test]
+    fn abbreviations_follow_caps_like_completions() {
+        let mut e = abbreviation_engine(0, "about");
+        let mut r = abbreviation_request(vec![append("abt")], true);
+        if let Request::Query { caps, .. } = &mut r {
+            *caps = true;
+        }
+        let b = response_batch(e.respond(r));
+        assert_eq!(b.words[0].as_deref(), Some("ABOUT"));
+        assert_eq!(e.accept(b.token, 0), Some((3, "ABOUT ".into())));
     }
     #[test]
     fn abbreviations_require_the_mode_a_matching_word_and_an_instant_slot() {

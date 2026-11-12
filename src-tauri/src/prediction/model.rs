@@ -343,6 +343,19 @@ impl Predict for Model {
 mod tests {
 
     #[test]
+    fn abbreviated_flags_stay_with_their_instant_words_after_refinement() {
+        let result = merged_prediction(
+            &[Some("abt".into()), None, Some("about".into())],
+            &[None, None, None],
+            &[false, false, true],
+            &["abtest".into()],
+            vec![vec!["about".into(), "it".into()]],
+        );
+        assert_eq!(result.words[1].as_deref(), Some("about"));
+        assert_eq!(result.abbreviated[..3], [false, true, false]);
+        assert!(result.abbreviated[3..].iter().all(|f| !f));
+    }
+    #[test]
     fn instant_corrections_do_not_mark_generated_words_or_phrases() {
         let substitution = KeySubstitution {
             grapheme_index: 1,

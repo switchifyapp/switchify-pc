@@ -52,8 +52,8 @@ example, `abt` can produce `about`, `ppl` can produce `people` and `tmrw` can
 produce `tomorrow`. Words that start with what you typed keep their places;
 abbreviated words only fill instant slots that are left over, ahead of any
 nearby-key suggestions. Choosing one replaces the unfinished word and adds a
-space. A capital first letter stays a capital, and a word typed in capitals is
-inserted in capitals.
+space. A capital first letter stays a capital. A word typed in capitals, or chosen
+with Caps on, is inserted in capitals.
 
 It applies to unfinished words of two to 32 English letters. Words typed with
 accents, apostrophes or other characters keep their usual completion behavior.
