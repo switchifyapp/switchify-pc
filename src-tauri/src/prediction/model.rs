@@ -112,7 +112,9 @@ impl Model {
                     return Some(bundled);
                 }
                 if cfg!(debug_assertions) {
-                    let target = if cfg!(target_os = "windows") {
+                    let target = if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
+                        "aarch64-pc-windows-msvc"
+                    } else if cfg!(target_os = "windows") {
                         "x86_64-pc-windows-msvc"
                     } else if cfg!(target_arch = "aarch64") {
                         "aarch64-apple-darwin"
@@ -132,7 +134,8 @@ impl Model {
             Some(switchify_prediction_neural::Config {
                 bundle,
                 portable_worker: worker("switchify-smol-worker")?,
-                accelerated_worker: if cfg!(target_os = "windows") {
+                // Only x64 Windows ships the AVX2 worker.
+                accelerated_worker: if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
                     worker("switchify-smol-worker-avx2").filter(|p| p.is_file())
                 } else {
                     None

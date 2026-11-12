@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pinnedFile, bundlePins, acquireWorker } from './fetch-prediction-neural.mjs';
+import { pinnedFile, bundlePins, acquireWorker, hostTarget, rustHostTarget, bundlesAcceleratedWorker } from './fetch-prediction-neural.mjs';
 import { zipSync } from 'fflate';
 
 test('neural sources reject corrupt/oversized input and retain the previous cache', async () => {
@@ -52,4 +52,20 @@ test('prepared workers require pinned archive bytes and support verified offline
     await assert.rejects(acquireWorker(join(dir, 'other'), { ...pin,
       prepared_artifact: { ...pin.prepared_artifact, archive: '../bad.zip' } }, dir, runner(zip)));
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('worker targets follow the host CPU, and only x64 Windows bundles the AVX2 worker', () => {
+  assert.equal(hostTarget('win32', 'x64'), 'x86_64-pc-windows-msvc');
+  assert.equal(hostTarget('win32', 'arm64'), 'aarch64-pc-windows-msvc');
+  assert.equal(hostTarget('darwin', 'arm64'), 'aarch64-apple-darwin');
+  assert.equal(hostTarget('darwin', 'x64'), 'x86_64-apple-darwin');
+  assert.equal(bundlesAcceleratedWorker('x86_64-pc-windows-msvc'), true);
+  assert.equal(bundlesAcceleratedWorker('aarch64-pc-windows-msvc'), false);
+  assert.equal(bundlesAcceleratedWorker('aarch64-apple-darwin'), false);
+});
+
+test('the default worker target is rustc host, falling back to the Node CPU', () => {
+  const rustc = stdout => () => ({ status: 0, stdout });
+  assert.equal(rustHostTarget(rustc('rustc 1.97.1\nhost: aarch64-pc-windows-msvc\nrelease: 1.97.1\n')), 'aarch64-pc-windows-msvc');
+  assert.equal(rustHostTarget(() => ({ status: null, error: new Error('ENOENT') })), hostTarget());
 });

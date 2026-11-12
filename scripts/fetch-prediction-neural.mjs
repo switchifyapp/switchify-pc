@@ -60,10 +60,27 @@ export async function acquireWorker(workers, pin, cache, runner = run) {
   }
 }
 
+// The Rust target triple a build on this host produces when no target is given.
+export function hostTarget(platform = process.platform, arch = process.arch) {
+  const cpu = arch === 'arm64' ? 'aarch64' : 'x86_64';
+  if (platform === 'win32') return `${cpu}-pc-windows-msvc`;
+  if (platform === 'darwin') return `${cpu}-apple-darwin`;
+  return 'x86_64-unknown-linux-gnu';
+}
+
+// Only x64 Windows ships the optional AVX2 worker; ARM64 has none.
+export const bundlesAcceleratedWorker = target => target === 'x86_64-pc-windows-msvc';
+
+// Cargo builds for rustc's host, which can differ from Node's CPU (x64 Node
+// on an ARM PC, for example), so ask rustc first.
+export function rustHostTarget(runner = spawnSync) {
+  const result = runner('rustc', ['-vV'], { encoding: 'utf8' });
+  const host = result.status === 0 ? /^host: (\S+)$/m.exec(result.stdout ?? '')?.[1] : undefined;
+  return host ?? hostTarget();
+}
+
 export async function prepare() {
-  const target = process.env.TAURI_ENV_TARGET_TRIPLE ??
-    (process.platform === 'win32' ? 'x86_64-pc-windows-msvc' :
-      process.platform === 'darwin' ? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin` : 'x86_64-unknown-linux-gnu');
+  const target = process.env.TAURI_ENV_TARGET_TRIPLE ?? rustHostTarget();
   const workerPin = manifest.workers[target];
   if (!workerPin) throw new Error(`Unsupported neural target: ${target}`);
   const cache = join(root, '.cache/prediction-neural');
@@ -76,8 +93,7 @@ export async function prepare() {
   for (const name of Object.keys(workerPin.files)) {
     const file = basename(name);
     if (file.startsWith('switchify-smol-worker')) {
-      // Only Windows uses the optional accelerated worker.
-      if (file.includes('avx2') && process.platform !== 'win32') continue;
+      if (file.includes('avx2') && !bundlesAcceleratedWorker(target)) continue;
       const ext = file.endsWith('.exe') ? '.exe' : '';
       const stem = ext ? file.slice(0, -4) : file;
       const dest = join(binaries, `${stem}-${target}${ext}`);

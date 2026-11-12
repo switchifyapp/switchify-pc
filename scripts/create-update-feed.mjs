@@ -76,9 +76,11 @@ export const createUpdateFeed = ({ root, version, tag, output, verifier, verifyS
 
   const artifactRoot = resolve(root);
   const mac = pickSignedArtifact(join(artifactRoot, "macos-release"), (name) => name.endsWith(".app.tar.gz"), "macOS");
-  const windows = pickSignedArtifact(join(artifactRoot, "windows-release"), (name) => name.endsWith("-setup.exe"), "Windows NSIS");
+  const windows = pickSignedArtifact(join(artifactRoot, "windows-release"), (name) => name.endsWith("_x64-setup.exe"), "Windows x64 NSIS");
+  const windowsArm = pickSignedArtifact(join(artifactRoot, "windows-arm64-release"), (name) => name.endsWith("_arm64-setup.exe"), "Windows ARM64 NSIS");
   validateMacArtifact(mac);
   validateWindowsArtifact(windows);
+  validateWindowsArtifact(windowsArm);
 
   const verify = verifySignature ?? ((artifact, signature) => verifyWithExecutable(verifier, artifact, signature));
   const platform = (path) => {
@@ -99,6 +101,7 @@ export const createUpdateFeed = ({ root, version, tag, output, verifier, verifyS
     platforms: {
       "darwin-aarch64": platform(mac),
       "windows-x86_64": platform(windows),
+      "windows-aarch64": platform(windowsArm),
     },
   };
   writeFileSync(resolve(output), `${JSON.stringify(feed, null, 2)}\n`);
