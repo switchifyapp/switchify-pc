@@ -820,6 +820,13 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
 fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool {
     backspaces == 0 || (chosen.1 && now == chosen)
 }
+/// Whether typing a suggestion may continue: no keyboard or mouse activity
+/// from outside Switchify since it started. An observer that was not
+/// running when typing started cannot tell, and does not stop it; one that
+/// stops part-way does.
+fn still_undisturbed(started: (u64, bool), now: (u64, bool)) -> bool {
+    !started.1 || now == started
+}
 
 /// Resolve the baseline file; the worker verifies its pinned identity before loading.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
@@ -995,8 +1002,13 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 {
                                     return Err(());
                                 }
+                                // A click or key from outside Switchify may
+                                // have moved the caret between characters.
+                                let started = activity::snapshot();
+                                let undisturbed =
+                                    || still_undisturbed(started, activity::snapshot());
                                 crate::scan_executor::prediction_replace(backspaces, &text, || {
-                                    scope.unchanged()
+                                    scope.unchanged() && undisturbed()
                                 })
                                 .map_err(|failed| {
                                     failure =
@@ -1004,6 +1016,10 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 })?;
                                 if !scope.unchanged() {
                                     failure = InsertFailure::classify(true, false);
+                                    return Err(());
+                                }
+                                if !undisturbed() {
+                                    failure = InsertFailure::classify(true, true);
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
@@ -1183,6 +1199,16 @@ mod tests {
         assert!(!may_delete(2, (3, true), (4, true)));
         assert!(!may_delete(2, (3, true), (3, false)));
         assert!(!may_delete(2, (3, false), (3, false)));
+    }
+    #[test]
+    fn typing_a_suggestion_stops_after_outside_input() {
+        assert!(still_undisturbed((3, true), (3, true)));
+        // A click or key from outside moved the epoch: the caret may move.
+        assert!(!still_undisturbed((3, true), (4, true)));
+        // The observer stopped part-way and can no longer vouch.
+        assert!(!still_undisturbed((3, true), (3, false)));
+        // It was never running, so typing carries on as before.
+        assert!(still_undisturbed((3, false), (9, false)));
     }
     #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {
