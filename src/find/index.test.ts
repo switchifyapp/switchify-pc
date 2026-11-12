@@ -16,6 +16,7 @@ function context(overrides: Partial<FindContext> = {}): FindContext {
 describe("the settings index", () => {
   it("finds the nearby-key option in the keyboard suggestions group", () => {
     expect(search("nearby key", context())[0].id).toBe("word-prediction");
+    expect(search("abbreviation", context())[0].id).toBe("word-prediction");
   });
   it("offers input access only for a Mac needing permission", () => {
     for (const platform of ["macos", "windows", "linux"] as const) {

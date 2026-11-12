@@ -77,6 +77,8 @@ pub enum Request {
         sentence_start: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         nearby_layout: Option<KeyboardLayout>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        abbreviations: bool,
     },
     Accept {
         generation: u64,
@@ -158,6 +160,7 @@ pub struct Engine {
     case: (Shift, bool, bool),
     nearby_layout: Option<KeyboardLayout>,
     nearby_map: Option<switchify_prediction::KeyHitMap>,
+    abbreviations: bool,
     displayed: Option<(Batch, Inserts)>,
     generation: u64,
 }
@@ -183,6 +186,7 @@ impl Engine {
             case: (Shift::Off, false, false),
             nearby_layout: None,
             nearby_map: None,
+            abbreviations: false,
             displayed: None,
             generation: 0,
         }
@@ -353,7 +357,9 @@ impl Engine {
         } else {
             self.database.reset();
             self.displayed = None;
-            let (status, prediction) = self.database.predict_with_layout(&ctx, self.nearby_layout);
+            let (status, prediction) =
+                self.database
+                    .predict_with_layout(&ctx, self.nearby_layout, self.abbreviations);
             self.status = status;
             (prediction, false)
         };
@@ -370,50 +376,62 @@ impl Engine {
             };
             let phrase = super::PHRASE_SLOTS.contains(&slot);
             let index = if phrase { next_phrase } else { next_word };
-            let corrected = if let Some(substitution) = &prediction.corrections[slot] {
-                if slot >= 3 {
+            let (label, insert) = if prediction.abbreviated[slot] {
+                if slot >= 3
+                    || !self.abbreviations
+                    || prediction.corrections[slot].is_some()
+                    || !super::abbreviations::abbreviates(&ctx.prefix, &word)
+                {
                     continue;
                 }
-                let Some(corrected) = self.nearby_map.as_ref().and_then(|map| {
-                    super::nearby::corrected_prefix(&ctx.prefix, substitution, map)
-                }) else {
+                let whole = abbreviated_case(&ctx.prefix, &word, shift, caps);
+                (whole.clone(), (ctx.prefix.len(), whole + " "))
+            } else {
+                let corrected = if let Some(substitution) = &prediction.corrections[slot] {
+                    if slot >= 3 {
+                        continue;
+                    }
+                    let Some(corrected) = self.nearby_map.as_ref().and_then(|map| {
+                        super::nearby::corrected_prefix(&ctx.prefix, substitution, map)
+                    }) else {
+                        continue;
+                    };
+                    Some(corrected)
+                } else {
+                    None
+                };
+                let typed = corrected.as_deref().unwrap_or(&ctx.prefix);
+                let Some(offset) = prefix_offset(&word, typed) else {
                     continue;
                 };
-                Some(corrected)
-            } else {
-                None
-            };
-            let typed = corrected.as_deref().unwrap_or(&ctx.prefix);
-            let Some(offset) = prefix_offset(&word, typed) else {
-                continue;
-            };
-            let suffix = if shouting(&ctx.prefix) {
-                word[offset..].to_uppercase()
-            } else {
-                cased(
-                    &word[offset..],
-                    ctx.prefix.is_empty(),
-                    sentence_start,
-                    shift,
-                    caps,
-                )
-            };
-            // A word written in capitals keeps its typed prefix as it is.
-            let head = if shouting(&ctx.prefix) {
-                None
-            } else {
-                restored(typed, &word[..offset])
-            }
-            .or_else(|| corrected.as_ref().cloned());
-            let (label, insert) = match head {
-                Some(head) => (
-                    format!("{head}{suffix}"),
-                    (
-                        ctx.prefix.graphemes(true).count(),
-                        format!("{head}{suffix} "),
+                let suffix = if shouting(&ctx.prefix) {
+                    word[offset..].to_uppercase()
+                } else {
+                    cased(
+                        &word[offset..],
+                        ctx.prefix.is_empty(),
+                        sentence_start,
+                        shift,
+                        caps,
+                    )
+                };
+                // A word written in capitals keeps its typed prefix as it is.
+                let head = if shouting(&ctx.prefix) {
+                    None
+                } else {
+                    restored(typed, &word[..offset])
+                }
+                .or_else(|| corrected.as_ref().cloned());
+                match head {
+                    Some(head) => (
+                        format!("{head}{suffix}"),
+                        (
+                            ctx.prefix.graphemes(true).count(),
+                            format!("{head}{suffix} "),
+                        ),
                     ),
-                ),
-                None => (ctx.prefix.clone() + &suffix, (0, suffix + " ")),
+                    None => (ctx.prefix.clone() + &suffix, (0, suffix + " ")),
+                }
             };
             // Input refuses longer text, so such a suggestion is not offered.
             if insert.1.chars().count() > crate::scan_executor::PREDICTION_TEXT {
@@ -476,11 +494,18 @@ impl Engine {
                 caps,
                 sentence_start,
                 nearby_layout,
+                abbreviations,
             } => {
                 let mode_changed = self.nearby_layout != nearby_layout;
                 if mode_changed {
                     self.nearby_layout = nearby_layout;
                     self.nearby_map = nearby_layout.map(super::nearby::hit_map);
+                    self.batch = None;
+                    self.inserts = Default::default();
+                }
+                let mode_changed = mode_changed || self.abbreviations != abbreviations;
+                if self.abbreviations != abbreviations {
+                    self.abbreviations = abbreviations;
                     self.batch = None;
                     self.inserts = Default::default();
                 }
@@ -566,6 +591,20 @@ fn restored(typed: &str, head: &str) -> Option<String> {
         })
         .collect();
     (merged != typed).then_some(merged)
+}
+
+/// An abbreviated word replaces the whole typed prefix. Capitals typed as
+/// capitals throughout stay so, as do Caps or Shift locked the way they apply
+/// to a completion, and a typed capital first letter is kept.
+fn abbreviated_case(prefix: &str, word: &str, shift: Shift, caps: bool) -> String {
+    if shouting(prefix) || caps ^ (shift == Shift::Locked) {
+        return word.to_uppercase();
+    }
+    let mut chars = word.chars();
+    match (prefix.chars().next(), chars.next()) {
+        (Some(p), Some(w)) if p.is_uppercase() => w.to_uppercase().chain(chars).collect(),
+        _ => word.to_owned(),
+    }
 }
 
 /// A typed prefix of two or more letters, all capitals, is a word being
@@ -722,6 +761,81 @@ mod tests {
             *nearby_layout = layout;
         }
         r
+    }
+    fn abbreviation_engine(slot: usize, word: &str) -> Engine {
+        let mut prediction = super::super::model::Prediction::default();
+        prediction.words[slot] = Some(word.into());
+        prediction.abbreviated[slot] = true;
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(NearbyCandidate(prediction)));
+        e
+    }
+    fn abbreviation_request(edits: Vec<RecordedEdit>, enabled: bool) -> Request {
+        let mut r = request(edits, 1, None);
+        if let Request::Query { abbreviations, .. } = &mut r {
+            *abbreviations = enabled;
+        }
+        r
+    }
+    #[test]
+    fn abbreviation_replaces_the_owned_prefix_and_keeps_typed_capitals() {
+        for (prefix, word, expected) in [
+            ("abt", "about", "about "),
+            ("Abt", "about", "About "),
+            ("ABT", "about", "ABOUT "),
+            ("dont", "don't", "don't "),
+        ] {
+            let mut e = abbreviation_engine(0, word);
+            let b = response_batch(e.respond(abbreviation_request(
+                vec![append(&format!("tell me {prefix}"))],
+                true,
+            )));
+            assert_eq!(b.words[0].as_deref(), Some(expected.trim_end()));
+            assert_eq!(e.accept(b.token, 0), Some((prefix.len(), expected.into())));
+        }
+    }
+    #[test]
+    fn abbreviations_follow_caps_like_completions() {
+        let mut e = abbreviation_engine(0, "about");
+        let mut r = abbreviation_request(vec![append("abt")], true);
+        if let Request::Query { caps, .. } = &mut r {
+            *caps = true;
+        }
+        let b = response_batch(e.respond(r));
+        assert_eq!(b.words[0].as_deref(), Some("ABOUT"));
+        assert_eq!(e.accept(b.token, 0), Some((3, "ABOUT ".into())));
+    }
+    #[test]
+    fn abbreviations_require_the_mode_a_matching_word_and_an_instant_slot() {
+        // Off, a plain prefix, letters out of order, a non-ASCII or
+        // apostrophe prefix, and a forged later slot are all dropped.
+        for (prefix, word, slot, enabled) in [
+            ("abt", "about", 0, false),
+            ("abo", "about", 0, true),
+            ("atb", "about", 0, true),
+            ("bt", "about", 0, true),
+            ("ab'", "about", 0, true),
+            ("cfé", "café", 0, true),
+            ("a", "about", 0, true),
+            ("abt", "about", 3, true),
+            ("abt", "about", 5, true),
+        ] {
+            let mut e = abbreviation_engine(slot, word);
+            let b = response_batch(e.respond(abbreviation_request(vec![append(prefix)], enabled)));
+            assert!(
+                b.words.iter().all(Option::is_none),
+                "{prefix} {word} {slot}"
+            );
+        }
+        let mut e = abbreviation_engine(0, "about");
+        let first = response_batch(e.respond(abbreviation_request(vec![append("abt")], true)));
+        assert_eq!(first.words[0].as_deref(), Some("about"));
+        // Turning the mode off invalidates what was shown.
+        let off = e.respond(abbreviation_request(vec![], false));
+        if let Response::Suggestions { batch: Some(b), .. } = off {
+            assert!(b.words.iter().all(Option::is_none));
+        }
+        assert!(e.accept(first.token, 0).is_none());
     }
     #[test]
     fn correction_replaces_only_owned_prefix_and_preserves_typed_case() {
@@ -903,6 +1017,7 @@ mod tests {
             r,
             Request::Query {
                 nearby_layout: None,
+                abbreviations: false,
                 ..
             }
         ));
@@ -940,6 +1055,7 @@ mod tests {
                 caps: false,
                 sentence_start: false,
                 nearby_layout: None,
+                abbreviations: false,
             },
         )
         .unwrap();
@@ -953,6 +1069,7 @@ mod tests {
             self.pending = true;
             Ok(super::super::model::Prediction {
                 corrections: Default::default(),
+                abbreviated: Default::default(),
                 words: crate::prediction::slots(["water", "walk", "waffle"]),
             })
         }
@@ -963,6 +1080,7 @@ mod tests {
                 super::super::model::Prediction {
                     words,
                     corrections: Default::default(),
+                    abbreviated: Default::default(),
                 }
             })
         }
@@ -983,6 +1101,7 @@ mod tests {
             caps: false,
             sentence_start: false,
             nearby_layout: None,
+            abbreviations: false,
         }
     }
     fn response_batch(response: Response) -> Batch {
@@ -1158,6 +1277,7 @@ mod tests {
             fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
                 Ok(super::super::model::Prediction {
                     corrections: Default::default(),
+                    abbreviated: Default::default(),
                     words: [
                         None,
                         Some("water".into()),
@@ -1203,12 +1323,14 @@ mod tests {
                 self.pending = true;
                 Ok(super::super::model::Prediction {
                     corrections: Default::default(),
+                    abbreviated: Default::default(),
                     words: crate::prediction::slots(["water"]),
                 })
             }
             fn poll(&mut self) -> Option<super::super::model::Prediction> {
                 std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
                     corrections: Default::default(),
+                    abbreviated: Default::default(),
                     words: crate::prediction::slots(["water", "walnut", "wavy"]),
                 })
             }
@@ -1825,6 +1947,7 @@ mod tests {
             Ok(super::super::model::Prediction {
                 words,
                 corrections: Default::default(),
+                abbreviated: Default::default(),
             })
         }
     }
@@ -1987,6 +2110,7 @@ mod tests {
             caps: false,
             sentence_start: false,
             nearby_layout: None,
+            abbreviations: false,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
     }

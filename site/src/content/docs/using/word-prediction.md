@@ -42,6 +42,23 @@ are outside this model. It applies to unfinished prefixes of two to 32 English
 letters. Prefixes containing accents, apostrophes or other characters keep their
 usual completion behavior. Generated words and phrases keep their usual matching.
 
+## Abbreviation suggestions
+
+Under **Suggestions**, turn on **Abbreviation suggestions** to type a few letters
+of a word instead of its start. It is off by default.
+
+Type the first letter of the word, then some of its other letters in order. For
+example, `abt` can produce `about`, `ppl` can produce `people` and `tmrw` can
+produce `tomorrow`. Words that start with what you typed keep their places;
+abbreviated words only fill instant slots that are left over, ahead of any
+nearby-key suggestions. Choosing one replaces the unfinished word and adds a
+space. A capital first letter stays a capital. A word typed in capitals, or chosen
+with Caps on, is inserted in capitals.
+
+It applies to unfinished words of two to 32 English letters. Words typed with
+accents, apostrophes or other characters keep their usual completion behavior.
+Generated words and phrases keep their usual matching.
+
 ## It stays on the computer
 
 Prediction runs entirely on the computer. Nothing you type leaves it, and no model has to be downloaded. The AI model is included with the app.

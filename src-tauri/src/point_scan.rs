@@ -54,6 +54,9 @@ pub struct Config {
     /// Opt-in corrections for unused instant-word slots.
     #[serde(skip_serializing_if = "is_false")]
     pub nearby_key_predictions: bool,
+    /// Opt-in words from letters typed in order, for unused instant-word slots.
+    #[serde(skip_serializing_if = "is_false")]
+    pub abbreviation_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
     /// Retained for saved-settings compatibility; the model is always used
     /// when `word_prediction` is enabled.
@@ -90,6 +93,7 @@ impl Default for Config {
             scan_preferences: Default::default(),
             word_prediction: true,
             nearby_key_predictions: false,
+            abbreviation_predictions: false,
             keyboard_layout: KeyboardLayout::Qwerty,
             enhanced_word_prediction: false,
             keyboard_wait_after_typing: false,
@@ -167,6 +171,7 @@ impl Config {
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
             nearby_key_predictions: self.nearby_key_predictions,
+            abbreviation_predictions: self.abbreviation_predictions,
             keyboard_layout: self.keyboard_layout,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
@@ -197,6 +202,7 @@ pub struct PointSettings {
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
     pub nearby_key_predictions: bool,
+    pub abbreviation_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
@@ -611,6 +617,27 @@ impl Technique for Engine {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn abbreviation_predictions_are_opt_in_and_saved_settings_remain_compatible() {
+        let legacy: Config =
+            serde_json::from_str(r#"{"wordPrediction":true,"nearbyKeyPredictions":true}"#).unwrap();
+        assert!(!legacy.abbreviation_predictions);
+        assert!(serde_json::to_value(&legacy)
+            .unwrap()
+            .get("abbreviationPredictions")
+            .is_none());
+        let enabled = Config {
+            abbreviation_predictions: true,
+            ..legacy
+        };
+        let saved = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(saved["abbreviationPredictions"], true);
+        let restored: Config = serde_json::from_value(saved).unwrap();
+        assert!(restored.abbreviation_predictions);
+        assert!(restored.point().abbreviation_predictions);
+        assert!(restored.nearby_key_predictions);
+    }
 
     #[test]
     fn nearby_predictions_are_opt_in_and_saved_settings_remain_compatible() {
