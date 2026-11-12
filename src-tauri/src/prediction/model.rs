@@ -12,6 +12,9 @@ pub struct Prediction {
     pub words: [Option<String>; SLOTS],
     /// Only statistical instant candidates can carry correction provenance.
     pub corrections: [Option<KeySubstitution>; SLOTS],
+    /// Instant candidates that match the typed letters in order rather than
+    /// as a prefix. Accepting one replaces the owned prefix.
+    pub abbreviated: [bool; SLOTS],
 }
 
 #[cfg(test)]
@@ -22,6 +25,7 @@ pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<Stri
 
 pub trait Predict: Send {
     fn set_nearby_layout(&mut self, _layout: Option<KeyboardLayout>) {}
+    fn set_abbreviations(&mut self, _enabled: bool) {}
     #[cfg(test)]
     fn neural_status(&self) -> Option<switchify_prediction_neural::Status> {
         None
@@ -62,6 +66,8 @@ struct Nearby {
     layout: Option<KeyboardLayout>,
     map: Option<KeyHitMap>,
     corrections: [Option<KeySubstitution>; 3],
+    abbreviations: bool,
+    abbreviated: [bool; 3],
 }
 
 pub struct Model {
@@ -197,6 +203,7 @@ fn merged(
 fn merged_prediction(
     instant: &[Option<String>; 3],
     corrections: &[Option<KeySubstitution>; 3],
+    abbreviated: &[bool; 3],
     generated: &[String],
     phrases: Vec<Vec<String>>,
 ) -> Prediction {
@@ -205,9 +212,15 @@ fn merged_prediction(
         .zip(corrections)
         .filter_map(|(word, correction)| word.as_ref().map(|_| correction.clone()))
         .collect();
+    let flags: Vec<_> = instant
+        .iter()
+        .zip(abbreviated)
+        .filter_map(|(word, flag)| word.as_ref().map(|_| *flag))
+        .collect();
     Prediction {
         words: merged(instant, generated, phrases),
         corrections: std::array::from_fn(|i| metadata.get(i).cloned().flatten()),
+        abbreviated: std::array::from_fn(|i| flags.get(i).copied().unwrap_or(false)),
     }
 }
 
@@ -217,6 +230,12 @@ impl Predict for Model {
             self.reset();
             self.nearby.layout = layout;
             self.nearby.map = layout.map(super::nearby::hit_map);
+        }
+    }
+    fn set_abbreviations(&mut self, enabled: bool) {
+        if self.nearby.abbreviations != enabled {
+            self.reset();
+            self.nearby.abbreviations = enabled;
         }
     }
     #[cfg(test)]
@@ -229,10 +248,17 @@ impl Predict for Model {
         if let Some(config) = self.config.take() {
             self.neural = switchify_prediction_neural::Refiner::new(config).ok();
         }
-        let candidates =
-            super::nearby::suggestions(&self.predictor, before, prefix, self.nearby.map.as_ref());
+        let candidates = super::abbreviations::instant(
+            &self.predictor,
+            before,
+            prefix,
+            self.nearby.map.as_ref(),
+            self.nearby.abbreviations,
+        );
         self.nearby.corrections =
             std::array::from_fn(|i| candidates.get(i).and_then(|s| s.substitution.clone()));
+        self.nearby.abbreviated =
+            std::array::from_fn(|i| candidates.get(i).is_some_and(|s| s.abbreviated));
         let words: Vec<String> = candidates.into_iter().map(|s| s.word).collect();
         self.instant = std::array::from_fn(|i| words.get(i).cloned().map(display_word));
         self.refining = Refining {
@@ -248,6 +274,9 @@ impl Predict for Model {
         Ok(Prediction {
             words: std::array::from_fn(|i| self.instant.get(i).cloned().flatten()),
             corrections: std::array::from_fn(|i| self.nearby.corrections.get(i).cloned().flatten()),
+            abbreviated: std::array::from_fn(|i| {
+                self.nearby.abbreviated.get(i).copied().unwrap_or(false)
+            }),
         })
     }
     fn poll(&mut self) -> Option<Prediction> {
@@ -278,6 +307,7 @@ impl Predict for Model {
         Some(merged_prediction(
             &self.instant,
             &self.nearby.corrections,
+            &self.nearby.abbreviated,
             &refining.generated,
             phrases,
         ))
@@ -296,6 +326,7 @@ impl Predict for Model {
         self.refining = Refining::default();
         self.instant = Default::default();
         self.nearby.corrections = Default::default();
+        self.nearby.abbreviated = Default::default();
         if let Some(n) = &mut self.neural {
             n.reset();
         }
@@ -321,6 +352,7 @@ mod tests {
         let result = merged_prediction(
             &[None, Some("hello".into()), None],
             &[None, Some(substitution.clone()), None],
+            &[false, false, false],
             &["hrlog".into(), "hrlong".into()],
             vec![vec!["hrlog".into(), "today".into()]],
         );

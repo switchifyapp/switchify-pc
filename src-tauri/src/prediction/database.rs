@@ -92,12 +92,13 @@ impl Database {
     }
     #[cfg(test)]
     pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
-        self.predict_with_layout(context, None)
+        self.predict_with_layout(context, None, false)
     }
     pub fn predict_with_layout(
         &mut self,
         context: &Context,
         layout: Option<crate::point_scan::KeyboardLayout>,
+        abbreviations: bool,
     ) -> (Status, Prediction) {
         let status = self.status();
         if status != Status::Ready || context.partial {
@@ -108,6 +109,7 @@ impl Database {
         };
         let start = Instant::now();
         model.set_nearby_layout(layout);
+        model.set_abbreviations(abbreviations);
         let result = model.predict(&context.before, &context.prefix);
         self.slow_calls = if start.elapsed() > self.slow_call {
             self.slow_calls + 1
@@ -167,6 +169,7 @@ impl Predict for FakeModel {
         .collect();
         Ok(Prediction {
             corrections: Default::default(),
+            abbreviated: Default::default(),
             words: super::model::slots(words),
         })
     }
@@ -181,6 +184,7 @@ mod tests {
             std::thread::sleep(self.1);
             self.0.clone().map(|w| Prediction {
                 corrections: Default::default(),
+                abbreviated: Default::default(),
                 words: super::super::model::slots(w),
             })
         }

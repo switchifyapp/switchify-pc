@@ -802,3 +802,33 @@ it("defaults nearby-key suggestions off for old settings and keeps the choice wh
     config: expect.objectContaining({ wordPrediction: false, nearbyKeyPredictions: true })
   }));
 });
+
+it("defaults abbreviation suggestions off for old settings and saves the choice", async () => {
+  const legacy = { ...initial.config };
+  delete legacy.abbreviationPredictions;
+  mocks.invoke.mockImplementation(async (command, args) => {
+    if (command === "get_point_scan") return { ...initial, config: legacy };
+    if (command === "configure_point_scan") {
+      const saved = { ...args.config };
+      if (!saved.abbreviationPredictions) delete saved.abbreviationPredictions;
+      return { ...initial, config: saved };
+    }
+    return { ...initial, ...args };
+  });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
+  const abbreviations = screen.getByRole("checkbox", { name: "Abbreviation suggestions" });
+  expect(abbreviations).not.toBeChecked();
+  fireEvent.click(abbreviations);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ abbreviationPredictions: true })
+  }));
+  await waitFor(() => expect(abbreviations).toBeChecked());
+  fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
+  expect(abbreviations).toBeDisabled();
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ wordPrediction: false, abbreviationPredictions: true })
+  }));
+});

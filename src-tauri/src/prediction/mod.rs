@@ -1,3 +1,4 @@
+mod abbreviations;
 mod activity;
 mod context;
 mod database;
@@ -339,6 +340,7 @@ struct Service {
     accepting: bool,
     case: Option<(worker::Shift, bool, bool, bool)>,
     nearby_layout: Option<crate::point_scan::KeyboardLayout>,
+    abbreviations: bool,
     tracking: bool,
 }
 #[derive(Clone, Copy)]
@@ -384,8 +386,10 @@ fn word_char(c: char) -> bool {
 impl Service {
     fn configure_nearby(&mut self, keyboard: &mut Keyboard) {
         let layout = keyboard.nearby_predictions.then_some(keyboard.layout);
-        if self.nearby_layout != layout {
+        let abbreviations = keyboard.abbreviation_predictions;
+        if self.nearby_layout != layout || self.abbreviations != abbreviations {
             self.nearby_layout = layout;
+            self.abbreviations = abbreviations;
             self.generation = self.generation.wrapping_add(1);
             self.last = None;
             self.accept = None;
@@ -1023,6 +1027,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 caps: keyboard.caps,
                 sentence_start: keyboard.prediction_sentence_start(),
                 nearby_layout: s.nearby_layout,
+                abbreviations: s.abbreviations,
             }
         };
         let now = Instant::now();
@@ -1036,6 +1041,37 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn changing_abbreviation_mode_invalidates_pending_acceptance() {
+        let mut keyboard = Keyboard::new(false).with_abbreviation_predictions(true);
+        keyboard.enable_predictions(true);
+        keyboard.predictions(
+            Some(worker::Batch {
+                token: 7,
+                refined: false,
+                words: slots(["about"]),
+            }),
+            false,
+        );
+        let mut service = Service {
+            generation: 10,
+            accept: Some((7, 0)),
+            ..Default::default()
+        };
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 11);
+        assert!(service.abbreviations);
+        assert!(service.accept.is_none());
+        assert!(keyboard.displayed_prediction().is_none());
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 11);
+        keyboard.set_abbreviation_predictions(false);
+        service.configure_nearby(&mut keyboard);
+        assert_eq!(service.generation, 12);
+        assert!(!service.abbreviations);
+        assert!(service.nearby_layout.is_none());
+    }
 
     #[test]
     fn changing_nearby_mode_or_layout_invalidates_pending_acceptance() {

@@ -221,6 +221,8 @@ export function ScannerPreferences({ controller, settings: appSettings, onSettin
       <p className="setting-note">Uses an offline English word database and an on-device language model. Suggestions appear as you type and after a space. If prediction fails, a Retry predictions key appears on the keyboard; typing still works. Your typing never leaves this computer.</p>
       <Toggle label="Nearby-key suggestions" checked={config.nearbyKeyPredictions ?? false} disabled={disabled || !config.wordPrediction} onChange={value => update('nearbyKeyPredictions', value)} />
       <p className="setting-note">Fill empty instant word slots with words that allow one nearby letter change. Choosing one replaces the unfinished word. Off by default.</p>
+      <Toggle label="Abbreviation suggestions" checked={config.abbreviationPredictions ?? false} disabled={disabled || !config.wordPrediction} onChange={value => update('abbreviationPredictions', value)} />
+      <p className="setting-note">Fill empty instant word slots with words that contain the letters you typed, in order, such as about for abt. Choosing one replaces the unfinished word. Off by default.</p>
       {appSettings && onSettingsChange && <LearnedWords settings={appSettings} onSettingsChange={onSettingsChange} disabled={!config.wordPrediction} />}
     </SettingGroup>}
     <SettingGroup section="movement" title="Movement" description="">

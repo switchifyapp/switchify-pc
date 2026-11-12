@@ -133,7 +133,7 @@ const catalogue = [
     value: (c) => c.config ? (["menu", "keyboard"] as ScanArea[]).map((a) => `${a === "menu" ? "Menus" : "Keyboard"}: ${auto(areaOptions(c.config!, a))}`).join(". ") : null, related: ["scan-rate", "item-scanning", "keyboard-layout"] },
   { id: "keyboard-layout", label: "Keyboard layout", words: ["qwerty", "letters", "typing", "simple", "common letters first", "on-screen keyboard", "layout"], page: "scanning", section: "advanced", area: "keyboard",
     value: (c) => c.config ? keyboardLayouts[c.config.keyboardLayout] : null, related: ["word-prediction", "panel-size"] },
-  { id: "word-prediction", label: "Word prediction", words: ["suggestions", "predict", "learn from my typing", "learned words", "forget", "typing", "nearby key", "nearby-key suggestions", "letter correction", "mistyped letter"], page: "scanning", section: "advanced", area: "keyboard",
+  { id: "word-prediction", label: "Word prediction", words: ["suggestions", "predict", "learn from my typing", "learned words", "forget", "typing", "nearby key", "nearby-key suggestions", "letter correction", "mistyped letter", "abbreviation", "abbreviations", "abbreviation suggestions", "short form", "skip letters"], page: "scanning", section: "advanced", area: "keyboard",
     value: (c) => c.config ? (c.config.wordPrediction ? `On${c.settings?.learnWordPrediction ? ", learning from your typing" : ""}` : "Off") : null, related: ["keyboard-layout"] },
   { id: "panel-position", label: "Move panels away from the pointer", words: ["panel position", "covering", "in the way", "avoid pointer"], page: "scanning", section: "advanced", area: "keyboard",
     value: (c) => c.config ? (c.config.panelAvoidsPointer ? "On" : "Off") : null, related: ["panel-size"] },
