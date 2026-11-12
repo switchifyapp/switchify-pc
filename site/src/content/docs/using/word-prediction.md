@@ -5,6 +5,8 @@ description: Eight suggestions above the keyboard, computed on the computer and 
 
 While you type on the scanning [keyboard](/using/keyboard/), a row of suggestions appears above it. Select one to insert it and a space.
 
+The suggestion is typed one letter at a time, with a very short gap between letters. This helps apps that cannot keep up with fast typing, such as Notepad, keep every letter in the right place. A normal word still appears almost at once.
+
 The three instant word suggestions appear almost as soon as the keyboard opens;
 the English word model is a small file that loads quickly. The AI words and
 phrases follow once the on-device model has started. The bundled AI worker uses

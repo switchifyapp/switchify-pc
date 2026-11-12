@@ -4,6 +4,7 @@ use crate::{
     point_workflow::Request,
     protocol::MouseButton,
 };
+use std::time::Duration;
 pub fn execute<I: InputInjector>(
     input: &mut DesktopInput<I>,
     request: Request,
@@ -219,6 +220,12 @@ pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
 const PREDICTION_BACKSPACES: usize = 32;
 /// The most characters an accepted suggestion may type.
 pub const PREDICTION_TEXT: usize = 64;
+/// Wait after the deletions, before typing, so the app has applied them.
+const PREDICTION_DELETE_PAUSE: Duration = Duration::from_millis(15);
+/// Wait between typed characters. Some apps, such as Windows 11 Notepad,
+/// occasionally drop or misplace letters that arrive in one burst. At the
+/// 64-character limit a suggestion takes about 200 ms to type.
+const PREDICTION_CHARACTER_GAP: Duration = Duration::from_millis(3);
 
 /// Types an accepted suggestion, first deleting `backspaces` characters when
 /// the worker is restoring a capital in the typed prefix. The worker only
@@ -233,14 +240,17 @@ pub fn prediction_replace(backspaces: usize, text: &str) -> Result<(), String> {
         if input.has_active_switch_session() {
             return Err("Prediction input is unavailable.".into());
         }
-        replace_text(input, backspaces, text)
+        replace_text(input, backspaces, text, std::thread::sleep)
     })
 }
 
+/// Deletes, then types the suggestion one character at a time with `pause`
+/// between steps, so slower apps keep up.
 fn replace_text<T: crate::input::InputInjector>(
     input: &mut DesktopInput<T>,
     backspaces: usize,
     text: &str,
+    mut pause: impl FnMut(Duration),
 ) -> Result<(), String> {
     if text.chars().count() > PREDICTION_TEXT
         || backspaces > PREDICTION_BACKSPACES
@@ -251,7 +261,18 @@ fn replace_text<T: crate::input::InputInjector>(
     input.release_all()?;
     let result = (0..backspaces)
         .try_for_each(|_| input.scan_chord(&["Backspace"], None))
-        .and_then(|()| input.type_text(text));
+        .and_then(|()| {
+            if backspaces > 0 {
+                pause(PREDICTION_DELETE_PAUSE);
+            }
+            let mut buffer = [0; 4];
+            text.chars().enumerate().try_for_each(|(index, character)| {
+                if index > 0 {
+                    pause(PREDICTION_CHARACTER_GAP);
+                }
+                input.type_text(character.encode_utf8(&mut buffer))
+            })
+        });
     if result.is_err() {
         // Nothing stays held after a failure part-way through.
         let _ = input.release_all();
@@ -507,10 +528,17 @@ mod tests {
     #[test]
     fn accepted_predictions_delete_only_what_they_are_told_then_type() {
         let mut input = DesktopInput::new(Fake::default());
-        replace_text(&mut input, 0, "ter ").unwrap();
-        assert_eq!(input.injector.events, ["text ter "]);
+        let mut pauses = Vec::new();
+        replace_text(&mut input, 0, "ter ", |d| pauses.push(d)).unwrap();
+        assert_eq!(
+            input.injector.events,
+            ["text t", "text e", "text r", "text  "]
+        );
+        // Nothing was deleted, so typing starts at once.
+        assert_eq!(pauses, [PREDICTION_CHARACTER_GAP; 3]);
         input.injector.events.clear();
-        replace_text(&mut input, 2, "WhatsApp ").unwrap();
+        pauses.clear();
+        replace_text(&mut input, 2, "Wé ", |d| pauses.push(d)).unwrap();
         assert_eq!(
             input.injector.events,
             [
@@ -518,20 +546,44 @@ mod tests {
                 "key Backspace false",
                 "key Backspace true",
                 "key Backspace false",
-                "text WhatsApp "
+                "text W",
+                "text é",
+                "text  "
+            ]
+        );
+        assert_eq!(
+            pauses,
+            [
+                PREDICTION_DELETE_PAUSE,
+                PREDICTION_CHARACTER_GAP,
+                PREDICTION_CHARACTER_GAP
             ]
         );
         input.injector.events.clear();
-        assert!(replace_text(&mut input, PREDICTION_BACKSPACES + 1, "x ").is_err());
-        assert!(replace_text(&mut input, 0, &"x".repeat(65)).is_err());
+        pauses.clear();
+        assert!(
+            replace_text(&mut input, PREDICTION_BACKSPACES + 1, "x ", |d| pauses
+                .push(d))
+            .is_err()
+        );
+        assert!(replace_text(&mut input, 0, &"x".repeat(65), |d| pauses.push(d)).is_err());
         assert!(input.injector.events.is_empty());
-        // Typing fails after the deletion: the error is reported and no key
-        // is left down.
+        assert!(pauses.is_empty());
+        // The longest suggestion stays well under a quarter of a second.
+        let mut total = Duration::ZERO;
+        replace_text(&mut input, PREDICTION_BACKSPACES, &"x".repeat(64), |d| {
+            total += d
+        })
+        .unwrap();
+        assert!(total <= Duration::from_millis(250), "{total:?}");
+        input.injector.events.clear();
+        // Typing fails after the deletion: the error is reported, the rest
+        // of the suggestion is not typed, and no key is left down.
         input.injector.fail_text = true;
-        assert!(replace_text(&mut input, 1, "I'm ").is_err());
+        assert!(replace_text(&mut input, 1, "I'm ", |_| {}).is_err());
         assert_eq!(
             input.injector.events,
-            ["key Backspace true", "key Backspace false", "text I'm "]
+            ["key Backspace true", "key Backspace false", "text I"]
         );
         let downs = |events: &[String], down: &str| {
             events
