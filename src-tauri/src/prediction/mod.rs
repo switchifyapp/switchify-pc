@@ -343,6 +343,16 @@ struct Service {
     abbreviations: bool,
     tracking: bool,
 }
+/// How an accepted suggestion that was not fully typed left the text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InsertFailure {
+    /// Nothing was deleted or typed.
+    Untouched,
+    /// Some of it was deleted or typed in the same window.
+    Changed,
+    /// Another window took focus.
+    Left,
+}
 #[derive(Clone, Copy)]
 pub struct InputScope {
     foreground: usize,
@@ -458,6 +468,16 @@ impl Service {
     fn interrupt(&mut self) {
         self.held |= self.in_word();
         self.forget();
+    }
+    /// An accepted suggestion was not fully typed. Focus went elsewhere:
+    /// typing continues there. Part of it landed: the caret is in text that
+    /// was never seen. Otherwise nothing changed and the caret has not moved.
+    fn insert_failed(&mut self, failure: InsertFailure) {
+        match failure {
+            InsertFailure::Left => self.moved(),
+            InsertFailure::Changed => self.displaced(true),
+            InsertFailure::Untouched => self.interrupt(),
+        }
     }
     /// The context is lost and the caret is somewhere in the text nearby,
     /// which was never seen. After a navigation key it is taken to be
@@ -949,8 +969,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         foreground,
                     } => {
                         s.accepting = false;
-                        // Whether a failure left part of the suggestion typed.
-                        let mut changed = false;
+                        let mut failure = InsertFailure::Untouched;
                         let result = if generation == s.generation {
                             text.ok_or(()).and_then(|text| {
                                 crate::point_scan_ready(app).map_err(|_| ())?;
@@ -965,9 +984,17 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 crate::scan_executor::prediction_replace(backspaces, &text, || {
                                     scope.unchanged()
                                 })
-                                .map_err(|failed| changed = failed.changed)?;
+                                .map_err(|failed| {
+                                    failure = if !scope.unchanged() {
+                                        InsertFailure::Left
+                                    } else if failed.changed {
+                                        InsertFailure::Changed
+                                    } else {
+                                        InsertFailure::Untouched
+                                    };
+                                })?;
                                 if !scope.unchanged() {
-                                    changed = true;
+                                    failure = InsertFailure::Left;
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
@@ -993,13 +1020,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 );
                             }
                         } else {
-                            if changed {
-                                // Part of the suggestion landed, so the caret
-                                // is somewhere in text that was never seen.
-                                s.displaced(true);
-                            } else {
-                                s.interrupt();
-                            }
+                            s.insert_failed(failure);
                             let _ = crate::scan_executor::cleanup();
                             keyboard.failed();
                         }
@@ -1388,6 +1409,29 @@ mod tests {
         s.typed(Edit::Backspace, scope);
         s.typed(Edit::Append(". ".into()), scope);
         assert!(!s.held && s.edit.is_empty());
+    }
+    #[test]
+    fn a_suggestion_not_fully_typed_resets_context_by_where_it_stopped() {
+        let scope = InputScope::capture();
+        // Nothing typed after a space: suggestions carry on as before.
+        let mut s = service("say ");
+        s.insert_failed(InsertFailure::Untouched);
+        assert!(!s.held);
+        // Part of it typed after a space: the caret is now inside a word
+        // that was never seen, so suggestions wait for the next one.
+        let mut s = service("say ");
+        s.insert_failed(InsertFailure::Changed);
+        assert!(s.held && s.beyond);
+        s.stroke(key(' '), true, true, scope);
+        assert!(!s.held);
+        // Another window took focus: typing starts fresh there.
+        let mut s = service("say hel");
+        s.insert_failed(InsertFailure::Left);
+        assert!(!s.held && !s.beyond);
+        for c in "hi".chars() {
+            s.stroke(key(c), true, true, scope);
+        }
+        assert!(sent(&mut s).ends_with("hi"));
     }
     #[test]
     fn deleting_the_rest_of_the_word_releases_the_hold() {
