@@ -343,6 +343,27 @@ struct Service {
     abbreviations: bool,
     tracking: bool,
 }
+/// How an accepted suggestion that was not fully typed left the text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InsertFailure {
+    /// Nothing was deleted or typed.
+    Untouched,
+    /// Some of it was deleted or typed in the same window.
+    Changed,
+    /// Another window took focus.
+    Left,
+}
+impl InsertFailure {
+    /// Focus leaving outranks partial typing: typing continues in the new
+    /// window, whatever landed in the old one.
+    fn classify(changed: bool, same_window: bool) -> Self {
+        match (changed, same_window) {
+            (_, false) => Self::Left,
+            (true, true) => Self::Changed,
+            (false, true) => Self::Untouched,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 pub struct InputScope {
     foreground: usize,
@@ -458,6 +479,16 @@ impl Service {
     fn interrupt(&mut self) {
         self.held |= self.in_word();
         self.forget();
+    }
+    /// An accepted suggestion was not fully typed. Focus went elsewhere:
+    /// typing continues there. Part of it landed: the caret is in text that
+    /// was never seen. Otherwise nothing changed and the caret has not moved.
+    fn insert_failed(&mut self, failure: InsertFailure) {
+        match failure {
+            InsertFailure::Left => self.moved(),
+            InsertFailure::Changed => self.displaced(true),
+            InsertFailure::Untouched => self.interrupt(),
+        }
     }
     /// The context is lost and the caret is somewhere in the text nearby,
     /// which was never seen. After a navigation key it is taken to be
@@ -789,6 +820,13 @@ pub fn select(token: u64, index: usize) -> Result<(), String> {
 fn may_delete(backspaces: usize, chosen: (u64, bool), now: (u64, bool)) -> bool {
     backspaces == 0 || (chosen.1 && now == chosen)
 }
+/// Whether typing a suggestion may continue: no keyboard or mouse activity
+/// from outside Switchify since it started. An observer that was not
+/// running when typing started cannot tell, and does not stop it; one that
+/// stops part-way does.
+fn still_undisturbed(started: (u64, bool), now: (u64, bool)) -> bool {
+    !started.1 || now == started
+}
 
 /// Resolve the baseline file; the worker verifies its pinned identity before loading.
 fn resource(app: &AppHandle) -> Result<std::path::PathBuf, ()> {
@@ -949,20 +987,39 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                         foreground,
                     } => {
                         s.accepting = false;
+                        let mut failure = InsertFailure::Untouched;
                         let result = if generation == s.generation {
                             text.ok_or(()).and_then(|text| {
                                 crate::point_scan_ready(app).map_err(|_| ())?;
                                 let scope = InputScope::capture();
                                 if Some(scope.foreground) != foreground || !scope.unchanged() {
+                                    let left = foreground.is_some_and(|f| f != scope.foreground)
+                                        || !scope.unchanged();
+                                    failure = InsertFailure::classify(false, !left);
                                     return Err(());
                                 }
                                 if !may_delete(backspaces, s.accept_activity, activity::snapshot())
                                 {
                                     return Err(());
                                 }
-                                crate::scan_executor::prediction_replace(backspaces, &text)
-                                    .map_err(|_| ())?;
+                                // A click or key from outside Switchify may
+                                // have moved the caret between characters.
+                                let started = activity::snapshot();
+                                let undisturbed =
+                                    || still_undisturbed(started, activity::snapshot());
+                                crate::scan_executor::prediction_replace(backspaces, &text, || {
+                                    scope.unchanged() && undisturbed()
+                                })
+                                .map_err(|failed| {
+                                    failure =
+                                        InsertFailure::classify(failed.changed, scope.unchanged());
+                                })?;
                                 if !scope.unchanged() {
+                                    failure = InsertFailure::classify(true, false);
+                                    return Err(());
+                                }
+                                if !undisturbed() {
+                                    failure = InsertFailure::classify(true, true);
                                     return Err(());
                                 }
                                 let trailing_space = text.ends_with(' ');
@@ -988,7 +1045,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                                 );
                             }
                         } else {
-                            s.interrupt();
+                            s.insert_failed(failure);
                             let _ = crate::scan_executor::cleanup();
                             keyboard.failed();
                         }
@@ -1142,6 +1199,16 @@ mod tests {
         assert!(!may_delete(2, (3, true), (4, true)));
         assert!(!may_delete(2, (3, true), (3, false)));
         assert!(!may_delete(2, (3, false), (3, false)));
+    }
+    #[test]
+    fn typing_a_suggestion_stops_after_outside_input() {
+        assert!(still_undisturbed((3, true), (3, true)));
+        // A click or key from outside moved the epoch: the caret may move.
+        assert!(!still_undisturbed((3, true), (4, true)));
+        // The observer stopped part-way and can no longer vouch.
+        assert!(!still_undisturbed((3, true), (3, false)));
+        // It was never running, so typing carries on as before.
+        assert!(still_undisturbed((3, false), (9, false)));
     }
     #[test]
     fn activity_observer_retries_after_failure_or_lost_hook() {
@@ -1377,6 +1444,37 @@ mod tests {
         s.typed(Edit::Backspace, scope);
         s.typed(Edit::Append(". ".into()), scope);
         assert!(!s.held && s.edit.is_empty());
+    }
+    #[test]
+    fn a_failed_suggestion_is_classified_with_focus_leaving_first() {
+        use InsertFailure::*;
+        assert_eq!(InsertFailure::classify(false, true), Untouched);
+        assert_eq!(InsertFailure::classify(true, true), Changed);
+        assert_eq!(InsertFailure::classify(false, false), Left);
+        assert_eq!(InsertFailure::classify(true, false), Left);
+    }
+    #[test]
+    fn a_suggestion_not_fully_typed_resets_context_by_where_it_stopped() {
+        let scope = InputScope::capture();
+        // Nothing typed after a space: suggestions carry on as before.
+        let mut s = service("say ");
+        s.insert_failed(InsertFailure::Untouched);
+        assert!(!s.held);
+        // Part of it typed after a space: the caret is now inside a word
+        // that was never seen, so suggestions wait for the next one.
+        let mut s = service("say ");
+        s.insert_failed(InsertFailure::Changed);
+        assert!(s.held && s.beyond);
+        s.stroke(key(' '), true, true, scope);
+        assert!(!s.held);
+        // Another window took focus: typing starts fresh there.
+        let mut s = service("say hel");
+        s.insert_failed(InsertFailure::Left);
+        assert!(!s.held && !s.beyond);
+        for c in "hi".chars() {
+            s.stroke(key(c), true, true, scope);
+        }
+        assert!(sent(&mut s).ends_with("hi"));
     }
     #[test]
     fn deleting_the_rest_of_the_word_releases_the_hold() {
