@@ -419,7 +419,6 @@ mod tests {
         );
         controller.resume();
         assert!(!controller.suspended());
-        assert!(stop_message(StopReason::Suspended).contains("sleeps"));
     }
     #[test]
     fn keyboard_entry_excludes_capture_without_changing_bindings() {

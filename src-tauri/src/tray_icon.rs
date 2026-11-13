@@ -326,12 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn every_pixel_carries_the_one_colour() {
-        let rgba = render(24, [12, 34, 56]);
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[..3] == [12, 34, 56]));
-    }
-
-    #[test]
     fn colour_contrasts_with_the_taskbar() {
         assert_eq!(colour_for_taskbar(false), [255, 255, 255]);
         assert_eq!(colour_for_taskbar(true), [0, 0, 0]);

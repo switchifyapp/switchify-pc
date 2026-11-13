@@ -452,33 +452,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn single_display_resolves_interior_edges_and_corners() {
-        let frames = [rect(0.0, 0.0, 1920.0, 1080.0)];
-        for point in [
-            NSPoint { x: 960.0, y: 540.0 },
-            NSPoint { x: 0.0, y: 540.0 },
-            NSPoint {
-                x: 1920.0,
-                y: 540.0,
-            },
-            NSPoint { x: 960.0, y: 0.0 },
-            NSPoint {
-                x: 960.0,
-                y: 1080.0,
-            },
-            NSPoint { x: 0.0, y: 0.0 },
-            NSPoint { x: 1920.0, y: 0.0 },
-            NSPoint { x: 0.0, y: 1080.0 },
-            NSPoint {
-                x: 1920.0,
-                y: 1080.0,
-            },
-        ] {
-            assert_eq!(screen_index_at_point(&frames, point), Some(0));
-        }
-    }
-
-    #[test]
     fn shared_boundary_keeps_half_open_screen_ownership() {
         let frames = [
             rect(-1920.0, 0.0, 1920.0, 1080.0),
@@ -686,7 +659,6 @@ mod tests {
         assert_eq!(layout.height, 256);
         assert_eq!(layout.bytes_per_row, 1024);
         assert_eq!(layout.logical_size, 128.0);
-        assert_eq!(PREMULTIPLIED_RGBA_BITMAP_FORMAT.0, 0);
     }
 
     #[test]

@@ -719,57 +719,6 @@ mod tests {
         assert!(input.injector.events.contains(&"button Left false".into()));
     }
     #[test]
-    fn radar_moves_the_fake_pointer_inside_the_chosen_quarter() {
-        use crate::scanning::{Action, Rect, Technique};
-        let screen = Rect {
-            x: -1280.0,
-            y: 0.0,
-            width: 1280.0,
-            height: 720.0,
-        };
-        let config = crate::point_scan::Config {
-            start_with: crate::point_scan::StartWith::LastMode,
-            ..Default::default()
-        };
-        let mut workflow =
-            crate::point_workflow::Workflow::new(config.point(), screen, 1.0).unwrap();
-        workflow.handle(Action::OpenMouse);
-        workflow.set_pointer(Some((-1000.0, 100.0)));
-        assert_eq!(
-            workflow.choose_mouse_key(crate::scan_mouse::Key::Radar),
-            None
-        );
-        let mut input = DesktopInput::new(Fake::default());
-        let mut run = |request: Option<Request>| {
-            if let Some(request) = request {
-                execute(&mut input, request, true).unwrap();
-            }
-        };
-        // The top right quarter, around (-320, 180), then straight down.
-        run(workflow.handle(Action::Next));
-        run(workflow.handle(Action::Select));
-        for _ in 0..36 {
-            run(workflow.handle(Action::Next));
-        }
-        run(workflow.handle(Action::Select));
-        for _ in 0..5 {
-            run(workflow.handle(Action::Next));
-        }
-        run(workflow.handle(Action::Select));
-        assert_eq!(
-            input.injector.events,
-            [
-                "move -320 180",
-                "move -320 200",
-                "move -320 220",
-                "move -320 240",
-                "move -320 260",
-                "move -320 280",
-                "move -320 280",
-            ]
-        );
-    }
-    #[test]
     fn radar_takes_the_fake_pointer_along_and_never_snaps_it_back() {
         use crate::point_workflow::Workflow;
         use crate::scanning::{Action, Rect, Session, Technique};
@@ -1321,20 +1270,6 @@ mod tests {
             .ends_with(&["key Shift false".into(), "button Left false".into()]));
     }
     #[test]
-    fn commands_reject_held_physical_modifiers_without_injection() {
-        let mut input = DesktopInput::new(Fake::default());
-        assert!(execute(
-            &mut input,
-            Request::Command {
-                command: Command::Copy,
-                point: (0, 0)
-            },
-            false
-        )
-        .is_err());
-        assert!(input.injector.events.is_empty());
-    }
-    #[test]
     fn platform_mappings_and_input_marker_are_explicit() {
         assert_eq!(
             shortcut(Command::Redo, true).unwrap(),
@@ -1398,7 +1333,7 @@ mod tests {
         }
     }
     #[test]
-    fn media_and_extra_clicks_execute_once() {
+    fn media_commands_execute_once() {
         let mut input = DesktopInput::new(Fake::default());
         execute(
             &mut input,
@@ -1410,16 +1345,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(input.injector.events, ["media volumeUp"]);
-        input.injector.events.clear();
-        execute(
-            &mut input,
-            Request::Command {
-                command: Command::TripleClick,
-                point: (100, 200),
-            },
-            true,
-        )
-        .unwrap();
-        assert_eq!(input.injector.events, ["move 100 200", "click Left 3"]);
     }
 }

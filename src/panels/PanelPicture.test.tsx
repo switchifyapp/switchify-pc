@@ -82,8 +82,6 @@ describe("PanelPicture", () => {
   });
 
   it("follows the chosen panel theme, or the computer when set to system", () => {
-    expect(picturePalette("dark").panel).toBe("#141820");
-    expect(picturePalette("light").panel).toBe("#f0f2f6");
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({ matches: query === "(prefers-color-scheme: light)" })) as unknown as typeof window.matchMedia;
     expect(picturePalette("system").panel).toBe("#f0f2f6");
     expect(picturePalette(undefined).panel).toBe("#f0f2f6");

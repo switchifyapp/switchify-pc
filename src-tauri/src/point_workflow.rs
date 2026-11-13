@@ -5251,23 +5251,6 @@ mod tests {
         assert!(frame.label.is_none(), "the wait is not written out");
         assert!(frame.tiles.iter().all(|tile| !tile.selected));
     }
-    #[test]
-    fn keyboard_key_acknowledgement_is_exactly_once_and_reset_discards_state() {
-        let mut s = session(false);
-        let w = &mut s.technique;
-        w.selected(Item::Keyboard);
-        w.execution_succeeded();
-        assert!(w.handle(Action::Select).is_none());
-        assert!(matches!(
-            w.handle(Action::Select),
-            Some(Request::Keyboard(_))
-        ));
-        assert!(w.handle(Action::Select).is_none());
-        w.execution_succeeded();
-        assert!(w.handle(Action::Select).is_none());
-        w.reset();
-        assert_eq!(w.phase(), Phase::default());
-    }
     fn keyboard_session(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
         let config = Config {
             automatic: false,

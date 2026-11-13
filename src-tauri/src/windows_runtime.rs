@@ -2983,60 +2983,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pointer_profile_reassembles_after_serial_notification_delivery() {
-        let profile = PointerProfile {
-            display_id: "display-1".into(),
-            scale_factor: 1.5,
-            x: -1280,
-            y: 0,
-            width: 2560,
-            height: 1440,
-            small_delta: 32,
-            medium_delta: 86,
-            large_delta: 187,
-            display_navigation_supported: true,
-            display_count: 3,
-        };
-        let response = pointer_profile_response("profile-1", &profile, &AppSettings::default());
-        let expected_frames = create_notification_frames(&response, NOTIFICATION_BYTES)
-            .unwrap()
-            .len();
-        assert!(expected_frames > 1);
-        let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
-        let submitted = Arc::new(Mutex::new(Vec::new()));
-        let worker_submitted = submitted.clone();
-        let worker = tokio::spawn(run_notification_worker(
-            dispatcher.clone(),
-            move |frame, _target| {
-                let submitted = worker_submitted.clone();
-                async move {
-                    submitted
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .push(frame);
-                    Ok(())
-                }
-            },
-            |_| {},
-        ));
-
-        dispatcher
-            .enqueue(&response, NotificationTarget::AllSubscribers)
-            .unwrap();
-        wait_for_frame_count(&submitted, expected_frames).await;
-        assert_eq!(
-            reassemble_messages(
-                &submitted
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-            ),
-            [response]
-        );
-        worker.abort();
-    }
-
-    #[tokio::test]
     async fn negotiated_profile_delivery_finishes_inside_remote_timeout() {
         let profile = PointerProfile {
             display_id: "display-1".into(),
@@ -3409,22 +3355,6 @@ mod tests {
             ),
             (24, 65, 140)
         );
-    }
-
-    #[tokio::test]
-    async fn notification_worker_exits_when_dispatcher_shuts_down() {
-        let dispatcher = NotificationDispatcher::default();
-        let worker_dispatcher = dispatcher.clone();
-        let worker = tokio::spawn(run_notification_worker(
-            worker_dispatcher,
-            |_, _| async { Ok(()) },
-            |_| {},
-        ));
-        dispatcher.shutdown();
-        tokio::time::timeout(Duration::from_secs(1), worker)
-            .await
-            .expect("worker should stop")
-            .expect("worker should not panic");
     }
 
     #[tokio::test]

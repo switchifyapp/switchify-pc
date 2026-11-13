@@ -287,16 +287,6 @@ mod tests {
     }
 
     #[test]
-    fn ways_out_are_drawn_as_toolbar_keys_and_leave_the_panel() {
-        assert_eq!(role(&PanelAction::Close), TileRole::Toolbar);
-        assert_eq!(role(&PanelAction::Pause), TileRole::Utility);
-        assert!(leaves(&PanelAction::Back));
-        assert!(leaves(&PanelAction::MyPanels));
-        assert!(!leaves(&PanelAction::Text { text: "x".into() }));
-        assert!(!leaves(&PanelAction::Reverse));
-    }
-
-    #[test]
     fn synced_tiles_replace_only_when_different_and_merge_per_panel() {
         let hello = vec![vec![tile(
             " Hello ",

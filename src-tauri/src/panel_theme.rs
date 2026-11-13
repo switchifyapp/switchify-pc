@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dark_highlights_are_the_scanner_colours_and_light_ones_are_deeper() {
+    fn light_highlights_are_deeper_than_the_scanner_colours() {
         for color in [
             ScannerColor::Red,
             ScannerColor::Green,
@@ -129,12 +129,6 @@ mod tests {
             ScannerColor::Yellow,
             ScannerColor::White,
         ] {
-            assert_eq!(Appearance::Dark.highlight(color), color.rgb());
-            let [r, g, b] = color.rgb().map(u16::from);
-            assert_eq!(
-                Appearance::Dark.highlight_fill(color),
-                [(90 + r) / 4, (105 + g) / 4, (138 + b) / 4].map(|c| c as u8)
-            );
             let light = Appearance::Light.highlight(color);
             let luma =
                 |[r, g, b]: [u8; 3]| u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114;

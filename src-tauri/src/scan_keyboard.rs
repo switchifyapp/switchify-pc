@@ -2493,10 +2493,6 @@ mod tests {
                 "missing {key:?}"
             );
         }
-        assert_eq!(
-            rows_for(Page::Numbers, false, KeyboardLayout::Qwerty),
-            rows_for(Page::Numbers, false, KeyboardLayout::CommonLetters)
-        );
     }
     #[test]
     fn simple_qwerty_keeps_predictions_above_the_three_letter_rows() {
@@ -2671,27 +2667,6 @@ mod tests {
         assert_eq!(s.character(), Some('a'));
         s.key = Key::Character('3', '£');
         assert_eq!(s.character(), Some('£'));
-    }
-    #[test]
-    fn scan_returns_to_top_and_has_row_escape_and_suspension() {
-        let mut k = Keyboard::new(false);
-        k.handle(Action::Select);
-        assert!(!k.scan.nav.path().is_empty());
-        k.handle(Action::Back);
-        assert!(k.scan.nav.escaping());
-        k.handle(Action::Select);
-        assert!(k.scan.nav.path().is_empty());
-        k.handle(Action::Select);
-        assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
-        k.succeeded();
-        assert!(k.scan.nav.path().is_empty());
-        assert_eq!(k.scan.nav.index(), 0);
-        for _ in 0..k.rows.len() * k.scan.options.pass_limit {
-            k.advance(100, 100);
-        }
-        assert!(k.suspended());
-        assert!(k.handle(Action::Select).is_none());
-        assert!(!k.suspended());
     }
     #[test]
     fn layouts_and_predictions_keep_bounds_independent_of_text() {

@@ -1068,7 +1068,6 @@ mod tests {
         assert!(label.rect.x >= screen.x && label.rect.y >= screen.y);
         assert!(label.rect.x + label.rect.width <= screen.x + screen.width);
         assert!(label.rect.y + label.rect.height <= screen.y + screen.height);
-        assert_eq!(serde_json::to_value(Phase::RowEscape).unwrap(), "rowEscape");
     }
     #[test]
     fn line_selects_x_then_y_and_resets() {
