@@ -2014,7 +2014,10 @@ impl Technique for Workflow {
                 self.keyboard_area,
                 self.point.units_per_logical_pixel,
                 self.point.config.scanner_color,
-                self.key_repeat.is_some() && self.key_repeating(),
+                self.key_repeat
+                    .as_ref()
+                    .filter(|_| self.key_repeating())
+                    .map(|repeat| repeat.stroke.key),
             ),
             Stage::Mouse | Stage::MouseMoving | Stage::MouseScrolling => self.mouse.frame(
                 self.mouse_area,
@@ -5305,7 +5308,15 @@ mod tests {
             assert_eq!(s.technique.mouse_repeat_stop_edge(), edge);
             let frame = s.frame();
             assert!(frame.tiles.iter().all(|tile| !tile.selected));
-            assert!(frame.label.is_none(), "repeating is not written out");
+            assert!(frame.label.is_none());
+            let repeating: Vec<_> = frame
+                .tiles
+                .iter()
+                .filter(|tile| tile.text.ends_with("\nRepeating"))
+                .collect();
+            assert_eq!(repeating.len(), 1);
+            assert_eq!(repeating[0].text, "\u{232B}\nRepeating");
+            assert!(repeating[0].style.unwrap().active);
 
             s.tick(250, false);
             s.tick(249, false);
@@ -5321,6 +5332,11 @@ mod tests {
             s.technique.execution_succeeded();
 
             assert!(s.technique.stop_mouse_repeat());
+            assert!(s
+                .frame()
+                .tiles
+                .iter()
+                .all(|tile| !tile.text.ends_with("\nRepeating")));
             assert!(!s.technique.stop_mouse_repeat());
             assert_eq!(
                 s.technique.phase(),
@@ -5348,12 +5364,28 @@ mod tests {
             "PageDown",
         ] {
             let mut s = keyboard_session(Default::default());
+            if name != "Backspace" {
+                s.technique
+                    .choose_key(Key::Page(crate::scan_keyboard::Page::Functions));
+            }
             assert!(typed(s.technique.choose_key(Key::Named(name)), name));
+            assert!(s
+                .frame()
+                .tiles
+                .iter()
+                .all(|tile| !tile.text.ends_with("\nRepeating")));
             s.technique.execution_succeeded();
             assert!(s.technique.mouse_repeating(), "{name}");
             let frame = s.frame();
             assert!(frame.label.is_none(), "{name}");
             assert!(frame.tiles.iter().all(|tile| !tile.selected), "{name}");
+            let repeating: Vec<_> = frame
+                .tiles
+                .iter()
+                .filter(|tile| tile.text.ends_with("\nRepeating"))
+                .collect();
+            assert_eq!(repeating.len(), 1, "{name}");
+            assert!(repeating[0].style.unwrap().active, "{name}");
         }
         for key in [
             Key::Named("Enter"),
@@ -5457,6 +5489,13 @@ mod tests {
             }
             s.tick(250, false);
             assert!(!s.technique.mouse_repeating(), "{reason}");
+            assert!(
+                s.frame()
+                    .tiles
+                    .iter()
+                    .all(|tile| !tile.text.ends_with("\nRepeating")),
+                "{reason}"
+            );
             assert_ne!(
                 s.technique.phase(),
                 Phase::Workflow(WorkflowPhase::KeyboardRepeating),

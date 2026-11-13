@@ -40,7 +40,9 @@ After a full stop, comma, question mark or exclamation mark on the Letters or Sy
 
 ## Repeating keys
 
-Backspace, Delete, the arrows, Tab, Page Up and Page Down can repeat while you hold the switch.
+Turn on **Repeat keys on the scanned keyboard** under **Settings**, **Input** to repeat Backspace, Delete, the arrows, Tab, Page Up and Page Down after choosing them. The key stays marked and shows **Repeating** until repetition stops. The delay and interval follow the key repeat timing under **More options**.
+
+Use a switch to stop repeating. Choose whether repetition stops on switch press or release under **Scanning**, **Mouse pointer**, **Stop repeating**. The stop gesture does not run the switch's assigned action.
 
 ## Where it sits
 
@@ -48,6 +50,6 @@ The keyboard opens on the display the pointer is on and stays on that display wh
 
 The slim bar along the top of the keyboard shows the Switchify PC name and a **Settings** button. Click the button with a mouse to open the Switchify PC window on its Settings page. The keyboard stays put while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus from the app you are typing into; the Switchify PC window opens in front of it.
 
-Nothing else is written across the keyboard: the highlight shows what Select will choose. While the keyboard is waiting or paused, a key is repeating, or the suggestions are being refreshed, nothing is highlighted; press Select to carry on. Only a failure is written out: if a key could not be sent, or a saved layout could not be stored, a short message appears just above the keyboard, or below it when the keyboard is at the top of the display, and goes away when you deal with it.
+The scan highlight shows what Select will choose. While a key repeats, its **Repeating** label and active colour identify it, and the scan highlight is hidden. While the keyboard is waiting or paused, or the suggestions are being refreshed, nothing is highlighted; press Select to carry on. If a key could not be sent, or a saved layout could not be stored, a short message appears just above the keyboard, or below it when the keyboard is at the top of the display, and goes away when you deal with it.
 
 Word prediction has its own page: [Word prediction](/using/word-prediction/).
