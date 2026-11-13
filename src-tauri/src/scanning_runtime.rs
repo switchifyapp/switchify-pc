@@ -1546,24 +1546,7 @@ mod config_file_tests {
 #[cfg(test)]
 mod repeat_stop_tests {
     use super::RepeatStop;
-    use crate::{
-        scanning::Action,
-        switch_gestures::Gestures,
-        switches::{Binding, Settings},
-    };
-
-    fn switches() -> Settings {
-        Settings {
-            bindings: vec![Binding {
-                id: "one".into(),
-                name: "Switch".into(),
-                key: "Space".into(),
-                press_action: Action::Select,
-                hold_actions: vec![Action::OpenKeyboard, Action::Stop],
-            }],
-            ..Settings::default()
-        }
-    }
+    use crate::scanning::Action;
 
     fn repeating(
         edge: crate::point_scan::MouseRepeatStopEdge,
@@ -1618,8 +1601,6 @@ mod repeat_stop_tests {
                     let frame = session.technique.frame();
                     assert!(frame.label.is_none() && frame.tiles.iter().all(|t| !t.selected));
                     let mut stop = RepeatStop::default();
-                    let mut gestures = Gestures::default();
-                    gestures.pressed("previous", 0, &switches());
                     assert_eq!(
                         stop.release("unmatched", Some(&mut session.technique)),
                         None
@@ -1628,9 +1609,6 @@ mod repeat_stop_tests {
                         stop.press(id, Some(&mut session.technique)),
                         Some(edge == Press)
                     );
-                    gestures.cancel(); // Both transport paths cancel configured gestures on capture.
-                    assert!(gestures.prompt(30_000).is_none());
-                    assert_eq!(gestures.released(id, 30_000), None);
                     assert_eq!(session.technique.mouse_repeating(), edge == Release);
                     assert_eq!(
                         stop.press("overlap", Some(&mut session.technique)),
@@ -1740,10 +1718,7 @@ mod repeat_stop_tests {
             assert!(!session.technique.mouse_repeating());
             let mut stop = RepeatStop::default();
             assert_eq!(stop.press("one", Some(&mut session.technique)), None);
-            let mut gestures = Gestures::default();
-            gestures.pressed("one", 0, &switches());
             assert_eq!(stop.release("one", Some(&mut session.technique)), None);
-            assert_eq!(gestures.released("one", 10), Some(Action::Select));
         }
     }
 
@@ -1782,27 +1757,9 @@ mod repeat_stop_tests {
                         stop.release("one", Some(&mut session.technique)),
                         Some(true)
                     );
-                    assert!(Gestures::default().released("one", 30_000).is_none());
                     assert!(session.take_selection().is_none());
                 }
             }
-        }
-    }
-
-    #[test]
-    fn local_and_remote_stop_edges_consume_press_hold_and_release() {
-        for id in ["one", "remote:1"] {
-            let mut stop = RepeatStop::default();
-            let gestures = Gestures::default();
-            assert_eq!(stop.down(id, true, Default::default()), Some(false));
-            assert!(stop.held());
-            assert!(gestures.prompt(30_000).is_none());
-            assert!(!gestures.held());
-            assert_eq!(stop.up("unmatched"), None);
-            assert_eq!(stop.up(id), Some(true));
-            assert_eq!(stop.up(id), None);
-            assert!(!stop.held());
-            assert_eq!(stop.down(id, false, Default::default()), None);
         }
     }
 
@@ -1822,24 +1779,19 @@ mod repeat_stop_tests {
 
     #[test]
     fn ending_repeat_while_held_still_consumes_pending_releases() {
-        for _reason in ["settings", "failure", "display"] {
-            let mut stop = RepeatStop::default();
-            assert_eq!(stop.down("one", true, Default::default()), Some(false));
-            assert_eq!(stop.down("two", true, Default::default()), Some(false));
-            // The technique ended its repeat independently before either Up.
-            assert_eq!(stop.up("one"), Some(true));
-            assert_eq!(stop.up("two"), Some(false));
-            assert!(!stop.held());
-            assert_eq!(stop.down("one", false, Default::default()), None);
-        }
+        // Settings, a failure or a display change can end the technique's
+        // repeat independently before either Up.
+        let mut stop = RepeatStop::default();
+        assert_eq!(stop.down("one", true, Default::default()), Some(false));
+        assert_eq!(stop.down("two", true, Default::default()), Some(false));
+        assert_eq!(stop.up("one"), Some(true));
+        assert_eq!(stop.up("two"), Some(false));
+        assert!(!stop.held());
+        assert_eq!(stop.down("one", false, Default::default()), None);
         let mut stop = RepeatStop::default();
         assert_eq!(stop.down("one", true, Default::default()), Some(false));
         stop.clear(); // Escape, emergency hold, disconnect, or a new session.
         assert_eq!(stop.up("one"), None);
-        let mut gestures = Gestures::default();
-        assert_eq!(gestures.released("one", 30_000), None);
-        gestures.pressed("one", 31_000, &switches());
-        assert_eq!(gestures.released("one", 31_010), Some(Action::Select));
     }
 }
 

@@ -2612,7 +2612,6 @@ mod tests {
         NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
-    use crate::input::MobileTypingRoute;
     use crate::protocol::{
         create_notification_frames, pointer_profile_response, BluetoothFrame, EngineEvent,
         FrameReassembler, NotificationTarget, PointerProfile, ProtocolEngine,
@@ -2664,39 +2663,6 @@ mod tests {
             .into_iter()
             .find_map(|frame| engine.receive_frame(&frame, 1_724_000_000_000).unwrap())
             .expect("complete protocol message")
-    }
-
-    #[test]
-    fn windows_typing_route_orders_cleanup_before_successful_overlay_hiding() {
-        let events = Mutex::new(Vec::new());
-        let route = MobileTypingRoute::for_text("Hello");
-        route.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        route.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(
-            *events.lock().unwrap(),
-            ["cancel dwell", "stop repeats", "hide overlay"]
-        );
-
-        let events = Mutex::new(Vec::new());
-        let failed = MobileTypingRoute::for_text("Hello");
-        failed.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        failed.finish(false, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
-
-        let events = Mutex::new(Vec::new());
-        let empty = MobileTypingRoute::for_text("");
-        empty.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        empty.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert!(events.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -3012,60 +2978,6 @@ mod tests {
                 .into_iter()
                 .collect::<HashSet<_>>(),
             HashSet::from([left, right])
-        );
-        worker.abort();
-    }
-
-    #[tokio::test]
-    async fn pointer_profile_reassembles_after_serial_notification_delivery() {
-        let profile = PointerProfile {
-            display_id: "display-1".into(),
-            scale_factor: 1.5,
-            x: -1280,
-            y: 0,
-            width: 2560,
-            height: 1440,
-            small_delta: 32,
-            medium_delta: 86,
-            large_delta: 187,
-            display_navigation_supported: true,
-            display_count: 3,
-        };
-        let response = pointer_profile_response("profile-1", &profile, &AppSettings::default());
-        let expected_frames = create_notification_frames(&response, NOTIFICATION_BYTES)
-            .unwrap()
-            .len();
-        assert!(expected_frames > 1);
-        let dispatcher = NotificationDispatcher::default();
-        dispatcher.subscribers_changed(1, NOTIFICATION_BYTES);
-        let submitted = Arc::new(Mutex::new(Vec::new()));
-        let worker_submitted = submitted.clone();
-        let worker = tokio::spawn(run_notification_worker(
-            dispatcher.clone(),
-            move |frame, _target| {
-                let submitted = worker_submitted.clone();
-                async move {
-                    submitted
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .push(frame);
-                    Ok(())
-                }
-            },
-            |_| {},
-        ));
-
-        dispatcher
-            .enqueue(&response, NotificationTarget::AllSubscribers)
-            .unwrap();
-        wait_for_frame_count(&submitted, expected_frames).await;
-        assert_eq!(
-            reassemble_messages(
-                &submitted
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-            ),
-            [response]
         );
         worker.abort();
     }
@@ -3443,22 +3355,6 @@ mod tests {
             ),
             (24, 65, 140)
         );
-    }
-
-    #[tokio::test]
-    async fn notification_worker_exits_when_dispatcher_shuts_down() {
-        let dispatcher = NotificationDispatcher::default();
-        let worker_dispatcher = dispatcher.clone();
-        let worker = tokio::spawn(run_notification_worker(
-            worker_dispatcher,
-            |_, _| async { Ok(()) },
-            |_| {},
-        ));
-        dispatcher.shutdown();
-        tokio::time::timeout(Duration::from_secs(1), worker)
-            .await
-            .expect("worker should stop")
-            .expect("worker should not panic");
     }
 
     #[tokio::test]

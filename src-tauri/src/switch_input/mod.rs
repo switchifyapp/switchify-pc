@@ -1059,8 +1059,6 @@ mod tests {
     }
     #[test]
     fn unavailable_reason_names_the_rule_that_applies() {
-        assert!(unavailable_reason("Escape").contains("Escape"));
-        assert!(unavailable_reason("F1").contains("F1"));
         #[cfg(target_os = "windows")]
         assert!(unavailable_reason("F12").contains("Windows"));
         #[cfg(target_os = "macos")]

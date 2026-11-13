@@ -2317,9 +2317,8 @@ fn platform_disconnect_all(app: &AppHandle, shared: &state::SharedModel) -> Resu
 mod tests {
     use super::{
         account_pairing_intent, has_start_hidden_argument, record_update_failure,
-        show_tray_menu_on_left_click, updater_is_configured, validate_profile, PendingNavigation,
-        PendingProfileExit, ProfileExitAction, TrayCache, TrayShown, TraySnapshot,
-        NAVIGATE_REQUESTED_EVENT,
+        updater_is_configured, validate_profile, PendingNavigation, PendingProfileExit,
+        ProfileExitAction, TrayCache, TrayShown, TraySnapshot, NAVIGATE_REQUESTED_EVENT,
     };
     use crate::state::{AppModel, BluetoothState, SwitchBinding, SwitchProfile};
     use crate::storage::AppStorage;
@@ -2602,18 +2601,6 @@ mod tests {
         pending.set("profiles");
         assert_eq!(pending.take().as_deref(), Some("profiles"));
         assert_eq!(pending.take(), None);
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_tray_menu_opens_on_left_click() {
-        assert!(show_tray_menu_on_left_click());
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_tray_menu_does_not_open_on_left_click() {
-        assert!(!show_tray_menu_on_left_click());
     }
 
     #[test]

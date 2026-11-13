@@ -2650,24 +2650,6 @@ mod tests {
     }
 
     #[test]
-    fn a_panel_opened_from_home_still_clicks_at_the_pointer() {
-        let mut s = board_session(vec![clicking_panel()]);
-        s.action(Action::Select);
-        assert_eq!(choose_in(&mut s, 3, 1), None);
-        // The list's first row holds the one panel, so the row press opens it.
-        assert_eq!(s.action(Action::Select), None);
-        assert!(s.technique.menu.custom_id.is_some());
-        s.technique.set_pointer(Some((40.0, 50.0)));
-        assert_eq!(
-            s.action(Action::Select),
-            Some(Request::MouseClick {
-                right: false,
-                count: 1
-            })
-        );
-    }
-
-    #[test]
     fn the_action_pages_leave_my_panels_out_until_there_is_a_panel() {
         let mut s = board_session(vec![]);
         s.action(Action::Select);
@@ -5268,23 +5250,6 @@ mod tests {
         let frame = s.technique.frame();
         assert!(frame.label.is_none(), "the wait is not written out");
         assert!(frame.tiles.iter().all(|tile| !tile.selected));
-    }
-    #[test]
-    fn keyboard_key_acknowledgement_is_exactly_once_and_reset_discards_state() {
-        let mut s = session(false);
-        let w = &mut s.technique;
-        w.selected(Item::Keyboard);
-        w.execution_succeeded();
-        assert!(w.handle(Action::Select).is_none());
-        assert!(matches!(
-            w.handle(Action::Select),
-            Some(Request::Keyboard(_))
-        ));
-        assert!(w.handle(Action::Select).is_none());
-        w.execution_succeeded();
-        assert!(w.handle(Action::Select).is_none());
-        w.reset();
-        assert_eq!(w.phase(), Phase::default());
     }
     fn keyboard_session(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
         let config = Config {

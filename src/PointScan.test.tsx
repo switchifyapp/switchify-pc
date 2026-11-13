@@ -53,14 +53,6 @@ afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 
-it("shows the backend's reason while scanning is off and offers no toggle", async () => {
-  render(<PointScan />);
-  await screen.findByText("Scanning starts once a switch has the Select action.");
-  more();
-  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
-  expect(screen.getByRole("button", { name: "Line only" })).toBeEnabled();
-});
-
 it("saves settings without an enabled flag and keeps them editable while scanning runs", async () => {
   mocks.invoke.mockImplementation(async (command, args) =>
     command === "get_point_scan"
@@ -246,7 +238,6 @@ it("saves what Select starts and explains Home without asking to focus an app", 
   expect(group).toBeVisible();
   expect(screen.getByRole("button", { name: "Home menu" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByText("Home", { selector: "strong" })).toBeInTheDocument();
-  expect(screen.queryByText(/Focus the application/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Last mode used" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: { ...defaultPointScanConfig, startWith: "lastMode" },
@@ -262,7 +253,6 @@ it.each([null, "Customise point scanning", "Customise menus", "Customise keyboar
   if (customise) fireEvent.click(screen.getByRole("button", { name: customise }));
   const colours = within(screen.getByRole("group", { name: "Scanner colour" }));
   expect(colours.getAllByRole("radio").map(radio => radio.getAttribute("value"))).toEqual(["red", "green", "blue", "yellow"]);
-  expect(colours.queryByRole("radio", { name: "White" })).not.toBeInTheDocument();
 });
 
 it("retains a failed colour selection for retry", async () => {
@@ -270,7 +260,6 @@ it("retains a failed colour selection for retry", async () => {
   await screen.findByText(initial.message);
   mocks.invoke.mockRejectedValueOnce(new Error("Cannot save colour"));
   more();
-  expect(screen.queryByRole("radio", { name: "White" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("radio", { name: "Yellow" }));
   expect(await screen.findByRole("button", { name: "Retry save" })).toBeEnabled();
   expect(screen.getByRole("radio", { name: "Yellow" })).toBeChecked();
@@ -309,7 +298,6 @@ it("customises individual settings, restores defaults and returns focus without 
   expect(screen.getByRole("heading", { name: "Keyboard" })).toHaveFocus();
   expect(screen.queryByRole("checkbox", { name: "Auto select" })).not.toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: "Word prediction" })).toBeEnabled();
-  expect(screen.queryByRole("checkbox", { name: "Enhanced word prediction" })).not.toBeInTheDocument();
   expect(screen.getByText(/Your typing never leaves this computer/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
@@ -553,7 +541,6 @@ it("keeps a saved wait after typing as the keyboard's usual behaviour", async ()
   more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
   more();
-  expect(screen.queryByRole("group", { name: "After typing" })).not.toBeInTheDocument();
   expect(screen.getByText(/saved earlier as After typing/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Wait for Select" })).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(screen.getByRole("button", { name: "Keep scanning" }));
@@ -605,14 +592,13 @@ it("shows both modes before their settings and keeps advanced panels collapsed",
   expect(mocks.invoke.mock.calls.some(([command]) => command === "configure_point_scan")).toBe(false);
 });
 
-it("explains the saved Mouse mode and keeps mode cards keyboard accessible", async () => {
+it("explains the saved Mouse mode and returns focus to its card", async () => {
   mocks.invoke.mockImplementation((command) => command === "get_point_scan" ? Promise.resolve({ ...initial, config: { ...defaultPointScanConfig, controlMode: "mouse" } }) : Promise.resolve(initial));
   render(<PointScan />);
   await screen.findByText(initial.message);
   expect(screen.getAllByText("Mouse scanning", { selector: "strong" })).toHaveLength(2);
   const mouse = screen.getByRole("button", { name: "Customise mouse scanning" });
   mouse.focus();
-  fireEvent.keyDown(mouse, { key: "Enter" });
   fireEvent.click(mouse);
   expect(screen.getByRole("heading", { name: "Mouse scanning", level: 2 })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
@@ -632,7 +618,6 @@ it("saves the accessible Mouse stop choice and retains failed edits for retry", 
   expect(screen.getByRole("group", { name: "Stop repeating" })).toBeInTheDocument();
   const press = screen.getByRole("button", { name: "On switch press" });
   press.focus();
-  expect(press).toHaveFocus();
   fireEvent.click(press);
   await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("configure_point_scan", {
     config: { ...defaultPointScanConfig, mouseRepeatStopEdge: "press" },

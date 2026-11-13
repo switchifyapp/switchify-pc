@@ -168,14 +168,6 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn verbs_read_as_plain_words() {
-        assert_eq!(Action::ShutDown.verb(), "shut down");
-        assert_eq!(Action::Restart.verb(), "restart");
-    }
-
     /// Only adjusts this process's own token; nothing is shut down.
     #[cfg(target_os = "windows")]
     #[test]

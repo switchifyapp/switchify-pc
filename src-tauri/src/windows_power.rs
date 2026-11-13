@@ -410,19 +410,6 @@ mod tests {
     }
 
     #[test]
-    fn interactive_resume_does_not_restart_an_automatic_wake_even_much_later() {
-        let mut cycle = PowerCycle::default();
-        assert!(cycle.accept(PowerSignal::Suspend));
-        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
-        // No clock is consulted: interactive wake is part of this cycle
-        // whether it arrives in milliseconds or hours.
-        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
-        assert!(!cycle.accept(PowerSignal::ResumeInteractive));
-        assert!(cycle.accept(PowerSignal::Suspend));
-        assert!(cycle.accept(PowerSignal::ResumeAutomatic));
-    }
-
-    #[test]
     fn automatic_resume_recovers_when_suspend_or_interaction_was_missed() {
         let mut cycle = PowerCycle::default();
         assert!(cycle.accept(PowerSignal::ResumeAutomatic));

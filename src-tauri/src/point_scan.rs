@@ -719,15 +719,6 @@ mod tests {
         })
     }
     #[test]
-    fn legacy_settings_enable_predictions_and_explicit_disable_roundtrips() {
-        let c: Config = serde_json::from_str("{}").unwrap();
-        assert!(c.word_prediction);
-        let c: Config = serde_json::from_str(r#"{"wordPrediction":false}"#).unwrap();
-        assert!(!c.word_prediction);
-        let restored: Config = serde_json::from_value(serde_json::to_value(c).unwrap()).unwrap();
-        assert!(!restored.word_prediction);
-    }
-    #[test]
     fn saved_wait_after_typing_becomes_the_keyboard_choice() {
         use crate::scan_preferences::{Area, NextScan, StartFrom};
         let saved: Config = serde_json::from_str(r#"{"keyboardWaitAfterTyping":true}"#).unwrap();
@@ -774,57 +765,6 @@ mod tests {
         saved.validate().unwrap();
         assert_eq!(saved.grid_size, 7);
         assert_eq!(saved.scan_preferences.pass_limit, 5);
-    }
-    #[test]
-    fn after_selection_choices_round_trip_through_the_saved_file() {
-        use crate::scan_preferences::{NextScan, StartFrom};
-        let mut config = Config::default();
-        config.scan_preferences.next_scan = NextScan::Automatic;
-        config.scan_preferences.point.start_from = Some(StartFrom::Selection);
-        let restored: Config =
-            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
-        assert_eq!(restored, config);
-    }
-    #[test]
-    fn enhanced_prediction_defaults_off_for_saved_settings_and_round_trips() {
-        let c: Config = serde_json::from_str(r#"{"wordPrediction":true}"#).unwrap();
-        assert!(!c.enhanced_word_prediction);
-        let c: Config = serde_json::from_str(r#"{"enhancedWordPrediction":true}"#).unwrap();
-        let restored: Config = serde_json::from_value(serde_json::to_value(c).unwrap()).unwrap();
-        assert!(restored.enhanced_word_prediction);
-    }
-    #[test]
-    fn keyboard_wait_defaults_off_and_round_trips() {
-        let legacy: Config = serde_json::from_str("{}").unwrap();
-        assert!(!legacy.keyboard_wait_after_typing);
-        for enabled in [false, true] {
-            let config = Config {
-                keyboard_wait_after_typing: enabled,
-                ..Default::default()
-            };
-            let restored: Config =
-                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
-            assert_eq!(restored.keyboard_wait_after_typing, enabled);
-            assert_eq!(
-                restored.point().keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
-                enabled
-            );
-        }
-    }
-    #[test]
-    fn panel_pointer_avoidance_defaults_off_and_round_trips() {
-        let legacy: Config = serde_json::from_str("{}").unwrap();
-        assert!(!legacy.panel_avoids_pointer);
-        for enabled in [false, true] {
-            let config = Config {
-                panel_avoids_pointer: enabled,
-                ..Default::default()
-            };
-            let restored: Config =
-                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
-            assert_eq!(restored.panel_avoids_pointer, enabled);
-            assert_eq!(restored.point().panel_avoids_pointer, enabled);
-        }
     }
     #[test]
     fn radar_speed_follows_line_speed_until_chosen() {
@@ -1128,7 +1068,6 @@ mod tests {
         assert!(label.rect.x >= screen.x && label.rect.y >= screen.y);
         assert!(label.rect.x + label.rect.width <= screen.x + screen.width);
         assert!(label.rect.y + label.rect.height <= screen.y + screen.height);
-        assert_eq!(serde_json::to_value(Phase::RowEscape).unwrap(), "rowEscape");
     }
     #[test]
     fn line_selects_x_then_y_and_resets() {

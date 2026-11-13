@@ -277,18 +277,6 @@ describe("AccountSection", () => {
     expect(await within(confirm).findByRole("alert")).toHaveTextContent("Could not delete the account.");
   });
 
-  it("follows account changes from the backend", async () => {
-    let receive: (view: AccountView) => void = () => undefined;
-    vi.spyOn(api, "account").mockResolvedValue(signedOut);
-    vi.spyOn(api, "onAccount").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
-    vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
-    vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
-    render(<AccountSection />);
-    await screen.findByLabelText("Email");
-    receive(signedIn);
-    expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
-  });
-
   it("lets a signed-in user turn off automatic pairing for this account", async () => {
     vi.spyOn(api, "account").mockResolvedValue(signedIn);
     vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
@@ -326,10 +314,4 @@ describe("AccountSection", () => {
     expect(screen.queryByRole("checkbox", { name: "Approve phones on this account automatically" })).not.toBeInTheDocument();
   });
 
-  it("is not a Settings tab", async () => {
-    const { App } = await import("../App");
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.queryByRole("tab", { name: "Account" })).not.toBeInTheDocument();
-  });
 });

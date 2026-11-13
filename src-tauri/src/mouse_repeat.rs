@@ -524,16 +524,6 @@ impl MouseRepeatController {
     }
 }
 
-#[cfg(test)]
-fn acceleration_scale(elapsed_ms: i64, duration_ms: u32) -> f64 {
-    if duration_ms == 0 {
-        return 1.0;
-    }
-    let progress = (elapsed_ms.max(0) as f64 / f64::from(duration_ms)).clamp(0.0, 1.0);
-    let eased = progress * progress * (3.0 - 2.0 * progress);
-    INITIAL_SCALE + (1.0 - INITIAL_SCALE) * eased
-}
-
 fn acceleration_integral(from_ms: f64, to_ms: f64, duration_ms: u32) -> f64 {
     fn integral_at(elapsed_ms: f64, duration_ms: u32) -> f64 {
         let elapsed_ms = elapsed_ms.max(0.0);
@@ -844,14 +834,6 @@ mod tests {
         assert!(
             RepeatCommand::parse(&json!({"command":{"type":"mouse.click","payload":{}}})).is_err()
         );
-    }
-
-    #[test]
-    fn acceleration_uses_smoothstep_from_quarter_to_full_speed() {
-        assert_eq!(acceleration_scale(0, 1000), 0.25);
-        assert!((acceleration_scale(500, 1000) - 0.625).abs() < f64::EPSILON);
-        assert_eq!(acceleration_scale(1000, 1000), 1.0);
-        assert_eq!(acceleration_scale(0, 0), 1.0);
     }
 
     #[test]

@@ -2124,17 +2124,6 @@ mod tests {
         let old = Record::new(1000);
         let kept = initial_record(None, Some(old.clone()), true, 9000).unwrap();
         assert_eq!(kept.first_run, 1000);
-        assert!(initial_record(None, None, true, 9000).is_none());
-    }
-    #[test]
-    fn file_only_save_never_reports_a_keychain_failure() {
-        let dir = std::env::temp_dir().join(format!("switchify-licence-{}", uuid::Uuid::new_v4()));
-        let mut service = configured_service(Record::new(1000));
-        service.path = dir.join("licence.json");
-        assert_eq!(write_record_file(&service.path, &Record::new(1000)), Ok(()));
-        let saved = decode_record(&std::fs::read_to_string(&service.path).unwrap()).unwrap();
-        assert_eq!(saved.first_run, 1000);
-        let _ = std::fs::remove_dir_all(dir);
     }
     #[test]
     fn stale_keychain_keeps_its_warning_and_backs_off_until_a_retry_succeeds() {

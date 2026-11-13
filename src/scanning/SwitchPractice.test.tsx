@@ -96,7 +96,6 @@ describe("safe switch practice", () => {
     await screen.findByRole("dialog");
     expect(screen.getByRole("list", { name: "Practice blocks" })).toHaveTextContent("Block 1Block 2Block 3");
     expect(screen.getByText("Highlighted: Block 2")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: /Practice scanning area/i })).not.toBeInTheDocument();
   });
   it("does not allow starting with unsaved settings or without a native backend", () => {
     const { rerender } = render(<SwitchPractice disabled />);

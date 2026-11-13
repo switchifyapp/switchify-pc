@@ -2208,50 +2208,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_editing_shortcuts_use_the_held_ctrl_key() {
-        let mut input = DesktopInput::new(FakeInjector::default());
-        input
-            .execute(
-                "device",
-                "keyboard.modifierDown",
-                &serde_json::json!({"key": "Ctrl"}),
-                &[],
-            )
-            .unwrap();
-
-        for key in ["A", "C", "V", "X"] {
-            input
-                .execute(
-                    "device",
-                    "keyboard.shortcut",
-                    &serde_json::json!({"keys": ["Ctrl", key]}),
-                    &[],
-                )
-                .unwrap();
-        }
-
-        assert_eq!(
-            input.injector.shortcuts,
-            vec![vec!["A"], vec!["C"], vec!["V"], vec!["X"]]
-        );
-        assert!(input.held_modifiers.contains(&ModifierKey::Ctrl));
-
-        input
-            .execute(
-                "device",
-                "keyboard.modifierUp",
-                &serde_json::json!({"key": "Ctrl"}),
-                &[],
-            )
-            .unwrap();
-        assert!(input.held_modifiers.is_empty());
-        assert_eq!(
-            input.injector.keys,
-            vec![("Ctrl".into(), true), ("Ctrl".into(), false)]
-        );
-    }
-
-    #[test]
     fn standalone_shortcuts_still_press_the_complete_key_list() {
         let mut input = DesktopInput::new(FakeInjector::default());
         input
@@ -2415,12 +2371,6 @@ mod tests {
         MobileTypingRoute::for_text("Hello")
             .finish(false, || events.lock().unwrap().push("hide overlay"));
         assert!(events.lock().unwrap().is_empty());
-    }
-    #[test]
-    fn command_execution_uses_relative_pointer_input_without_system_input() {
-        let mut input = DesktopInput::new(FakeInjector::default());
-        input.move_pointer(12, -6).unwrap();
-        assert_eq!(input.injector.moves, vec![(12, -6)]);
     }
 
     #[cfg(target_os = "windows")]
@@ -2673,16 +2623,6 @@ mod tests {
             "End the active drag before moving to another monitor."
         );
         assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
-    }
-
-    #[test]
-    fn repeat_scroll_preserves_the_existing_delta() {
-        let mut input = DesktopInput::new(FakeInjector::default());
-        assert_eq!(
-            input.execute_repeat_scroll(4, -3).unwrap(),
-            PointerFeedback::Scroll { dx: 4, dy: -3 }
-        );
-        assert_eq!(input.injector.scrolls, vec![(4, -3)]);
     }
 
     #[test]

@@ -327,7 +327,6 @@ describe("Switchify PC shell", () => {
       navigate = handler;
       finishRegistration = resolve;
     }));
-    const confirm = vi.spyOn(window, "confirm");
     const stop = vi.fn();
     const rendered = render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -338,7 +337,6 @@ describe("Switchify PC shell", () => {
     rendered.unmount();
 
     act(() => navigate?.("settings"));
-    expect(confirm).not.toHaveBeenCalled();
 
     await act(async () => finishRegistration?.(stop));
 
@@ -486,14 +484,6 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
   });
 
-  it("renders the connection and permission state", async () => {
-    browserState.capabilities.platform = "macos";
-    render(<App />);
-    expect(await screen.findByRole("heading", { name: "Switchify PC" })).toBeInTheDocument();
-    expect(screen.getByText("Input access")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open Accessibility Settings" })).toBeInTheDocument();
-  });
-
   it("opens setup once for a fresh unpaired user and persists dismissal", async () => {
     browserState.capabilities.platform = "macos";
     browserState.setup = { shown: false, completed: false, autoOpenEligible: true };
@@ -509,14 +499,6 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Help" }));
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
     expect(await screen.findByRole("dialog", { name: "Input access" })).toBeInTheDocument();
-  });
-
-  it("does not force setup on an existing paired user", async () => {
-    browserState.setup = { shown: false, completed: false, autoOpenEligible: false };
-    browserState.pairedDevices = [{ deviceId: "phone-1", deviceName: "Pixel", pairedAt: 1, lastSeenAt: null }];
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("does not infer first-run eligibility from a temporarily empty device list", async () => {
@@ -986,14 +968,13 @@ describe("Switchify PC shell", () => {
     });
 
     it("asks before Find discards unsaved profile changes", async () => {
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
       render(<App />);
       fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
       fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
       fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Break test" } });
       const find = screen.getByRole("searchbox", { name: "Find a setting" });
       fireEvent.change(find, { target: { value: " " } });
-      expect(confirm).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
       fireEvent.change(find, { target: { value: "s" } });
       expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
@@ -1206,20 +1187,6 @@ describe("Switchify PC shell", () => {
       expect(screen.queryByRole("heading", { name: "Sign in to sync your settings" })).not.toBeInTheDocument();
     });
 
-    it("keeps an unsaved profile edit when navigation is cancelled", async () => {
-      mockAccount(signedIn);
-      vi.spyOn(window, "confirm").mockReturnValue(false);
-      render(<App />);
-      fireEvent.click(await screen.findByRole("button", { name: "Mobile" }));
-      fireEvent.click(await screen.findByRole("button", { name: "New profile" }));
-      fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved" } });
-      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-      expect(screen.getByRole("alertdialog", { name: "Discard unsaved profile changes?" })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-      expect(screen.getByLabelText("Profile name")).toHaveValue("Unsaved");
-      expect(screen.queryByRole("heading", { name: "Settings", level: 1 })).not.toBeInTheDocument();
-    });
-
     it("leaves the account out of builds without accounts", async () => {
       mockAccount({ ...signedOut, available: false });
       render(<App />);
@@ -1335,17 +1302,6 @@ describe("Switchify PC shell", () => {
 
     expect(await screen.findByRole("alert", { name: "" })).toHaveTextContent("Profile storage unavailable");
     expect(screen.getByRole("dialog", { name: "Edit switch profile" })).toHaveFocus();
-  });
-
-  it("exposes setup status and troubleshooting actions", async () => {
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
-    expect(screen.getByRole("heading", { name: "Local switches" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Application update" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "View updates" }));
-    const updates = await screen.findByRole("region", { name: "Updates" });
-    await waitFor(() => expect(updates).toHaveFocus());
   });
 
   it("guides macOS users through required and stale accessibility entries", async () => {

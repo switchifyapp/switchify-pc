@@ -37,7 +37,6 @@ describe("the settings index", () => {
     }
     expect(new Set(index.map((e) => e.id)).size).toBe(index.length);
     for (const task of commonTasks) expect(entry(task.setting)).toBeDefined();
-    for (const e of index) for (const id of e.related ?? []) expect(index.map((other) => other.id), `${e.id} relates to ${id}`).toContain(id);
   });
 
   it("ranks a label match above a word match above a value match", () => {

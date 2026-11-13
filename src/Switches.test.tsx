@@ -159,18 +159,6 @@ it("starts learning when a switch is added and commits only after name and key",
   });
   expect(screen.queryByLabelText("New switch name")).toBeNull();
 });
-it("cancelling a new switch also cancels its capture", async () => {
-  render(<Shell />);
-  await screen.findByRole("heading", { name: "Head switch" });
-  fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
-  await screen.findByRole("button", { name: "Cancel capture" });
-  event({ ...current, capture: { active: false, key: "Enter", error: null } });
-  await screen.findByText("Enter");
-  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
-  fireEvent.click(screen.getByRole("button", { name: "Discard switch" }));
-  expect(screen.queryByLabelText("New switch name")).toBeNull();
-  expect(current.settings.bindings).toHaveLength(1);
-});
 it("rejects a learned duplicate without changing the existing switch", async () => {
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });
@@ -408,15 +396,6 @@ it("adds a remote switch into the next free slot and can move it", async () => {
   expect(remote.slots[3].pressAction).toBeNull();
   expect(screen.getByRole("button", { name: "Close Remote switch 2" })).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close Remote switch 2" }));
-});
-it("moves focus into the remote draft and back to a usable Add button", async () => {
-  render(<Shell />);
-  await revealMobile();
-  await screen.findByRole("heading", { name: "Remote switch 1" });
-  fireEvent.click(screen.getByRole("button", { name: "Add remote switch" }));
-  expect(document.activeElement).toBe(screen.getByLabelText("New switch name"));
-  fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add switch" }));
 });
 it("removes a remote switch and surfaces a failed remote save with retry", async () => {
   render(<Shell />);

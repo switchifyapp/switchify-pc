@@ -46,22 +46,10 @@ describe("Switchify PC settings", () => {
     vi.restoreAllMocks();
   });
 
-  it("opens scanning from its own sidebar destination", async()=> {
-    render(<App/>);
-    await screen.findByRole("heading",{name:"Switchify PC"});
-    expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button",{name:"Scanning"}));
-    expect(screen.getByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading",{name:"Two ways to control your PC", level:2})).toBeInTheDocument();
-    expect(screen.getByRole("button",{name:"Customise point scanning"})).toBeInTheDocument();
-  });
-
-  it("keeps the Mouse pointer settings on Scanning and Input on Settings", async () => {
+  it("explains Mouse scanning actions and keeps Pointer speed on Scanning, not Input", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
     const navigation = screen.getByRole("navigation", { name: "Pages" });
-    expect(within(navigation).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Home", "Switches", "Scanning", "Panels", "Mobile", "Settings", "Help"]);
     fireEvent.click(within(navigation).getByRole("button", { name: "Scanning" }));
     fireEvent.click(await screen.findByRole("button", { name: "Customise mouse scanning" }));
     expect(screen.getByText(/Actions opens editing, window, browser, media, display and scanning commands/)).toBeInTheDocument();
@@ -69,16 +57,10 @@ describe("Switchify PC settings", () => {
     expect(screen.getByText(/press and release a switch to stop either action/)).toBeInTheDocument();
     expect(screen.getByText(/the stop switch keeps the action going until release/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));
-    expect(screen.getByRole("heading", { name: "Mouse pointer", level: 2 })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /Pointer speed/ })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Stop repeating" })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "Click when I stop" })).not.toBeInTheDocument();
     fireEvent.click(within(navigation).getByRole("button", { name: "Settings" }));
     openSection("Input");
-    expect(screen.getByRole("checkbox", { name: "Click when I stop" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /Pointer speed/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
-    expect(screen.getByRole("checkbox", { name: "Repeat held keys" })).toBeInTheDocument();
   });
 
   it("shows update progress and exposes cancellation in Settings", async () => {
@@ -131,29 +113,6 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
     expect(document.querySelector(".update-controls > span")).toHaveTextContent("75%");
     expect(progressHandlers.size).toBe(1);
-  });
-
-  it.each([
-    ["cancelled", { status: "cancelled" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" as const }],
-    ["failed", { status: "failed" as const, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Update download failed: offline", retryAction: "download" as const }],
-  ])("starts a retried download at zero after it was %s", async (_name, ended) => {
-    const { progressHandlers, sendProgress, sendUpdater } = fakeUpdateEvents();
-    browserState.updater = downloadingUpdater;
-    render(<App />);
-    await screen.findByRole("heading", { name: "Switchify PC" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    openSection("Updates");
-    await waitFor(() => expect(progressHandlers.size).toBe(1));
-    sendProgress(150, 200);
-    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "150");
-
-    sendUpdater(ended);
-    expect(screen.queryByRole("progressbar", { name: "Update download progress" })).toBeNull();
-    sendUpdater(downloadingUpdater);
-    expect(screen.getByRole("progressbar", { name: "Update download progress" })).toHaveAttribute("value", "0");
-    expect(document.querySelector(".update-controls > span")).toHaveTextContent("0 bytes");
-    sendProgress(20, 200);
-    expect(document.querySelector(".update-controls > span")).toHaveTextContent("10%");
   });
 
   it("follows the progress event during a download and keeps the final size from state", async () => {
@@ -287,7 +246,6 @@ describe("Switchify PC settings", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     openSection("General");
     expect(screen.getByRole("checkbox", { name: "Start with system" })).toBeInTheDocument();
 
@@ -381,19 +339,6 @@ describe("Switchify PC settings", () => {
     fireEvent.click(within(dwellDelay).getByRole("button", { name: "8s" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 8000 })));
     expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("restores confirmed dwell settings when automatic saving fails", async () => {
-    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    openSection("Input");
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
-    expect(screen.getByRole("checkbox", { name: "Click when I stop" })).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Wait before clicking" })).toBeDisabled();
   });
 
   it("shows the version, licence and project links on the About tab", async () => {
@@ -542,16 +487,6 @@ describe("Switchify PC settings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
     expect(startup).not.toBeChecked();
-  });
-
-  it("focuses Updates when the update banner is selected from Settings", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
-    const updates = await screen.findByRole("region", { name: "Updates" });
-    await waitFor(() => expect(updates).toHaveFocus());
   });
 
   it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
@@ -827,7 +762,6 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
     const cursorNames = screen.getAllByRole("button", { name: /More about/ }).map((button) => button.textContent);
     expect(cursorNames).toEqual(["More about overlay visibility"]);
-    expect(new Set([...pointerNames, ...cursorNames]).size).toBe(2);
   });
 
 

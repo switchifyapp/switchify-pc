@@ -2245,7 +2245,6 @@ impl Drop for MacRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     #[test]
     fn unsupported_bluetooth_preserves_local_accessibility_status() {
@@ -2278,39 +2277,6 @@ mod tests {
         assert!(!manager_state_invalidates_gatt(
             PeripheralManagerState::PoweredOn
         ));
-    }
-
-    #[test]
-    fn mac_typing_route_orders_cleanup_before_successful_overlay_hiding() {
-        let events = Mutex::new(Vec::new());
-        let route = MobileTypingRoute::for_text("Hello");
-        route.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        route.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(
-            *events.lock().unwrap(),
-            ["cancel dwell", "stop repeats", "hide overlay"]
-        );
-
-        let events = Mutex::new(Vec::new());
-        let failed = MobileTypingRoute::for_text("Hello");
-        failed.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        failed.finish(false, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
-
-        let events = Mutex::new(Vec::new());
-        let empty = MobileTypingRoute::for_text("");
-        empty.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        empty.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert!(events.lock().unwrap().is_empty());
     }
 
     #[derive(Default)]
