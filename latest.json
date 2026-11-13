@@ -1,19 +1,19 @@
 {
-  "version": "1.8.1",
-  "notes": "Switchify PC 1.8.1",
-  "pub_date": "2026-11-12T22:11:16.258Z",
+  "version": "1.8.2",
+  "notes": "Switchify PC 1.8.2",
+  "pub_date": "2026-11-13T15:18:19.862Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNkcxMXQ5cDNaWXJIUG52eXpWejZRQkJRN1BwWkNwVk90c0ZnL3RTcHpuampwVUMrd1BzRlphb2lqUWtjbitlQmxaVTVlL09oMzZNNHBBTkR5eXRoa3dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTIxMzY2CWZpbGU6U3dpdGNoaWZ5IFBDLmFwcC50YXIuZ3oJdmVyc2lvbjoxLjguMQo0czVUbTdBZ0JRSWk0eVBsQ0wzd3NXd1J1NmNwaEpRc0pKSlNVcVY1b2NnZUh5SW5OMkZHYXpIZWlhVER4TFREQ0hldnNNazR0UFl1RmxIbWxJWGxEdz09Cg==",
-      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.1/Switchify.PC.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNkpZZ0dvSFJsUWJ2OGM4ZjMzOU9pNWZQVXlmVUtBTGY5QXpVT3BjeWwyRUd6VE1IdGszSXY1S2tPTVpFaHFxQmxjcm1iZ25ESUwxRS9QOUdYNWF6dVFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTgyOTk0CWZpbGU6U3dpdGNoaWZ5IFBDLmFwcC50YXIuZ3oJdmVyc2lvbjoxLjguMgp3MVFHSm9nZTdFYllCVXBMc1g1OUU5SEVacEoyVzJzemc2UjB3U1o1SkQ4K0p1WjJSMkdzS2tETS9sVEVzTTdHYlNtVklEWHU2ZGNCV2ZMM0RscDZEQT09Cg==",
+      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.2/Switchify.PC.app.tar.gz"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNkpmcm5QQWkwVklwTWdZajNsbHpPTXhQTitwZ3pNZ0ZSYmFpeWI0V3V5eGIyOXE4SFpaUGFPcWF5cFZyNmN4YWFydElSd1A1OEJQTFBtSkZGY3p3NHdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTIwNTg5CWZpbGU6U3dpdGNoaWZ5IFBDXzEuOC4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjoxLjguMQpuc1VNUjhrcE1WZWtncm9HdjhONlJodzB0eUhRbFpkM1k0ZmJMTFhtSW4wRVFwUFhkUDBDT21ocm5iWjNtL0RUUjdGaVplNU8wbXlDbE0zT05LL1BCdz09Cg==",
-      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.1/Switchify.PC_1.8.1_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNktmRGM0SVFNVVdmNFB3dUpPWGplNDFDaXVsMk9lMENSK1NSLzVpNUgrdHRZbjJoQTg3TVhWZEVqSnBtS2dwZlI5Z0JLNnQ2bGErK0tET3VYMXhNMmd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTc5Mjk0CWZpbGU6U3dpdGNoaWZ5IFBDXzEuOC4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjoxLjguMgpSVVV5VjJiQWVkWnB4aldRakJQb2JxdVRnbVp4S2tDSG0wQi9rRXRxTG5vZXZlSTBOUjV0YWExdm9TNXVyK2g1RVhBVmQyWmhwY0wxamsxdDc4bEhDZz09Cg==",
+      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.2/Switchify.PC_1.8.2_x64-setup.exe"
     },
     "windows-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNkVwKzFWUUJKR1doejh2Q1NqQnpmY1ZVTE5ORzdDTDhsYXBlL3JONXk5MmhqZlZJT0RXaTRZbFJxQUx6cWpCN3dybFhvQ3NjMVNoRWF4VEl3SGU3ZXdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTIxMTc5CWZpbGU6U3dpdGNoaWZ5IFBDXzEuOC4xX2FybTY0LXNldHVwLmV4ZQl2ZXJzaW9uOjEuOC4xCng1bFpPRWROMG04VnRPelgvR1NqcWxYUUZEell6Q1BwQm8rVFdYQzFjYmxCRFp0U2lhVnZtT05mY3NyTHhlSXlkNzIzUlV1UTFiMzZwWTNwNWNWOUF3PT0K",
-      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.1/Switchify.PC_1.8.1_arm64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRajdUUHlhZklNNkRMSnBzRlhmTnpmKzlleEppUTNBamRiZWxBQ1FDUmxqZlVTMEs5TUJjWWJKeGVWVjBNY2gyMkszakhxd0FtNG5LL2l2eFdERG9IRTBzMVVWcHhKS3cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTc5OTYyCWZpbGU6U3dpdGNoaWZ5IFBDXzEuOC4yX2FybTY0LXNldHVwLmV4ZQl2ZXJzaW9uOjEuOC4yCkV5c2wyOFJuVWdkSmdFMWpyTk0xSzRsZXNncU85dGM0c093UUF2aUkrWlRsTG92OUZtNEpoWG1INUQ2ME1mRGNmZm8va2xMSWpOMUNvRTlqbjUvaURRPT0K",
+      "url": "https://github.com/switchifyapp/switchify-pc/releases/download/v1.8.2/Switchify.PC_1.8.2_arm64-setup.exe"
     }
   }
 }
