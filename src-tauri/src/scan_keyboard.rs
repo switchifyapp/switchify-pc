@@ -1221,17 +1221,16 @@ impl Keyboard {
         }
     }
     pub fn frame(&self, screen: Rect, units: f64, color: ScannerColor) -> Frame {
-        self.frame_repeating(screen, units, color, false)
+        self.frame_repeating(screen, units, color, None)
     }
-    /// Draws the keyboard. While `repeating` a key, nothing is highlighted.
-    /// Only a failure is written out: waiting, pausing, going back and a
-    /// repeating key show through the highlight alone.
+    /// Marks the repeating key as active and labels it, while hiding the scan
+    /// highlight so it cannot suggest that Select will choose another key.
     pub fn frame_repeating(
         &self,
         screen: Rect,
         units: f64,
         color: ScannerColor,
-        repeating: bool,
+        repeating: Option<Key>,
     ) -> Frame {
         let escaping = self.scan.nav.escaping();
         let highlight_row = self.scan.row_scan() || self.scan.group_scan() || escaping;
@@ -1252,10 +1251,14 @@ impl Keyboard {
                     let tile = |key: Key| {
                         let style = self.style(key, highlight_row);
                         crate::scan_panel::PanelKey {
-                            text: self.display(key),
+                            text: if repeating == Some(key) {
+                                format!("{}\nRepeating", self.display(key))
+                            } else {
+                                self.display(key)
+                            },
                             weight: self.weight(key),
                             role: style.role,
-                            active: style.active,
+                            active: style.active || repeating == Some(key),
                             blank: false,
                             // An empty suggestion slot keeps its place
                             // so the others do not move under the scan.
@@ -1288,7 +1291,7 @@ impl Keyboard {
                 .collect(),
             message,
             dock: self.dock,
-            selected: (!repeating && !self.scan.suspended && !self.disabled())
+            selected: (repeating.is_none() && !self.scan.suspended && !self.disabled())
                 .then(|| self.scan.highlight(&self.rows)),
             row_scan: highlight_row,
             thickness: Default::default(),
