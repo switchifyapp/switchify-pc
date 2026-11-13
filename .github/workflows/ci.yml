@@ -243,6 +243,9 @@ jobs:
         if: needs.changes.outputs.app == 'true'
         with:
           python-version: '3.13'
+      - name: Test TextSlinger spike transport without model dependencies
+        if: needs.changes.outputs.app == 'true'
+        run: python scripts/textslinger-spike-test.py
       - name: Measure packaged neural integration without desktop input
         if: needs.changes.outputs.app == 'true'
         run: |

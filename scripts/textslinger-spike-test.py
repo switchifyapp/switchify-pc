@@ -5,6 +5,8 @@ import io
 from pathlib import Path
 import struct
 import sys
+import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -39,25 +41,60 @@ class BridgeTest(unittest.TestCase):
         class Model:
             def predict_words(self, **kwargs):
                 calls.append(kwargs)
-                return SimpleNamespace(top=lambda n: [SimpleNamespace(word="coffee")])
+                return SimpleNamespace(top=lambda n: [
+                    SimpleNamespace(replacement=SimpleNamespace(text="ffee"))
+                ])
 
         source, target = io.BytesIO(), io.BytesIO()
-        bridge.send(source, {"before": "I want ", "prefix": "CO"})
+        bridge.send(source, {"id": 7, "before": "I want ", "prefix": "CO"})
         bridge.send(source, {"shutdown": True})
         source.seek(0)
         bridge.serve(Model(), source, target)
         target.seek(0)
         self.assertEqual(bridge.receive(target), {"ready": True})
-        self.assertEqual(bridge.receive(target), {"words": ["coffee"]})
+        self.assertEqual(bridge.receive(target), {"id": 7, "words": ["coffee"]})
         self.assertEqual(bridge.receive(target), {"stopped": True})
         self.assertEqual(calls[0]["left_context"], "i want co")
         self.assertEqual(calls[0]["nbest"], 5)
 
+    def test_boundaries_use_completion_suffix_and_unsupported_prefix_recovers(self):
+        calls = []
+
+        class Model:
+            def predict_words(self, **kwargs):
+                calls.append(kwargs["left_context"])
+                return SimpleNamespace(top=lambda n: [
+                    SimpleNamespace(word="must not use this", replacement=SimpleNamespace(text="ow"))
+                ])
+
+        source, target = io.BytesIO(), io.BytesIO()
+        fixtures = [("she is well-", "kn"), ('he said "', "he"), ("a,", "b"),
+                    ("I am ", "2"), ("", "café"), ("she is well-", "kn")]
+        for sequence, (before, prefix) in enumerate(fixtures, 1):
+            bridge.send(source, {"id": sequence, "before": before, "prefix": prefix})
+        bridge.send(source, {"shutdown": True})
+        source.seek(0)
+        bridge.serve(Model(), source, target)
+        target.seek(0)
+        bridge.receive(target)
+        for sequence, words in enumerate((["know"], ["heow"], ["bow"], [], [], ["know"]), 1):
+            self.assertEqual(bridge.receive(target), {"id": sequence, "words": words})
+        self.assertEqual(calls, ["she is well-kn", 'he said "he', "a,b", "she is well-kn"])
+
+    def test_missing_model_is_rejected_before_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                bridge.load_model(Path(directory) / "missing.arpa")
+
     def test_rejects_unexpected_or_oversized_context_before_model_call(self):
         for request in (
-            {"before": "", "prefix": [], "extra": True},
-            {"before": "", "prefix": []},
-            {"before": "x" * 1025, "prefix": ""},
+            [],
+            {"id": 1, "before": "", "prefix": [], "extra": True},
+            {"id": 1, "before": "", "prefix": []},
+            {"id": 1, "before": "x" * 1025, "prefix": ""},
+            {"id": True, "before": "", "prefix": ""},
+            {"id": 0, "before": "", "prefix": ""},
+            {"id": 2**64, "before": "", "prefix": ""},
         ):
             source = io.BytesIO()
             bridge.send(source, request)
@@ -66,5 +103,30 @@ class BridgeTest(unittest.TestCase):
                 bridge.serve(None, source, io.BytesIO())
 
 
+def fault_bridge(mode):
+    """Synthetic peer for ignored Rust adapter fault-injection tests."""
+    source, target = sys.stdin.buffer, sys.stdout.buffer
+    bridge.send(target, {"ready": True})
+    if mode == "extra":
+        bridge.send(target, {"id": 0, "words": ["couple"]})
+    while True:
+        request = bridge.receive(source)
+        if request == {"shutdown": True}:
+            bridge.send(target, {"stopped": True})
+            return
+        if mode == "timeout":
+            time.sleep(1.4)
+        reply = {"id": request["id"], "words": ["coffee"]}
+        if mode == "malformed":
+            reply["unexpected"] = True
+        bridge.send(target, reply)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--fault":
+        try:
+            fault_bridge(sys.argv[2])
+        except (EOFError, BrokenPipeError):
+            pass
+    else:
+        unittest.main()

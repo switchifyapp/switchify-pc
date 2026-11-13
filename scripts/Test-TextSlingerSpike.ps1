@@ -7,6 +7,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $bridge = Join-Path $PSScriptRoot 'textslinger-spike.py'
+if ($Native) {
+    $Python = (Resolve-Path -LiteralPath $Python).Path
+    $Model = (Resolve-Path -LiteralPath $Model).Path
+} elseif (!$Python.StartsWith('/') -or !$Model.StartsWith('/')) {
+    throw 'The WSL route requires absolute Linux paths for Python and Model'
+}
 $argv = @($Python, $bridge, '--model', $Model)
 if (!$Native) {
     $linuxBridge = & wsl.exe --distribution $Distro --exec wslpath -a $bridge

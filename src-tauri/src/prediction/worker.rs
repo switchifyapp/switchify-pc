@@ -724,9 +724,8 @@ pub fn run_from_args() -> bool {
 #[cfg(test)]
 mod tests {
     // Developer-only feasibility experiment. Never compiled into the app.
-    mod textslinger {
-        include!("textslinger_spike_tests.rs");
-    }
+    #[path = "../../textslinger_spike_tests.rs"]
+    mod textslinger;
 
     #[derive(Clone)]
     struct NearbyCandidate(super::super::model::Prediction);

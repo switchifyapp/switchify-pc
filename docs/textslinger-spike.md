@@ -31,28 +31,45 @@ input adapter is invoked.
 - Backspacing recomputes results. Old tokens and a selection after a foreground
   change cannot insert text. A suggestion cannot be accepted twice.
 - Backend shutdown results in `Unavailable` and empty suggestions.
+- Digits and accented prefixes produce no suggestions and leave the backend
+  ready for the next supported word. Hyphens, quotes, and commas before a prefix
+  do not become part of the displayed word or disable the backend.
+- Missing model paths fail startup before `ready`. Synthetic peers verify that
+  an extra frame, timeout, or malformed reply cannot answer a later query.
 
 Only five word slots are populated. Phrase slots remain empty. The adapter
 supports English ASCII literal-prefix completion, not nearby-key corrections,
 abbreviations, noisy touch input, personal learning, or multilingual prediction.
-It does not use TextSlinger's edit operation; Switchify retains ownership of
-the accepted prefix and constructs its own safe insertion.
+Only `[a-z']` prefixes, ignoring case, are supported; other prefixes return empty
+results without disabling the session. TextSlinger uses spaces to define words,
+while Switchify uses Unicode word boundaries. The bridge keeps the full accepted
+context for scoring and combines TextSlinger's completion suffix with Switchify's
+prefix. Switchify retains ownership of the accepted prefix and constructs its
+own safe insertion.
+
+Model words are lowercase. Switchify's shift/caps handling still applies, but
+the bridge does not restore names or the pronoun `I` as the shipped predictor
+does. No word list is applied: the model can return non-words such as `don'd`
+or `zzzzy`. An already complete word can be suggested again, in which case
+selection only adds a space. These are limits of this experiment, not a claim
+about prediction quality.
 
 ## Local measurements, 13 November 2026
 
-One run per route, Windows x64 Rust test executable on this development machine.
-These are observations, not performance guarantees or quality results.
+One run per route after the review fixes, Windows x64 Rust test executable on
+this development machine. These are observations, not performance guarantees
+or quality results. Startup includes a warm-up prediction before `ready`.
 
 | Measurement | Observed |
 | --- | --- |
-| Backend startup, including WSL/Python imports/model load | 10,917 ms |
-| Four warm query round trips through Switchify's engine | 75, 84, 86, 59 ms |
-| Real-model integration tests | 2 passed |
-| Dependency-free Python transport tests | 3 passed |
+| Backend startup, including WSL/Python imports/model load | 8,631 ms |
+| Four warm query round trips through Switchify's engine | 56, 62, 68, 48 ms |
+| Opt-in checks | 5 passed: three real-model tests, startup rejection, synthetic peer faults |
+| Dependency-free Python transport tests | 5 passed |
 
-The native Windows run also passed both real-model integration tests. Its backend
-startup was 11,560 ms and four warm query round trips were 58, 60, 76, and 44 ms.
-The same three Python transport tests passed natively. No TextSlinger source
+The native Windows run also passed all five opt-in checks. Its backend
+startup was 11,258 ms and four warm query round trips were 66, 74, 85, and 54 ms.
+The same five Python transport tests passed natively. No TextSlinger source
 changes were required. The native virtual environment occupies about 815 MB
 before adding the 80 MB model; it includes build tools and is not a minimal
 distribution size. Both routes still incur heavyweight Python imports even for
@@ -67,7 +84,7 @@ Decompressed SHA-256:
 
 The experiment used Python 3.10.22, CPU PyTorch 2.14.1, NumPy 1.26.4,
 Transformers 5.20.2, PEFT 0.14.0, KenLM 0.2.0 built with `MAX_ORDER=12`,
-and CMake 3.31.10. Only dependencies needed to import and run this backend
+and CMake 3.31.10 in WSL or CMake 4.4.4 natively. Only dependencies needed to import and run this backend
 were installed. The library was installed editable with `--no-deps`; this is
 not a validation of its full declared dependency set or its other backends.
 
@@ -99,7 +116,9 @@ From the Switchify repository in PowerShell, substitute the Linux paths:
 ```
 
 The launcher translates the bridge's Windows checkout path with `wslpath`.
-It restores the previous environment variable afterward. The tests are ignored
+It requires absolute Linux model/Python paths on the WSL route, and resolves
+native paths before Cargo changes the working directory. It restores the previous
+environment variable afterward. The external-process tests are ignored
 by default, require no baseline Switchify model, and use only fixed synthetic
 text. To run directly on Linux/macOS or with a native Python installation, set
 `SWITCHIFY_TEXTSLINGER_COMMAND` to a JSON argv array of the Python executable,
@@ -149,12 +168,12 @@ Dependency-free Python transport checks:
 python scripts/textslinger-spike-test.py
 ```
 
-The included Rust test file also needs an explicit formatting check because
-`rustfmt` does not traverse `include!` files:
-
-```bash
-rustfmt --edition 2021 --check src-tauri/src/prediction/textslinger_spike_tests.rs
-```
+These five Python tests run in native CI with no TextSlinger dependencies or
+model download. Two Rust reply-validation tests run in normal `cargo test`.
+The opt-in launcher runs three real-model tests, a missing-model startup test,
+and a synthetic-peer fault test for each selected route. The shutdown test now
+asserts real model output before stopping the backend. The Rust test module is
+included via `#[path]`, so normal `cargo fmt --check` traverses it.
 
 ## Setup and product implications
 
@@ -172,8 +191,10 @@ No installer changes were attempted in this spike.
 
 Startup must be asynchronous and complete before enabling the backend. The
 experiment allows 90 seconds for startup and 1,200 ms for a prediction reply.
-Timeout or malformed output makes its adapter unusable so a late response
-cannot answer another request. Production should handle this without blocking
+Timeout or a malformed reply envelope makes its adapter unusable. Each query
+has a sequence ID which its reply must echo; an extra or old frame cannot answer
+a different query. Invalid word candidates in an otherwise valid reply are
+dropped without disabling the session. Production should handle failures without blocking
 keyboard interaction and decide whether to retain the existing predictor as
 a fallback.
 
@@ -181,7 +202,9 @@ The bridge uses Switchify's existing 16 KiB framed transport limit. It limits
 context length, validates returned ASCII words, discards child diagnostics, and
 logs only fixed fixture timings. It holds the model in memory, without learning
 or saving typed context. It shuts down cooperatively on EOF or a shutdown
-request, with a 30-second watchdog for idle/blocked requests. Killing `wsl.exe`
+request. The watchdog exits with code 1 after 30 seconds without a request or
+while blocked handling a request. It is an idle kill for this experiment, not
+a production session-lifetime policy. Killing `wsl.exe`
 alone is not a proven process-tree cleanup strategy. Production needs tested
 supervision for app crashes, timeouts, suspend/resume, and uninstallation.
 
