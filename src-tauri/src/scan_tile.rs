@@ -469,7 +469,9 @@ mod tests {
                 &image.data()[pixel..pixel + 3],
                 &crate::panel_theme::Appearance::Dark.highlight_fill(color)
             );
+            let previous = tile.clone();
             tile.color = if color == Blue { Red } else { Blue };
+            assert_ne!(tile, previous);
             assert_ne!(bitmap(&tile).unwrap().data(), image.data());
             tile.selected = false;
             assert_ne!(

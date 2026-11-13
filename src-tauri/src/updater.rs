@@ -640,6 +640,22 @@ mod tests {
     }
 
     #[test]
+    fn transitions_expose_progress_retry_and_cancellation() {
+        assert_eq!(
+            UpdateView::ready("2.0.0".into(), 100, Some(100)).status,
+            UpdateStatus::ReadyToInstall
+        );
+        assert_eq!(
+            UpdateView::cancelled("2.0.0".into()).retry_action,
+            Some(RetryAction::Download)
+        );
+        assert_eq!(
+            UpdateView::failed(None, "offline".into(), RetryAction::Check).retry_action,
+            Some(RetryAction::Check)
+        );
+    }
+
+    #[test]
     fn operation_gate_deduplicates_concurrent_work() {
         let manager = UpdateManager::<FakeUpdate>::default();
         assert!(manager.begin(Operation::Check));

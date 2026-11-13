@@ -205,6 +205,7 @@ describe("Switchify PC shell", () => {
     expect(switches.cancelCapture).toHaveBeenCalled();
     const accept = within(dialog).getByRole("button", { name: /Accept pairing request/ });
     accept.focus();
+    expect(accept).toHaveFocus();
     fireEvent.keyDown(accept, { key: "Tab" });
     expect(within(dialog).getByRole("button", { name: /Reject pairing request/ })).toHaveFocus();
   });
@@ -214,6 +215,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("heading", { name: "Switchify PC" });
     const brand = container.querySelector(".brand");
     expect(brand).toHaveTextContent("SwitchifyPC");
+    expect(screen.queryByText(new RegExp(["pre", "view"].join(""), "i"))).not.toBeInTheDocument();
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("src", expect.stringContaining("icon.png"));
     expect(brand?.querySelector("img.brand-mark")).toHaveAttribute("alt", "");
   });
@@ -249,6 +251,29 @@ describe("Switchify PC shell", () => {
     expect(screen.getByText("Not connected yet")).toBeInTheDocument();
   });
 
+  it("keeps internal activity out of Home and Support while retaining troubleshooting history", async () => {
+    browserState.bluetooth = "advertising";
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
+    browserState.diagnostics = {
+      recentBluetooth: [{ sequence: 1, timestamp: 1, category: "bluetooth", status: "advertising" }],
+      lastDisconnect: null,
+      recentErrors: [{ sequence: 2, timestamp: 2, category: "runtime", status: "failed", detail: "Bluetooth adapter failed" }],
+    };
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    expect(screen.getByText("Control your computer with switches.")).toBeInTheDocument();
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    expect(screen.queryByText("Recent activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent errors" })).toBeInTheDocument();
+    expect(screen.getByText("Bluetooth adapter failed")).toBeInTheDocument();
+  });
+
   it.each([
     ["initializing", "Stale tablet", "Preparing this computer for nearby devices."],
     ["advertising", "Stale tablet", "Waiting for a nearby mobile device."],
@@ -262,6 +287,7 @@ describe("Switchify PC shell", () => {
   ] satisfies Array<[BluetoothState, string | null, string]>)('uses recovery-appropriate Mobile connection copy for Bluetooth state "%s"', async (bluetooth, deviceName, description) => {
     browserState.bluetooth = bluetooth;
     browserState.connectedDeviceName = deviceName;
+    browserState.lastActivity = { kind: "error", message: "Internal runtime activity" };
 
     render(<App />);
 
@@ -269,6 +295,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
     expect(screen.getByText(description)).toBeInTheDocument();
     if (bluetooth !== "connected") expect(screen.queryByText("Stale tablet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal runtime activity")).not.toBeInTheDocument();
   });
 
   it("routes tray navigation without discarding a dirty profile silently", async () => {
@@ -965,6 +992,8 @@ describe("Switchify PC shell", () => {
         .toEqual(["Home", "Switches", "Scanning", "Panels", "Mobile", "Settings", "Help"]);
       expect(within(navigation).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
       expect(screen.queryByRole("button", { name: "Mouse" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Menu,/ })).not.toBeInTheDocument();
+      expect(document.querySelector("aside")).toBeNull();
       fireEvent.click(within(navigation).getByRole("button", { name: "Switches" }));
       expect(within(navigation).getByRole("button", { name: "Switches" })).toHaveAttribute("aria-current", "page");
       expect(within(navigation).getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");

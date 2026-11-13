@@ -1329,6 +1329,12 @@ mod tests {
                 assert_eq!(tokens.window_size, expected_window);
                 assert_eq!(tokens.ring_diameter, expected_diameter);
                 assert_eq!(tokens.drag_dot_diameter, expected_diameter * 0.22);
+                assert_eq!(tokens.ring_alpha, 250);
+                assert_eq!(tokens.glow_alpha, 62);
+                assert_eq!(tokens.drag_glow_alpha, 66);
+                assert_eq!(tokens.drag_dot_alpha, 240);
+                assert_eq!(tokens.drag_ring_extra_stroke, 1.0);
+                assert_eq!(tokens.drag_glow_scale, 1.08);
             }
         }
 
@@ -1441,6 +1447,26 @@ mod tests {
             let samples = repeat_ring_samples(&pixmap, 128, 1.0);
             assert_eq!(high_alpha_runs(&samples), 0);
             assert!(samples.iter().all(|alpha| *alpha <= 80));
+        }
+    }
+
+    #[test]
+    fn raster_output_is_premultiplied_rgba() {
+        for color in [
+            [211, 47, 47],
+            [132, 255, 145],
+            [100, 166, 255],
+            [255, 209, 102],
+            [255, 255, 255],
+        ] {
+            let mut frame = ring_frame(PointerFeedback::Move);
+            frame.color = color;
+            let pixmap = render_marker(&frame, 1.0);
+            for pixel in pixmap.data().chunks_exact(4) {
+                assert!(pixel[0] <= pixel[3]);
+                assert!(pixel[1] <= pixel[3]);
+                assert!(pixel[2] <= pixel[3]);
+            }
         }
     }
 
@@ -1739,6 +1765,22 @@ mod tests {
             engine.handle(Command::EndSession, now),
             Update::Hide
         ));
+    }
+
+    #[test]
+    fn crosshairs_are_included_in_persistent_frames() {
+        let now = Instant::now();
+        let settings = AppSettings {
+            cursor_crosshairs: true,
+            ..AppSettings::default()
+        };
+        let mut engine = OverlayEngine::new(now);
+        let Update::Render(frame) =
+            engine.handle(Command::Show(PointerFeedback::Move, settings), now)
+        else {
+            panic!("expected overlay frame");
+        };
+        assert!(frame.crosshairs);
     }
 
     #[test]

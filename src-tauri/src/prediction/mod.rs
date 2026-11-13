@@ -1171,6 +1171,28 @@ mod tests {
 
     use super::*;
     #[test]
+    fn retry_discards_failed_worker_state_and_private_edits() {
+        stop();
+        SERVICE.with(|slot| {
+            let mut service = slot.borrow_mut();
+            service.failed = true;
+            service.generation = 17;
+            service
+                .edit
+                .push(InputScope::capture().record(Edit::Append("test".into())));
+            service.accept = Some((3, 0));
+        });
+        retry();
+        SERVICE.with(|slot| {
+            let service = slot.borrow();
+            assert!(!service.failed);
+            assert_eq!(service.generation, 0);
+            assert!(service.edit.is_empty());
+            assert!(service.accept.is_none());
+            assert!(service.client.is_none());
+        });
+    }
+    #[test]
     fn deleting_needs_an_unbroken_watch_since_the_suggestion_was_chosen() {
         assert!(may_delete(0, (3, false), (9, false)));
         assert!(may_delete(2, (3, true), (3, true)));

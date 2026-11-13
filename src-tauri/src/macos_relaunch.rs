@@ -185,6 +185,7 @@ mod tests {
         process_states: VecDeque<bool>,
         sleeps: usize,
         opened: Vec<PathBuf>,
+        open_error: Option<String>,
     }
 
     impl RelaunchPlatform for FakePlatform {
@@ -198,7 +199,10 @@ mod tests {
 
         fn open_bundle(&mut self, bundle: &Path) -> Result<(), String> {
             self.opened.push(bundle.to_path_buf());
-            Ok(())
+            match self.open_error.as_ref() {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
         }
     }
 
@@ -282,6 +286,24 @@ mod tests {
         assert_eq!(run_relaunch(42, bundle, &mut platform), Ok(()));
         assert_eq!(platform.sleeps, 2);
         assert_eq!(platform.opened, [bundle]);
+    }
+
+    #[test]
+    fn reports_launch_failure() {
+        let mut platform = FakePlatform {
+            process_states: VecDeque::from([false]),
+            open_error: Some("launch failed".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            run_relaunch(
+                42,
+                Path::new("/Applications/Switchify PC.app"),
+                &mut platform
+            ),
+            Err("launch failed".into())
+        );
     }
 
     #[test]

@@ -658,6 +658,18 @@ mod tests {
         );
         assert_eq!(next.speed, 5);
     }
+    #[test]
+    fn scanned_layout_setting_changes_only_the_saved_keyboard_choice() {
+        let mut config = Config::default();
+        crate::scan_menu::Setting::KeyboardLayout(crate::point_scan::KeyboardLayout::CommonLetters)
+            .apply(&mut config);
+        assert_eq!(
+            config.keyboard_layout,
+            crate::point_scan::KeyboardLayout::CommonLetters
+        );
+        assert_eq!(config.control_mode, crate::point_scan::ControlMode::Point);
+        assert!(config.word_prediction);
+    }
 
     #[test]
     fn typing_and_mouse_panel_clicks_keep_visuals_but_point_clicks_hide_them() {
@@ -780,6 +792,7 @@ mod tests {
                 );
             }
         }
+        assert_eq!(WORK_AREA_FOLLOWS_AUTO_HIDE, cfg!(target_os = "macos"));
     }
     #[test]
     fn a_space_change_is_counted_and_settles() {
