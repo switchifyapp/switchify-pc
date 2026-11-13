@@ -69,7 +69,9 @@ class BridgeTest(unittest.TestCase):
 
         source, target = io.BytesIO(), io.BytesIO()
         fixtures = [("she is well-", "kn"), ('he said "', "he"), ("a,", "b"),
-                    ("I am ", "2"), ("", "café"), ("she is well-", "kn")]
+                    ("I am ", "2"), ("", "café"), ('he said "', ""),
+                    ("she is well-", ""), ("hello,", ""), ("it costs $", ""),
+                    ("look (", ""), ("she is well-", "kn")]
         for sequence, (before, prefix) in enumerate(fixtures, 1):
             bridge.send(source, {"id": sequence, "before": before, "prefix": prefix})
         bridge.send(source, {"shutdown": True})
@@ -77,7 +79,8 @@ class BridgeTest(unittest.TestCase):
         bridge.serve(Model(), source, target)
         target.seek(0)
         bridge.receive(target)
-        for sequence, words in enumerate((["know"], ["heow"], ["bow"], [], [], ["know"]), 1):
+        expected = (["know"], ["heow"], ["bow"], [], [], [], [], [], [], [], ["know"])
+        for sequence, words in enumerate(expected, 1):
             self.assertEqual(bridge.receive(target), {"id": sequence, "words": words})
         self.assertEqual(calls, ["she is well-kn", 'he said "he', "a,b", "she is well-kn"])
 
@@ -115,7 +118,7 @@ def fault_bridge(mode):
             bridge.send(target, {"stopped": True})
             return
         if mode == "timeout":
-            time.sleep(1.4)
+            time.sleep(2.5)
         reply = {"id": request["id"], "words": ["coffee"]}
         if mode == "malformed":
             reply["unexpected"] = True

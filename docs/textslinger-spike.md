@@ -34,6 +34,8 @@ input adapter is invoked.
 - Digits and accented prefixes produce no suggestions and leave the backend
   ready for the next supported word. Hyphens, quotes, and commas before a prefix
   do not become part of the displayed word or disable the backend.
+  With no prefix, a non-space tail such as an opening quote, hyphen, or comma
+  returns no suggestions instead of offering fragments as whole words.
 - Missing model paths fail startup before `ready`. Synthetic peers verify that
   an extra frame, timeout, or malformed reply cannot answer a later query.
 
@@ -59,6 +61,9 @@ about prediction quality.
 One run per route after the review fixes, Windows x64 Rust test executable on
 this development machine. These are observations, not performance guarantees
 or quality results. Startup includes a warm-up prediction before `ready`.
+These timed runs used warm caches. Fable observed a 34.9-second first model load
+with a cold file cache. The 90-second startup allowance covers that observation;
+the short timings below must not be treated as cold-start measurements.
 
 | Measurement | Observed |
 | --- | --- |
@@ -126,6 +131,10 @@ bridge path, `--model`, and model path, then run the same Cargo test filter.
 The direct Linux/macOS launch routes have not been exercised here. The native
 Windows route below has been exercised.
 
+On Windows PowerShell 5.1, run the launcher unredirected. Capturing it with
+`2>&1` can turn Cargo's informational stderr into a terminating PowerShell error.
+The launcher still restores its environment and working directory on that path.
+
 ### Native Windows route
 
 Native Windows succeeded despite the upstream README recommending WSL. The
@@ -173,7 +182,9 @@ model download. Two Rust reply-validation tests run in normal `cargo test`.
 The opt-in launcher runs three real-model tests, a missing-model startup test,
 and a synthetic-peer fault test for each selected route. The shutdown test now
 asserts real model output before stopping the backend. The Rust test module is
-included via `#[path]`, so normal `cargo fmt --check` traverses it.
+stored at `src-tauri/src/prediction/worker/tests/textslinger.rs` and included
+with a plain module declaration, so normal `cargo fmt --check` traverses it
+on Windows and POSIX systems without traversing nonexistent parent directories.
 
 ## Setup and product implications
 

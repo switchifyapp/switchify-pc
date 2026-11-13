@@ -67,7 +67,10 @@ def serve(model, source, target):
             prefix = prefix.lower()
             # An unsupported prefix is an ordinary empty result, not a broken
             # backend. The next supported query must still work.
-            if all(character in SPELLING for character in prefix):
+            # With no owned prefix, a non-space tail is only a fragment in
+            # TextSlinger's word model, not a fresh whole-word boundary.
+            boundary_supported = bool(prefix) or not before or before.endswith(" ")
+            if boundary_supported and all(character in SPELLING for character in prefix):
                 result = model.predict_words(
                     left_context=(before + prefix).lower(),
                     word_spelling_characters=SPELLING,

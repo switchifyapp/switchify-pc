@@ -724,7 +724,6 @@ pub fn run_from_args() -> bool {
 #[cfg(test)]
 mod tests {
     // Developer-only feasibility experiment. Never compiled into the app.
-    #[path = "../../textslinger_spike_tests.rs"]
     mod textslinger;
 
     #[derive(Clone)]

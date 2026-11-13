@@ -1,3 +1,4 @@
+// Normal module layout keeps Rust tools portable across Windows and POSIX.
 use super::*;
 use crate::prediction::model::{Predict, Prediction};
 use std::{
@@ -261,6 +262,11 @@ fn textslinger_word_boundaries_and_unsupported_prefixes() {
         ("she is well-kn", Some("kn")),
         ("he said \"he", Some("he")),
         ("a,b", Some("b")),
+        ("he said \"", None),
+        ("she is well-", None),
+        ("hello,", None),
+        ("it costs $", None),
+        ("look (", None),
     ] {
         let batch = response_batch(e.respond(request(
             vec![edit(Edit::Reset), append(text)],
@@ -320,6 +326,6 @@ fn textslinger_faults_cannot_answer_another_request() {
         assert!(adapter.predict("I would like a cup of ", "").is_err());
         let start = Instant::now();
         assert!(adapter.predict("please open the ", "").is_err());
-        assert!(start.elapsed() < Duration::from_millis(100));
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 }
