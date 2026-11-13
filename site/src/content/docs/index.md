@@ -17,6 +17,10 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
+## New in v1.8.2
+
+- **See which key is repeating.** A repeating key on the scanned keyboard now uses the active colour and shows a **Repeating** label. The mark clears when repetition stops. See [Keyboard](/using/keyboard/#repeating-keys).
+
 ## New in v1.8.1
 
 - **Steadier word suggestions.** When you pick a suggestion, it is now typed one character at a time with a very short gap, so slower apps such as Notepad have time to keep up. If you click or type outside Switchify while a suggestion is being typed, it stops. See [Word prediction](/using/word-prediction/).
