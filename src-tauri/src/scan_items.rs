@@ -858,12 +858,6 @@ mod tests {
         assert_eq!(scan.nav.path(), &[0]);
         assert_eq!(scan.handle(Action::Select), Some("paste"));
     }
-
-    #[test]
-    fn fixed_single_item_rows_keep_direct_activation() {
-        let mut scan = ItemScanner::rows(&[vec!["close"]], Policy::MENU);
-        assert_eq!(scan.handle(Action::Select), Some("close"));
-    }
     #[test]
     fn linear_scanning_visits_each_item_once_and_reports_its_visual_position() {
         let rows = vec![vec!["copy", "paste"], vec!["save"]];

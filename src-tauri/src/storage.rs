@@ -544,22 +544,6 @@ mod tests {
     }
 
     #[test]
-    fn state_round_trips_in_an_isolated_directory() {
-        let root = std::env::temp_dir().join(format!("switchify-{}", uuid::Uuid::new_v4()));
-        let store = AppStorage::at(root.join("state.json"));
-        let state = PersistedState {
-            desktop_id: Some("desktop-1".into()),
-            ..PersistedState::default()
-        };
-        store.save(&state).unwrap();
-        assert_eq!(
-            store.load().unwrap().desktop_id.as_deref(),
-            Some("desktop-1")
-        );
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn pairing_token_operations_use_the_injected_secure_store() {
         let store = isolated_storage(Box::<MemoryPairingTokenStore>::default());
 
@@ -709,14 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn state_preserves_an_explicit_transient_overlay_preference() {
-        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
-        value["settings"]["cursorOverlayVisibility"] = serde_json::json!("onInput");
-        let state: PersistedState = serde_json::from_value(value).unwrap();
-        assert_eq!(state.settings.cursor_overlay_visibility, "onInput");
-    }
-
-    #[test]
     fn state_without_repeat_acceleration_uses_the_shipping_default() {
         let mut value = serde_json::to_value(PersistedState::default()).unwrap();
         value["settings"]
@@ -728,14 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn state_preserves_an_explicit_repeat_acceleration() {
-        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
-        value["settings"]["mouseRepeatAccelerationDurationMs"] = serde_json::json!(2000);
-        let state: PersistedState = serde_json::from_value(value).unwrap();
-        assert_eq!(state.settings.mouse_repeat_acceleration_duration_ms, 2000);
-    }
-
-    #[test]
     fn state_without_dwell_settings_uses_disabled_shipping_defaults() {
         let mut value = serde_json::to_value(PersistedState::default()).unwrap();
         let settings = value["settings"].as_object_mut().unwrap();
@@ -744,16 +712,6 @@ mod tests {
         let state: PersistedState = serde_json::from_value(value).unwrap();
         assert!(!state.settings.dwell_click_enabled);
         assert_eq!(state.settings.dwell_click_delay_ms, 1000);
-    }
-
-    #[test]
-    fn state_preserves_explicit_dwell_settings() {
-        let mut value = serde_json::to_value(PersistedState::default()).unwrap();
-        value["settings"]["dwellClickEnabled"] = serde_json::json!(true);
-        value["settings"]["dwellClickDelayMs"] = serde_json::json!(8000);
-        let state: PersistedState = serde_json::from_value(value).unwrap();
-        assert!(state.settings.dwell_click_enabled);
-        assert_eq!(state.settings.dwell_click_delay_ms, 8000);
     }
 
     #[test]

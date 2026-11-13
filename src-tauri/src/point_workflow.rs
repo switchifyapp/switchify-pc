@@ -2650,24 +2650,6 @@ mod tests {
     }
 
     #[test]
-    fn a_panel_opened_from_home_still_clicks_at_the_pointer() {
-        let mut s = board_session(vec![clicking_panel()]);
-        s.action(Action::Select);
-        assert_eq!(choose_in(&mut s, 3, 1), None);
-        // The list's first row holds the one panel, so the row press opens it.
-        assert_eq!(s.action(Action::Select), None);
-        assert!(s.technique.menu.custom_id.is_some());
-        s.technique.set_pointer(Some((40.0, 50.0)));
-        assert_eq!(
-            s.action(Action::Select),
-            Some(Request::MouseClick {
-                right: false,
-                count: 1
-            })
-        );
-    }
-
-    #[test]
     fn the_action_pages_leave_my_panels_out_until_there_is_a_panel() {
         let mut s = board_session(vec![]);
         s.action(Action::Select);

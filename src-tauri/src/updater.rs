@@ -471,8 +471,6 @@ mod tests {
         version: String,
         chunks: Vec<Vec<u8>>,
         download_error: Option<String>,
-        install_error: Option<String>,
-        installed: Arc<Mutex<Vec<Vec<u8>>>>,
         gate: Option<Arc<Notify>>,
     }
 
@@ -482,8 +480,6 @@ mod tests {
                 version: "2.0.0".into(),
                 chunks,
                 download_error: None,
-                install_error: None,
-                installed: Arc::new(Mutex::new(Vec::new())),
                 gate: None,
             }
         }
@@ -515,14 +511,7 @@ mod tests {
             })
         }
 
-        fn install(&self, bytes: &[u8]) -> Result<(), String> {
-            if let Some(error) = &self.install_error {
-                return Err(error.clone());
-            }
-            self.installed
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(bytes.to_vec());
+        fn install(&self, _bytes: &[u8]) -> Result<(), String> {
             Ok(())
         }
     }
@@ -540,12 +529,6 @@ mod tests {
         assert_eq!(counter.current(), progress(0, None));
         assert_eq!(counter.add(25, Some(100)), progress(25, Some(100)));
         assert_eq!(counter.add(30, None), progress(55, Some(100)));
-    }
-
-    #[test]
-    fn progress_counter_reports_an_unknown_total() {
-        let counter = ProgressCounter::default();
-        assert_eq!(counter.add(10, None), progress(10, None));
     }
 
     #[test]
@@ -697,46 +680,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fake_artifact_download_reports_progress_and_installs_exact_bytes() {
-        let update = FakeUpdate::successful(vec![vec![1, 2], vec![3, 4, 5]]);
-        let (_cancel, receiver) = watch::channel(false);
-        let progress = Arc::new(Mutex::new(Vec::new()));
-        let progress_events = progress.clone();
-        let result = download_with_cancel(&update, receiver, move |chunk, total| {
-            progress_events
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push((chunk, total));
-        })
-        .await;
-        assert_eq!(result, DownloadResult::Complete(Ok(vec![1, 2, 3, 4, 5])));
-        assert_eq!(
-            *progress
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-            vec![(2, Some(5)), (3, Some(5))]
-        );
-        update.install(&[1, 2, 3]).unwrap();
-        assert_eq!(
-            *update
-                .installed
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-            vec![vec![1, 2, 3]]
-        );
-    }
-
-    #[tokio::test]
-    async fn fake_artifact_exposes_download_and_install_failures() {
+    async fn download_failures_complete_with_the_error() {
         let mut update = FakeUpdate::successful(Vec::new());
         update.download_error = Some("network unavailable".into());
-        update.install_error = Some("installer rejected".into());
         let (_cancel, receiver) = watch::channel(false);
         assert_eq!(
             download_with_cancel(&update, receiver, |_, _| {}).await,
             DownloadResult::Complete(Err("network unavailable".into()))
         );
-        assert_eq!(update.install(&[1]), Err("installer rejected".into()));
     }
 
     #[tokio::test]

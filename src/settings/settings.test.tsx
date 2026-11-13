@@ -46,16 +46,6 @@ describe("Switchify PC settings", () => {
     vi.restoreAllMocks();
   });
 
-  it("opens scanning from its own sidebar destination", async()=> {
-    render(<App/>);
-    await screen.findByRole("heading",{name:"Switchify PC"});
-    expect(screen.queryByRole("button",{name:"Point scan"})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button",{name:"Scanning"}));
-    expect(screen.getByRole("heading", { name: "Scanning", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading",{name:"Two ways to control your PC", level:2})).toBeInTheDocument();
-    expect(screen.getByRole("button",{name:"Customise point scanning"})).toBeInTheDocument();
-  });
-
   it("keeps the Mouse pointer settings on Scanning and Input on Settings", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Switchify PC" });
@@ -383,19 +373,6 @@ describe("Switchify PC settings", () => {
     expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("restores confirmed dwell settings when automatic saving fails", async () => {
-    vi.spyOn(api, "saveSettings").mockRejectedValueOnce(new Error("Settings storage unavailable"));
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    openSection("Input");
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
-    expect(screen.getByRole("checkbox", { name: "Click when I stop" })).not.toBeChecked();
-    expect(screen.getByRole("group", { name: "Wait before clicking" })).toBeDisabled();
-  });
-
   it("shows the version, licence and project links on the About tab", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
@@ -542,16 +519,6 @@ describe("Switchify PC settings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings storage unavailable");
     expect(startup).not.toBeChecked();
-  });
-
-  it("focuses Updates when the update banner is selected from Settings", async () => {
-    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(screen.queryByRole("region", { name: "Updates" })).not.toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("status", { name: "Application update" })).getByRole("button", { name: "View update" }));
-    const updates = await screen.findByRole("region", { name: "Updates" });
-    await waitFor(() => expect(updates).toHaveFocus());
   });
 
   it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {

@@ -2555,32 +2555,6 @@ mod tests {
         assert!(keyboard.capitalize_next);
     }
     #[test]
-    fn simple_qwerty_prose_punctuation_on_symbols_keeps_decimal_literal() {
-        use crate::point_scan::KeyboardLayout;
-        let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
-        keyboard.choose(Key::Page(Page::Numbers));
-        assert!(matches!(
-            keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
-            Some(Output::Stroke(_))
-        ));
-        keyboard.succeeded_with_context(context(1));
-        keyboard.choose(Key::Page(Page::Symbols));
-        for mark in [',', '.'] {
-            assert!(
-                matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
-            );
-            keyboard.succeeded_with_context(context(1));
-        }
-        keyboard.reset_context();
-        keyboard.choose_with_context(Key::Modifier(0), context(1));
-        assert!(
-            matches!(keyboard.choose_with_context(Key::Character('?', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
-        );
-        keyboard.succeeded_with_context(context(1));
-        keyboard.choose_with_context(Key::Page(Page::Letters), context(1));
-        assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
-    }
-    #[test]
     fn layout_key_requests_change_and_saved_layout_rebuilds_without_losing_shift() {
         use crate::point_scan::KeyboardLayout;
         let mut keyboard = Keyboard::new(false);

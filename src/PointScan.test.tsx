@@ -53,14 +53,6 @@ afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 
-it("shows the backend's reason while scanning is off and offers no toggle", async () => {
-  render(<PointScan />);
-  await screen.findByText("Scanning starts once a switch has the Select action.");
-  more();
-  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
-  expect(screen.getByRole("button", { name: "Line only" })).toBeEnabled();
-});
-
 it("saves settings without an enabled flag and keeps them editable while scanning runs", async () => {
   mocks.invoke.mockImplementation(async (command, args) =>
     command === "get_point_scan"

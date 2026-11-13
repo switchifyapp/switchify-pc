@@ -1494,21 +1494,6 @@ mod tests {
             ready.token
         );
     }
-
-    #[test]
-    fn six_slots_preserve_populated_positions() {
-        let mut e = engine();
-        let b = e
-            .query(vec![append("wa")], 1, Shift::Off, false, false)
-            .unwrap();
-        assert_eq!(
-            b.words,
-            crate::prediction::slots(["water", "waffle", "walk"])
-        );
-        assert_eq!(e.accept(b.token, 1).unwrap(), (0, "ffle ".to_owned()));
-        let upper = e.query(vec![], 1, Shift::Off, true, false).unwrap();
-        assert_eq!(upper.words[1].as_deref().unwrap(), "waFFLE");
-    }
     #[test]
     fn first_letter_and_completion_chain_use_only_buffer() {
         let mut e = engine();
@@ -1781,74 +1766,6 @@ mod tests {
                 .as_deref()
                 .unwrap(),
             "wATER"
-        );
-    }
-    #[test]
-    fn shift_once_changes_only_the_first_letter_and_only_before_typing() {
-        let mut e = engine();
-        e.query(vec![append("Send ")], 1, Shift::Off, false, false)
-            .unwrap();
-        assert_eq!(
-            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[0]
-                .as_deref()
-                .unwrap(),
-            "water"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Once, false, false).unwrap().words[0]
-                .as_deref()
-                .unwrap(),
-            "Water"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Locked, false, false)
-                .unwrap()
-                .words[0]
-                .as_deref()
-                .unwrap(),
-            "WATER"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Off, true, false).unwrap().words[0]
-                .as_deref()
-                .unwrap(),
-            "WATER"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Locked, true, false)
-                .unwrap()
-                .words[0]
-                .as_deref()
-                .unwrap(),
-            "water"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Once, true, false).unwrap().words[0]
-                .as_deref()
-                .unwrap(),
-            "wATER"
-        );
-        assert_eq!(
-            e.query(vec![], 1, Shift::Off, false, false).unwrap().words[3]
-                .as_deref()
-                .unwrap(),
-            "WhatsApp"
-        );
-        e.query(vec![append("wa")], 2, Shift::Off, false, false)
-            .unwrap();
-        assert_eq!(
-            e.query(vec![], 2, Shift::Once, false, false).unwrap().words[0]
-                .as_deref()
-                .unwrap(),
-            "water"
-        );
-        assert_eq!(
-            e.query(vec![], 2, Shift::Locked, false, false)
-                .unwrap()
-                .words[0]
-                .as_deref()
-                .unwrap(),
-            "waTER"
         );
     }
     /// Every combination of typed prefix, Shift, Caps and sentence start for

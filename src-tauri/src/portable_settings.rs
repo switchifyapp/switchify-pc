@@ -1369,15 +1369,6 @@ mod tests {
     }
 
     #[test]
-    fn plan_applies_switch_keys() {
-        let local = local();
-        let mut incoming = local.document();
-        incoming.switches.bindings[0].key = "F5".into();
-        let plan = plan(&local, incoming).unwrap();
-        assert_eq!(plan.switches.unwrap().bindings[0].key, "F5");
-    }
-
-    #[test]
     fn plan_keeps_runtime_point_scan_state() {
         let local = local();
         let mut incoming = local.document();

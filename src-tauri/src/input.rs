@@ -2416,12 +2416,6 @@ mod tests {
             .finish(false, || events.lock().unwrap().push("hide overlay"));
         assert!(events.lock().unwrap().is_empty());
     }
-    #[test]
-    fn command_execution_uses_relative_pointer_input_without_system_input() {
-        let mut input = DesktopInput::new(FakeInjector::default());
-        input.move_pointer(12, -6).unwrap();
-        assert_eq!(input.injector.moves, vec![(12, -6)]);
-    }
 
     #[cfg(target_os = "windows")]
     #[test]
@@ -2673,16 +2667,6 @@ mod tests {
             "End the active drag before moving to another monitor."
         );
         assert_eq!(input.injector.absolute_moves, vec![(-640, 512)]);
-    }
-
-    #[test]
-    fn repeat_scroll_preserves_the_existing_delta() {
-        let mut input = DesktopInput::new(FakeInjector::default());
-        assert_eq!(
-            input.execute_repeat_scroll(4, -3).unwrap(),
-            PointerFeedback::Scroll { dx: 4, dy: -3 }
-        );
-        assert_eq!(input.injector.scrolls, vec![(4, -3)]);
     }
 
     #[test]

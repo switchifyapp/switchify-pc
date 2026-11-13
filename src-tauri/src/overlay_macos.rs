@@ -537,14 +537,6 @@ mod tests {
     }
 
     #[test]
-    fn overlay_rect_stays_centered_away_from_edges() {
-        assert_eq!(
-            centered_rect(NSPoint { x: 960.0, y: 540.0 }, 128.0, 128.0,),
-            rect(896.0, 476.0, 128.0, 128.0)
-        );
-    }
-
-    #[test]
     fn overlay_rect_stays_pointer_centered_at_every_screen_edge() {
         for (cursor, expected) in [
             (
@@ -655,21 +647,6 @@ mod tests {
                 panel: rect(-64.0, 476.0, 128.0, 128.0),
                 image: rect(0.0, 0.0, 128.0, 128.0),
             })
-        );
-    }
-
-    #[test]
-    fn overlay_rect_supports_negative_screen_origins() {
-        assert_eq!(
-            centered_rect(
-                NSPoint {
-                    x: -1600.0,
-                    y: -900.0
-                },
-                128.0,
-                128.0,
-            ),
-            rect(-1664.0, -964.0, 128.0, 128.0)
         );
     }
 

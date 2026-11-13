@@ -1822,16 +1822,15 @@ mod repeat_stop_tests {
 
     #[test]
     fn ending_repeat_while_held_still_consumes_pending_releases() {
-        for _reason in ["settings", "failure", "display"] {
-            let mut stop = RepeatStop::default();
-            assert_eq!(stop.down("one", true, Default::default()), Some(false));
-            assert_eq!(stop.down("two", true, Default::default()), Some(false));
-            // The technique ended its repeat independently before either Up.
-            assert_eq!(stop.up("one"), Some(true));
-            assert_eq!(stop.up("two"), Some(false));
-            assert!(!stop.held());
-            assert_eq!(stop.down("one", false, Default::default()), None);
-        }
+        // Settings, a failure or a display change can end the technique's
+        // repeat independently before either Up.
+        let mut stop = RepeatStop::default();
+        assert_eq!(stop.down("one", true, Default::default()), Some(false));
+        assert_eq!(stop.down("two", true, Default::default()), Some(false));
+        assert_eq!(stop.up("one"), Some(true));
+        assert_eq!(stop.up("two"), Some(false));
+        assert!(!stop.held());
+        assert_eq!(stop.down("one", false, Default::default()), None);
         let mut stop = RepeatStop::default();
         assert_eq!(stop.down("one", true, Default::default()), Some(false));
         stop.clear(); // Escape, emergency hold, disconnect, or a new session.

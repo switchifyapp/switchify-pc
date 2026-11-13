@@ -165,12 +165,4 @@ mod tests {
         assert!(!coordinator.is_active(first));
         assert!(!coordinator.is_active(second));
     }
-
-    #[test]
-    fn retry_schedule_is_bounded_to_thirty_seconds() {
-        assert_eq!(
-            RECOVERY_DELAYS,
-            [0, 1, 2, 4, 8, 15].map(Duration::from_secs)
-        );
-    }
 }

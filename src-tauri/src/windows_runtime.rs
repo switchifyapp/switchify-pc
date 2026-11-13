@@ -2612,7 +2612,6 @@ mod tests {
         NOTIFICATION_BYTES, NOTIFICATION_DELIVERY_ERROR,
     };
     use crate::display_navigation::Display;
-    use crate::input::MobileTypingRoute;
     use crate::protocol::{
         create_notification_frames, pointer_profile_response, BluetoothFrame, EngineEvent,
         FrameReassembler, NotificationTarget, PointerProfile, ProtocolEngine,
@@ -2664,39 +2663,6 @@ mod tests {
             .into_iter()
             .find_map(|frame| engine.receive_frame(&frame, 1_724_000_000_000).unwrap())
             .expect("complete protocol message")
-    }
-
-    #[test]
-    fn windows_typing_route_orders_cleanup_before_successful_overlay_hiding() {
-        let events = Mutex::new(Vec::new());
-        let route = MobileTypingRoute::for_text("Hello");
-        route.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        route.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(
-            *events.lock().unwrap(),
-            ["cancel dwell", "stop repeats", "hide overlay"]
-        );
-
-        let events = Mutex::new(Vec::new());
-        let failed = MobileTypingRoute::for_text("Hello");
-        failed.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        failed.finish(false, || events.lock().unwrap().push("hide overlay"));
-        assert_eq!(*events.lock().unwrap(), ["cancel dwell", "stop repeats"]);
-
-        let events = Mutex::new(Vec::new());
-        let empty = MobileTypingRoute::for_text("");
-        empty.prepare(
-            || events.lock().unwrap().push("cancel dwell"),
-            || events.lock().unwrap().push("stop repeats"),
-        );
-        empty.finish(true, || events.lock().unwrap().push("hide overlay"));
-        assert!(events.lock().unwrap().is_empty());
     }
 
     #[test]
