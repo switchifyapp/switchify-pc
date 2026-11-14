@@ -111,5 +111,15 @@ try {
   $resolved = [IO.Path]::GetFullPath($unpacked)
   $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
   if (-not $resolved.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid verification directory' }
-  Remove-Item -LiteralPath $resolved -Recurse -Force
+  # Running the installed runtime can leave its DLLs briefly in use after the
+  # process exits (the antivirus scanner, or the x64 emulation cache on ARM64).
+  for ($attempt = 1; ; $attempt++) {
+    try {
+      Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+      break
+    } catch {
+      if ($attempt -ge 10) { throw }
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
 }
