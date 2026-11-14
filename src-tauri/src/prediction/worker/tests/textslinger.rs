@@ -85,7 +85,8 @@ fn textslinger_switchify_integration() {
         )));
         timings.push(start.elapsed().as_millis());
         assert_eq!(batch.words[0].as_deref(), Some(expected));
-        assert!(batch.words[5..].iter().all(Option::is_none));
+        // TextSlinger suggests single words, never phrases.
+        assert!(batch.words.iter().flatten().all(|word| !word.contains(' ')));
         let response = e.respond(Request::Accept {
             generation: e.generation,
             token: batch.token,
