@@ -998,8 +998,8 @@ mod tests {
             keyboard.set_panel_theme(theme);
             keyboard.enable_predictions(true);
             let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
-            // Some slots filled, some empty placeholders, and words long
-            // enough to need shrinking in a word slot and a phrase slot.
+            // Some slots filled, an empty placeholder, and words long
+            // enough to need shrinking.
             keyboard.predictions(
                 Some(crate::prediction::worker::Batch {
                     token: 1,
@@ -1009,16 +1009,26 @@ mod tests {
                         Some("the"),
                         Some("extraordinarily"),
                         None,
-                        Some("congratulations"),
-                        Some("thank you"),
-                        None,
-                        Some("misunderstanding everything"),
+                        Some("misunderstanding"),
                     ]
                     .map(|word| word.map(str::to_owned)),
                 }),
                 false,
             );
             let predictions_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            // A tile beside the keys: the suggestions still span the key area.
+            keyboard.set_extras(crate::panel_extras::PanelExtras {
+                rows: Vec::new(),
+                columns: vec![vec![crate::custom_panels::Cell {
+                    label: "Hello".into(),
+                    action: crate::panel_actions::PanelAction::Text {
+                        text: "Hello".into(),
+                    },
+                    span: 1,
+                }]],
+            });
+            let columns_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.set_extras(crate::panel_extras::PanelExtras::default());
             keyboard.predictions(None, false);
             let mut page = |page| {
                 keyboard.fixture_page(crate::scan_keyboard::Key::Page(page));
@@ -1034,6 +1044,7 @@ mod tests {
                 ),
                 ("keyboard", keyboard_frame),
                 ("keyboard-predictions", predictions_frame),
+                ("keyboard-predictions-columns", columns_frame),
                 ("keyboard-numbers", numbers_frame),
                 ("keyboard-symbols", symbols_frame),
                 (

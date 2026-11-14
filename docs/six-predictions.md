@@ -1,5 +1,9 @@
 # Prediction slots
 
+> **Superseded.** The row now has five equal slots: three statistical words, then
+> up to two SmolLM2 words. The phrase slots and phrase generation were removed
+> (#1424). This page records the earlier eight-slot design.
+
 The row began with six slots and now has eight. Slots 1–3 are the statistical
 predictor's first three suggestions. Slots 4 and 5 are up to two additional
 SmolLM2 words. Slots 6–8, each twice as wide, are SmolLM2's three best two-word
