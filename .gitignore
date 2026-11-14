@@ -25,3 +25,8 @@ src-tauri/resources/prediction-neural/
 src-tauri/neural-benchmark.json
 
 src/find/model/
+
+# Fetched by scripts/fetch-textslinger-runtime.mjs
+src-tauri/resources/textslinger/runtime/
+src-tauri/resources/textslinger/runtime.sha256
+src-tauri/resources/textslinger/runtime.pending-*

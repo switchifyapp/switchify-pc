@@ -266,6 +266,13 @@ jobs:
           chmod 600 "$api_key_path"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
 
+      - name: Sign the bundled TextSlinger runtime
+        shell: bash
+        run: bash scripts/sign-macos-textslinger-runtime.sh "$APPLE_SIGNING_IDENTITY" "$APPLE_KEYCHAIN_PATH"
+
+      - name: Check the signed TextSlinger runtime runs
+        run: node scripts/check-textslinger-runtime.mjs src-tauri/resources
+
       - name: Validate paid licence configuration
         run: node scripts/validate-licence-config.mjs
 
@@ -312,6 +319,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-macos-release.sh "$RELEASE_TAG" "$APPLE_SIGNING_IDENTITY" "$APPLE_TEAM_ID"
+          node scripts/check-textslinger-runtime.mjs src-tauri/target/aarch64-apple-darwin/release/bundle/macos
           bundle_root='src-tauri/target/aarch64-apple-darwin/release/bundle'
           dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           updater_path="$(find "$bundle_root/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
@@ -546,6 +554,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Before the build script, so the bundled TextSlinger runtime is there to sign.
+      - name: Fetch prediction model
+        run: npm run prediction-model
 
       - name: Verify Windows release configuration
         shell: powershell

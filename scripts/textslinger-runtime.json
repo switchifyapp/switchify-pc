@@ -1,0 +1,24 @@
+{
+  "release": "v0.6.1",
+  "source": "https://github.com/switchifyapp/switchify-prediction",
+  "targets": {
+    "x86_64-pc-windows-msvc": {
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.6.1/textslinger-runtime-x86_64-pc-windows-msvc.zip",
+      "bytes": 39237412,
+      "sha256": "aa8f402355f09efc010bf31aad194e0835dacc67ec9f4b0014307bd369666f17"
+    },
+    "aarch64-apple-darwin": {
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.6.1/textslinger-runtime-aarch64-apple-darwin.zip",
+      "bytes": 38339043,
+      "sha256": "5ae6cb09754efa8192e7f59784ade8336fb6ab4223a355d0e8ffee8f9fe90600"
+    },
+    "x86_64-apple-darwin": {
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.6.1/textslinger-runtime-x86_64-apple-darwin.zip",
+      "bytes": 44902668,
+      "sha256": "a9dd07aaadfada60ac4982579251a9567f78ed8a38a7392e483b400183cccb01"
+    }
+  },
+  "runtime_for": {
+    "aarch64-pc-windows-msvc": "x86_64-pc-windows-msvc"
+  }
+}

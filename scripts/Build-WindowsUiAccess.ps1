@@ -40,10 +40,22 @@ try {
   New-Item -ItemType Directory -Path $sidecarDirectory -Force | Out-Null
   Copy-Item -LiteralPath $launcherSource -Destination $sidecar -Force
 
+  # The app runs the bundled TextSlinger runtime. Sign its programs and
+  # libraries like the app's own, since Smart App Control can block unsigned
+  # DLLs. Files Microsoft already signed, such as the C runtime, keep theirs.
+  $runtime = Join-Path $root 'src-tauri\resources\textslinger\runtime'
+  if (-not (Test-Path -LiteralPath (Join-Path $runtime 'python.exe'))) {
+    throw 'The TextSlinger runtime is missing; run npm run prediction-model first.'
+  }
+
   if ($SkipSign) {
     $env:SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE = '1'
   } else {
     & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $sidecar
+    Get-ChildItem -LiteralPath $runtime -Recurse -File |
+      Where-Object { $_.Extension -in '.exe', '.dll', '.pyd' } |
+      Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' } |
+      ForEach-Object { & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $_.FullName }
   }
 
   & $npm @tauriArgs

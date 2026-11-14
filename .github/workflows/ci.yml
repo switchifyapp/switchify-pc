@@ -180,6 +180,14 @@ jobs:
       - name: Fetch prediction model and released companion workers
         if: needs.changes.outputs.app == 'true'
         run: npm run prediction-model
+      - name: Test the TextSlinger bridge with the bundled runtime
+        if: needs.changes.outputs.app == 'true'
+        shell: bash
+        run: |
+          runtime=src-tauri/resources/textslinger/runtime
+          python="$runtime/$(node -p "require('./$runtime/manifest.json').python")"
+          "$python" -I -B scripts/textslinger-bridge-test.py
+          node scripts/check-textslinger-runtime.mjs src-tauri/resources
       - name: Diagnose released ARM worker
         if: needs.changes.outputs.app == 'true' && (runner.os == 'macOS')
         env:
@@ -220,6 +228,7 @@ jobs:
           model=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos)
           echo "SWITCHIFY_BENCHMARK_MODEL=$model" >> "$GITHUB_ENV"
           echo "SWITCHIFY_BENCHMARK_WORKER=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos --worker)" >> "$GITHUB_ENV"
+          node scripts/check-textslinger-runtime.mjs src-tauri/target/release/bundle/macos
       - name: Verify Windows packaged prediction resources
         if: needs.changes.outputs.app == 'true' && (runner.os == 'Windows')
         shell: pwsh
