@@ -62,6 +62,9 @@ to assess interaction with elevated or protected applications.
   this launcher and live app experience have only been tried on Windows.
 - The model loads on a background thread with a 90-second startup deadline.
   Each prediction retains the 1,200 ms reply deadline and sequence checks.
+  An unhealthy helper is killed without the healthy helper's two-second
+  shutdown grace, so cleanup does not delay the unavailable reply beyond the
+  parent's deadline and trigger an automatic model reload.
   Typing and scanning continue while loading; an unavailable helper requires
   the existing retry action rather than silently switching prediction engines.
 - In keyboard mode the Python bridge waits indefinitely for input, so an idle

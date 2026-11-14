@@ -241,3 +241,34 @@ fn textslinger_faults_cannot_answer_another_request() {
         assert!(start.elapsed() < Duration::from_secs(1));
     }
 }
+
+#[test]
+#[ignore = "uses the configured Python launcher for a stalled helper; fake input only"]
+fn textslinger_stall_reports_unavailable_before_parent_deadline() {
+    let mut argv = TextSlinger::argv();
+    let bridge = argv
+        .iter_mut()
+        .find(|arg| arg.ends_with("textslinger-spike.py"))
+        .unwrap();
+    *bridge = format!(
+        "{}textslinger-spike-test.py",
+        bridge.strip_suffix("textslinger-spike.py").unwrap()
+    );
+    let model = argv.iter().position(|arg| arg == "--model").unwrap();
+    argv.truncate(model);
+    argv.extend(["--fault".into(), "stall".into()]);
+    let adapter = TextSlinger::launch(&argv).unwrap();
+    let mut e = engine();
+    e.database = Database::with_predictor(Box::new(adapter));
+    let start = Instant::now();
+    let response = e.respond(request(vec![append("I would like a cup of ")], 1, None));
+    let elapsed = start.elapsed();
+    assert!(
+        matches!(response, Response::Suggestions { status: crate::prediction::database::Status::Unavailable, batch: Some(ref batch), .. } if batch.words.iter().all(Option::is_none))
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "cleanup exceeded parent deadline: {elapsed:?}"
+    );
+    assert_eq!(e.buffer, "I would like a cup of ");
+}

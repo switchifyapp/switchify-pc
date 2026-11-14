@@ -91,6 +91,8 @@ Quit any other Switchify PC instance first. Open your keyboard as usual after
 the trial app starts. Its suggestion row stays empty while the model loads;
 this can take tens of seconds. Typing remains available. If loading or prediction
 fails, choose **Retry predictions** to start the worker again.
+If a prediction stalls, suggestions stop and the retry key appears; typing
+remains available while you decide whether to retry.
 
 The trial uses up to five word suggestions and leaves the phrase slots empty.
 It uses English letters and apostrophes. Unsupported prefixes, including digits

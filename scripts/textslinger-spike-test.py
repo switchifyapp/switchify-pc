@@ -150,6 +150,8 @@ def fault_bridge(mode):
             return
         if mode == "timeout":
             time.sleep(2.5)
+        if mode == "stall":
+            time.sleep(10)
         reply = {"id": request["id"], "words": ["coffee"]}
         if mode == "malformed":
             reply["unexpected"] = True

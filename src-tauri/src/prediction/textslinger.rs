@@ -133,13 +133,19 @@ impl Predict for TextSlinger {
 
 impl Drop for TextSlinger {
     fn drop(&mut self) {
-        if let Some(mut input) = self.input.take() {
-            let _ = send(&mut input, &serde_json::json!({"shutdown": true}));
+        if self.healthy {
+            if let Some(mut input) = self.input.take() {
+                let _ = send(&mut input, &serde_json::json!({"shutdown": true}));
+            }
+            let until = Instant::now() + Duration::from_secs(2);
+            while self.child.try_wait().ok().flatten().is_none() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
-        let until = Instant::now() + Duration::from_secs(2);
-        while self.child.try_wait().ok().flatten().is_none() && Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        // A failed query has already consumed up to 1.2 seconds of the
+        // parent's two-second deadline. Do not wait for a busy helper to
+        // accept shutdown before reporting Unavailable to the keyboard.
+        drop(self.input.take());
         let _ = self.child.kill();
         let _ = self.child.wait();
         // EOF normally joins the reader immediately. A WSL process surviving
