@@ -19,7 +19,7 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 **What never syncs:** paired devices and their pairing tokens, the **Approve phones on this account automatically** setting, your diagnostics choice, setup progress and start with system.
 
-Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep.
+Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep. After a newer version of Switchify PC changes a setting, computers on your account running an older version ask you to update before they sync again.
 
 Open **Settings**, then **Account and licence** for signing in and settings sync. The Settings sync card there lists what syncs and what stays on this computer. Under **Remove account** at the end of the Account section, **Delete account…** deletes the account and its saved settings from every device after you confirm.
 
