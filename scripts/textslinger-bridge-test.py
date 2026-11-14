@@ -257,13 +257,18 @@ class Serving(unittest.TestCase):
         calls = []
         keys = [["h", 0, 0], ["j", 1, 0], ["e", 5, 0]]
         with patch.dict(sys.modules, self.textslinger_types()):
-            self.run_requests(self.cased_model(calls), [
+            replies = self.run_requests(self.cased_model(calls), [
                 {"id": 1, "before": "", "prefix": "He", "keys": keys}], cased=True)
         press = dict(calls[0]["input_sequence"][0].alternatives)
         self.assertEqual(set(press), {"H", "h", "J", "j"})
         self.assertEqual(press["H"], 0.0)
         self.assertEqual(press["h"], bridge.OTHER_CASE)
         self.assertLess(press["j"], press["J"])
+        # With nearby keys a word may replace the prefix, so the channel's
+        # words are kept whether or not they continue "He", and nothing is
+        # topped up.
+        self.assertEqual(replies[1], {"id": 1, "words": ["money", "month", "Monday", "monkey", "mon"]})
+        self.assertEqual(len(calls), 1)
 
     def test_a_cased_model_only_completes_long_or_unspaced_prefixes(self):
         calls = []
