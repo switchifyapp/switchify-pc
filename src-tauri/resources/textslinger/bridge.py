@@ -19,6 +19,7 @@ from pathlib import Path
 import struct
 import sys
 import threading
+import traceback
 
 LIMIT = 16384
 # Longest accepted context, in characters, before and including the prefix.
@@ -138,7 +139,13 @@ def main():
     # Switchify discards, so even native-library writes cannot corrupt frames.
     with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as target:
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
-        model = load_model(*runtime_model(args.runtime))
+        try:
+            model = load_model(*runtime_model(args.runtime))
+        except Exception:
+            # Nothing has been received yet, so the error cannot hold typed
+            # text. Shown by the packaged runtime check; the app discards it.
+            traceback.print_exc()
+            sys.exit(1)
         serve(model, sys.stdin.buffer, target)
 
 
@@ -148,5 +155,5 @@ if __name__ == "__main__":
     except EOFError:
         pass
     except Exception:
-        # Never print exceptions: they can contain the text being typed.
+        # Never print exceptions once serving: they can contain typed text.
         sys.exit(1)

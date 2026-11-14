@@ -35,7 +35,9 @@ then at most 16 KiB of JSON) over private pipes:
 - `{"shutdown": true}` gets `{"stopped": true}`.
 
 It never opens a network connection, and never logs, saves or prints the text it
-receives. It waits while idle with no time limit. A request that takes more than
+receives. If it cannot load the runtime or model, it prints that error to stderr
+before reading any request, so it holds no typed text; the app discards the
+helper's stderr, and the packaged runtime check shows it. It waits while idle with no time limit. A request that takes more than
 30 seconds makes it exit, so the app can report suggestions as unavailable.
 
 ## Packaging and signing
