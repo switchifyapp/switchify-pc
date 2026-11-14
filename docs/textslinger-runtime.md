@@ -31,7 +31,7 @@ model path and alphabet from the runtime's `manifest.json`. It loads the model, 
 `{"ready": true}`, then answers framed JSON requests (a 4-byte little-endian length,
 then at most 16 KiB of JSON) over private pipes:
 
-- `{"id": n, "before": text, "prefix": word}` gets `{"id": n, "words": [...]}`, with up to five lowercase completions;
+- `{"id": n, "before": text, "prefix": word}` gets `{"id": n, "words": [...]}`, with up to five words: completions of the prefix, or, with `keys`, nearby-key corrections. With a model that has capitals in its alphabet, the words have their capitals; see [capitals](word-prediction.md#capitals);
 - `{"shutdown": true}` gets `{"stopped": true}`.
 
 It never opens a network connection, and never logs, saves or prints the text it

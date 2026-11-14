@@ -12,6 +12,8 @@ Requests and replies:
 With it, a prefix of two or more letters on those keys is read as presses
 that may have landed on a nearby key, so a word can correct the prefix
 instead of completing it. Without it, every word completes the prefix.
+A model whose alphabet has capitals suggests words with their capitals, and
+a typed lowercase letter may begin a capitalised word ("i" for I).
   -> {"shutdown": true}
   <- {"stopped": true}
 On start it loads the model and sends {"ready": true}.
@@ -35,7 +37,17 @@ CONTEXT_LIMIT = 1024
 # Switchify can report suggestions as unavailable. Idle time has no limit.
 REQUEST_WATCHDOG_SECONDS = 30
 SPELLING = tuple("abcdefghijklmnopqrstuvwxyz'")
+CASED_SPELLING = tuple("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'")
 SUGGESTIONS = 5
+# With a cased model, how likely a press is to mean its key in the other case,
+# so a lowercase "i" still offers "I". Case variants of one word share a slot,
+# so twice as many words are asked for before they merge.
+OTHER_CASE = math.log(0.2)
+CASED_CANDIDATES = 2 * SUGGESTIONS
+# A cased model reads an empty context as a sentence start and capitalises
+# its words. Switchify decides sentence starts itself, so an empty context is
+# given as a space: the middle of a sentence.
+MID_SENTENCE = " "
 # Nearby-key spread, in key widths. Tight enough that a correctly typed word
 # keeps the suggestions it gets without nearby keys; keys further than RADIUS
 # from a press are not considered.
@@ -104,25 +116,50 @@ def key_positions(keys):
     return positions
 
 
-def press(letter, positions):
-    """One press of letter, which may have been meant for a nearby key."""
+def press(letter, positions, cased=False):
+    """One press of letter: the key itself and, with positions, the keys near
+    it, typed in the case of the press; with a cased model, each in the other
+    case too, less likely."""
     from textslinger import InputEvent
 
-    px, py = positions[letter]
+    key = letter.lower()
+    if positions and key in positions:
+        px, py = positions[key]
+        near = []
+        for other, (x, y) in positions.items():
+            distance = (x - px) ** 2 + (y - py) ** 2
+            if distance <= RADIUS ** 2:
+                near.append((other, -distance / (2 * SPREAD ** 2)))
+    else:
+        near = [(key, 0.0)]
     alternatives = []
-    for key, (x, y) in positions.items():
-        distance = (x - px) ** 2 + (y - py) ** 2
-        if distance <= RADIUS ** 2:
-            alternatives.append((key, -distance / (2 * SPREAD ** 2)))
+    for other, likelihood in near:
+        typed = other.upper() if letter.isupper() else other
+        alternatives.append((typed, likelihood))
+        if cased and typed.isalpha():
+            alternatives.append((typed.swapcase(), likelihood + OTHER_CASE))
     # The density of a stray press, which the channel can explain as an extra
     # event: any key, equally.
+    keys = len(positions) if positions else len(LETTERS)
     return InputEvent(alternatives=tuple(alternatives),
-                      channel_insertion_log_density=-math.log(len(positions)))
+                      channel_insertion_log_density=-math.log(keys * (2 if cased else 1)))
 
 
-def nearby_words(model, before, prefix, positions):
-    """Words for presses that may have landed on nearby keys, or None when the
-    search runs past NEARBY_BUDGET_SECONDS."""
+def merged(words):
+    """Words with case variants of one word merged into the first, so they
+    take one slot: "money" and "Money" are one suggestion."""
+    seen, result = set(), []
+    for word in words:
+        if word.lower() not in seen:
+            seen.add(word.lower())
+            result.append(word)
+    return result[:SUGGESTIONS]
+
+
+def channel_words(model, before, prefix, positions, cased=False):
+    """Words for the presses of prefix, each of which may have landed on a
+    nearby key (with positions) or meant the other case (with a cased model),
+    or None when the search runs past NEARBY_BUDGET_SECONDS."""
     from textslinger import InputChannelConfig
     from textslinger.cancellation import cancellation_scope
     from textslinger.exceptions import PredictionCancelled
@@ -131,53 +168,67 @@ def nearby_words(model, before, prefix, positions):
     try:
         with cancellation_scope(lambda: time.monotonic() > deadline):
             result = model.predict_words(
-                left_context=before.lower(),
-                input_sequence=[press(character, positions) for character in prefix],
+                left_context=(before or MID_SENTENCE) if cased else before.lower(),
+                input_sequence=[press(character, positions, cased) for character in prefix],
                 input_channel=InputChannelConfig(channel_insertion_probability=0.005,
                                                  channel_deletion_probability=0.005),
-                word_spelling_characters=SPELLING,
+                word_spelling_characters=CASED_SPELLING if cased else SPELLING,
                 word_ending_characters=(" ",),
-                nbest=SUGGESTIONS,
+                predict_lower=not cased,
+                nbest=CASED_CANDIDATES if cased else SUGGESTIONS,
             )
+            if cased:
+                return merged(p.word for p in result.top(CASED_CANDIDATES))
             return [p.word.lower() for p in result.top(SUGGESTIONS)]
     except PredictionCancelled:
         return None
 
 
-def suggestions(model, before, prefix, positions=None):
-    """Up to SUGGESTIONS lowercase words for prefix, or none. Each completes
-    prefix, unless positions are given, when a word may instead correct
-    presses that landed on a nearby key."""
-    prefix = prefix.lower()
+def suggestions(model, before, prefix, positions=None, cased=False):
+    """Up to SUGGESTIONS words for prefix, or none. Each completes prefix,
+    unless positions are given, when a word may instead correct presses that
+    landed on a nearby key. A lowercase model's words are lowercase; a cased
+    model keeps the context's case and suggests words with their capitals."""
+    if not cased:
+        prefix = prefix.lower()
+    spelling = CASED_SPELLING if cased else SPELLING
     # With no prefix, a non-space tail (an opening quote, a hyphen) is a
     # fragment in TextSlinger's word model, not the start of a fresh word.
     boundary_supported = bool(prefix) or not before or before.endswith(" ")
     # An unsupported prefix (digits, accents) is an ordinary empty result, so
     # the next supported word still gets suggestions.
-    if not boundary_supported or not all(character in SPELLING for character in prefix):
+    if not boundary_supported or not all(character in spelling for character in prefix):
         return []
     # Only at a word that starts after a space or at the start: TextSlinger
     # takes anything after the last space as part of the word, so after "(" or
     # a quote its words would carry that character.
-    if (positions and NEARBY_MIN_PREFIX <= len(prefix) <= NEARBY_MAX_PREFIX
-            and (not before or before.endswith(" "))
-            and all(character in positions for character in prefix)):
-        words = nearby_words(model, before, prefix, positions)
+    at_word_start = not before or before.endswith(" ")
+    nearby = (positions and NEARBY_MIN_PREFIX <= len(prefix) <= NEARBY_MAX_PREFIX
+              and all(character.lower() in positions for character in prefix))
+    # With a cased model, every short prefix goes through the channel, so a
+    # lowercase letter can still begin a capitalised word.
+    case_only = cased and 0 < len(prefix) <= NEARBY_MAX_PREFIX
+    if at_word_start and (nearby or case_only):
+        words = channel_words(model, before, prefix, positions if nearby else None, cased)
         if words is not None:
             return words
+    context = ((before or MID_SENTENCE) + prefix) if cased else (before + prefix).lower()
     result = model.predict_words(
-        left_context=(before + prefix).lower(),
-        word_spelling_characters=SPELLING,
+        left_context=context,
+        word_spelling_characters=spelling,
         word_ending_characters=(" ",),
-        nbest=SUGGESTIONS,
+        predict_lower=not cased,
+        nbest=CASED_CANDIDATES if cased else SUGGESTIONS,
     )
     # TextSlinger splits words on spaces; Switchify uses Unicode word
     # boundaries. Keep the model's full context, but map only its completion
     # suffix onto the prefix Switchify owns.
+    if cased:
+        return merged(prefix + p.replacement.text for p in result.top(CASED_CANDIDATES))
     return [prefix + p.replacement.text for p in result.top(SUGGESTIONS)]
 
 
-def serve(model, source, target):
+def serve(model, source, target, cased=False):
     send(target, {"ready": True})
     while True:
         # Idle waiting has no deadline; EOF from Switchify exits at once.
@@ -200,7 +251,8 @@ def serve(model, source, target):
             if len(before) + len(prefix) > CONTEXT_LIMIT:
                 raise ValueError
             positions = key_positions(request["keys"]) if "keys" in request else None
-            send(target, {"id": sequence, "words": suggestions(model, before, prefix, positions)})
+            words = suggestions(model, before, prefix, positions, cased)
+            send(target, {"id": sequence, "words": words})
         finally:
             timer.cancel()
 
@@ -217,6 +269,11 @@ def runtime_model(runtime):
     return model, tuple(manifest["model_alphabet"])
 
 
+def is_cased(alphabet):
+    """Whether a model knows capitals, so it can suggest words with them."""
+    return any(character.isupper() for character in alphabet)
+
+
 def load_model(path, alphabet):
     if not Path(path).is_file():
         raise FileNotFoundError
@@ -225,8 +282,11 @@ def load_model(path, alphabet):
     # A KenLM binary does not record its characters, so the runtime supplies them.
     model = NGramLanguageModel(str(path), model_alphabet=alphabet)
     # Ready means a usable model, not just a constructor that returned.
-    if not model.predict_words(left_context="the ca", word_spelling_characters=SPELLING,
-                               word_ending_characters=(" ",), nbest=SUGGESTIONS).top(1):
+    cased = is_cased(alphabet)
+    if not model.predict_words(left_context="the ca",
+                               word_spelling_characters=CASED_SPELLING if cased else SPELLING,
+                               word_ending_characters=(" ",), predict_lower=not cased,
+                               nbest=SUGGESTIONS).top(1):
         raise ValueError
     return model
 
@@ -240,13 +300,14 @@ def main():
     with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as target:
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
         try:
-            model = load_model(*runtime_model(args.runtime))
+            path, alphabet = runtime_model(args.runtime)
+            model = load_model(path, alphabet)
         except Exception:
             # Nothing has been received yet, so the error cannot hold typed
             # text. Shown by the packaged runtime check; the app discards it.
             traceback.print_exc()
             sys.exit(1)
-        serve(model, sys.stdin.buffer, target)
+        serve(model, sys.stdin.buffer, target, is_cased(alphabet))
 
 
 if __name__ == "__main__":

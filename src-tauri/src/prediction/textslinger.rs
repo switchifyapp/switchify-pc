@@ -155,10 +155,12 @@ impl TextSlinger {
     }
 }
 
-/// Checks a reply against the request it answers. Words that are not plain
-/// lowercase completions of the prefix are dropped, unless `corrections`
-/// allows a plain lowercase word that replaces it; anything else in the
-/// reply makes it invalid.
+/// Checks a reply against the request it answers. Words of anything but
+/// ASCII letters and apostrophes are dropped, and so are words that do not
+/// complete the prefix, compared without regard to case, unless `corrections`
+/// allows a word that replaces it; anything else in the reply makes it
+/// invalid. A completion may differ in case from what was typed, as "I" for
+/// "i": accepting it restores the capital.
 pub(in crate::prediction) fn prediction_reply(
     value: serde_json::Value,
     sequence: u64,
@@ -179,8 +181,8 @@ pub(in crate::prediction) fn prediction_reply(
     let mut words = reply.words.into_iter().filter(|word| {
         !word.is_empty()
             && word.len() <= 128
-            && word.chars().all(|c| c.is_ascii_lowercase() || c == '\'')
-            && (corrections || word.starts_with(&prefix))
+            && word.chars().all(|c| c.is_ascii_alphabetic() || c == '\'')
+            && (corrections || word.to_ascii_lowercase().starts_with(&prefix))
     });
     Ok(Prediction {
         words: std::array::from_fn(|_| words.next()),

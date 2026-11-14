@@ -217,7 +217,7 @@ pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
 }
 /// The most typed characters an accepted suggestion may delete. A prefix is
 /// part of one word, so anything longer is refused rather than trusted.
-const PREDICTION_BACKSPACES: usize = 32;
+pub const PREDICTION_BACKSPACES: usize = 32;
 /// The most characters an accepted suggestion may type.
 pub const PREDICTION_TEXT: usize = 64;
 /// Wait after the deletions, before typing, so the app has applied them.

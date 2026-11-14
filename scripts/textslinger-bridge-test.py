@@ -57,13 +57,13 @@ class Transport(unittest.TestCase):
 
 
 class Serving(unittest.TestCase):
-    def run_requests(self, model, requests):
+    def run_requests(self, model, requests, cased=False):
         source, target = io.BytesIO(), io.BytesIO()
         for request in requests:
             bridge.send(source, request)
         bridge.send(source, {"shutdown": True})
         source.seek(0)
-        bridge.serve(model, source, target)
+        bridge.serve(model, source, target, cased)
         target.seek(0)
         replies = []
         while target.tell() < len(target.getvalue()):
@@ -208,6 +208,76 @@ class Serving(unittest.TestCase):
         self.assertEqual([r["words"] for r in replies[1:-1]], [["hy"], ["hexy"], ["he'y"], ["hey"]])
         self.assertTrue(all("input_sequence" not in call for call in calls))
 
+    def cased_model(self, calls, channel=("money", "Money", "month", "Monday", "monkey", "mon"),
+                    completion="ey"):
+        class Model:
+            def predict_words(self, **kwargs):
+                calls.append(kwargs)
+                if "input_sequence" in kwargs:
+                    return SimpleNamespace(top=lambda n: [SimpleNamespace(word=w) for w in channel][:n])
+                return completions(completion, "EY", "ey")()
+
+        return Model()
+
+    def test_a_cased_model_keeps_case_and_lets_a_letter_mean_its_capital(self):
+        calls = []
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(self.cased_model(calls), [
+                {"id": 1, "before": "See you on ", "prefix": "mon"},
+                {"id": 2, "before": "", "prefix": "i"}], cased=True)
+        # Case variants of one word share a slot, the first one kept.
+        self.assertEqual(replies[1], {"id": 1, "words": ["money", "month", "Monday", "monkey", "mon"]})
+        first, second = calls
+        self.assertEqual(first["left_context"], "See you on ")
+        self.assertFalse(first["predict_lower"])
+        self.assertEqual(first["word_spelling_characters"], bridge.CASED_SPELLING)
+        self.assertEqual(first["nbest"], bridge.CASED_CANDIDATES)
+        press = dict(first["input_sequence"][0].alternatives)
+        self.assertEqual(press, {"m": 0.0, "M": bridge.OTHER_CASE})
+        # Nothing before the word is the middle of a sentence, never a start.
+        self.assertEqual(second["left_context"], bridge.MID_SENTENCE)
+        self.assertEqual(dict(second["input_sequence"][0].alternatives), {"i": 0.0, "I": bridge.OTHER_CASE})
+
+    def test_a_cased_model_with_nearby_keys_offers_both_cases_of_each_key(self):
+        calls = []
+        keys = [["h", 0, 0], ["j", 1, 0], ["e", 5, 0]]
+        with patch.dict(sys.modules, self.textslinger_types()):
+            self.run_requests(self.cased_model(calls), [
+                {"id": 1, "before": "", "prefix": "He", "keys": keys}], cased=True)
+        press = dict(calls[0]["input_sequence"][0].alternatives)
+        self.assertEqual(set(press), {"H", "h", "J", "j"})
+        self.assertEqual(press["H"], 0.0)
+        self.assertEqual(press["h"], bridge.OTHER_CASE)
+        self.assertLess(press["j"], press["J"])
+
+    def test_a_cased_model_only_completes_long_or_unspaced_prefixes(self):
+        calls = []
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(self.cased_model(calls), [
+                {"id": 1, "before": "(", "prefix": "Mon"},
+                {"id": 2, "before": "", "prefix": "internati"},
+                {"id": 3, "before": "", "prefix": ""}], cased=True)
+        self.assertTrue(all("input_sequence" not in call for call in calls))
+        self.assertEqual([c["left_context"] for c in calls], ["(Mon", " internati", " "])
+        self.assertTrue(all(c["predict_lower"] is False for c in calls))
+        # The typed prefix keeps its case; "ey" and "EY" are one word.
+        self.assertEqual(replies[1], {"id": 1, "words": ["Money"]})
+
+    def test_a_cased_search_past_its_budget_falls_back_to_completion(self):
+        calls = []
+
+        class Model:
+            def predict_words(self, **kwargs):
+                calls.append(kwargs)
+                if "input_sequence" in kwargs:
+                    raise Cancelled
+                return completions("n")()
+
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(Model(), [{"id": 1, "before": "", "prefix": "i"}], cased=True)
+        self.assertEqual(replies[1], {"id": 1, "words": ["in"]})
+        self.assertEqual(calls[1]["left_context"], " i")
+
     def test_malformed_keys_are_rejected_before_model_call(self):
         for keys in ({}, [["h", 0]], [["h", 0, 0], ["h", 1, 0]], [["H", 0, 0]], [["1", 0, 0]],
                      [["h", True, 0]], [["h", "0", 0]], [["h", float("nan"), 0]],
@@ -289,6 +359,24 @@ class Runtime(unittest.TestCase):
         self.assertEqual(calls[0]["word_spelling_characters"], bridge.SPELLING)
         self.assertEqual(calls[0]["word_ending_characters"], (" ",))
         self.assertEqual(calls[0]["nbest"], 5)
+        self.assertTrue(calls[0]["predict_lower"])
+
+    def test_a_model_with_capitals_is_cased(self):
+        self.assertTrue(bridge.is_cased(tuple("abcABC' ")))
+        self.assertFalse(bridge.is_cased(tuple("!',. ?abc")))
+        calls = []
+
+        def model_class(path, model_alphabet):
+            return SimpleNamespace(predict_words=lambda **kwargs: (
+                calls.append(kwargs) or SimpleNamespace(top=lambda n: ["ready"])))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "m.kenlm"
+            path.write_bytes(b"model")
+            with patch.dict(sys.modules, {"textslinger": SimpleNamespace(NGramLanguageModel=model_class)}):
+                bridge.load_model(path, tuple("aA "))
+        self.assertEqual(calls[0]["word_spelling_characters"], bridge.CASED_SPELLING)
+        self.assertFalse(calls[0]["predict_lower"])
 
 
 def fault_bridge(mode):

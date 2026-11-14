@@ -315,8 +315,16 @@ impl Engine {
                 };
                 (label.clone(), (typed.len(), label + " "))
             };
-            // Input refuses longer text, so such a suggestion is not offered.
-            if insert.1.chars().count() > crate::scan_executor::PREDICTION_TEXT {
+            // Input refuses longer text or more deletions, so such a
+            // suggestion is not offered. Casing can make two words read the
+            // same, as "with" and "With" at a sentence start; one is shown.
+            if insert.1.chars().count() > crate::scan_executor::PREDICTION_TEXT
+                || insert.0 > crate::scan_executor::PREDICTION_BACKSPACES
+                || labels[..index]
+                    .iter()
+                    .flatten()
+                    .any(|shown| *shown == label)
+            {
                 continue;
             }
             labels[index] = Some(label);
@@ -489,14 +497,15 @@ fn restored(typed: &str, head: &str) -> Option<String> {
 }
 
 /// A word that replaces the typed prefix, as it will read, or `None` when
-/// it may not. A capital the person typed stays at its position, a word
-/// written in capitals stays in capitals, and letters past the prefix follow
-/// Caps and Shift locked as a completion's do.
+/// it may not. A capital the person typed stays at its position, as do the
+/// word's own capitals, as in "London"; a word written in capitals stays in
+/// capitals, and letters past the prefix follow Caps and Shift locked as a
+/// completion's do.
 fn corrected(word: &str, typed: &str, shift: Shift, caps: bool, nearby: bool) -> Option<String> {
     if !nearby
         || !correctable(typed)
         || word.is_empty()
-        || !word.chars().all(|c| c.is_ascii_lowercase() || c == '\'')
+        || !word.chars().all(|c| c.is_ascii_alphabetic() || c == '\'')
     {
         return None;
     }
@@ -795,6 +804,48 @@ mod tests {
         let batch = response_batch(e.respond(layout_request("hrl", 6, None)));
         assert_eq!(batch.words, crate::prediction::slots(["hrly"]));
         assert_eq!(calls.lock().unwrap().last(), Some(&0));
+    }
+    #[test]
+    fn words_that_read_the_same_once_cased_take_one_slot() {
+        struct Variants;
+        impl super::super::model::Predict for Variants {
+            fn predict(
+                &mut self,
+                _: &str,
+                prefix: &str,
+            ) -> Result<super::super::model::Prediction, ()> {
+                let words: &[&str] = if prefix.is_empty() {
+                    &["with", "With", "I", "will"]
+                } else {
+                    &["I", "in", "I'm", "it"]
+                };
+                Ok(super::super::model::Prediction {
+                    words: crate::prediction::slots(words.iter().copied()),
+                })
+            }
+        }
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Variants));
+        // At a sentence start "with" reads "With", so it is shown once.
+        let batch = e
+            .query(vec![append("Done. ")], 1, Shift::Off, false, true)
+            .unwrap();
+        assert_eq!(batch.words, crate::prediction::slots(["With", "I", "Will"]));
+        // A lowercase "i" offers "I", restored by retyping the one letter.
+        let batch = e
+            .query(
+                vec![edit(Edit::Reset), append("so i")],
+                2,
+                Shift::Off,
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            batch.words,
+            crate::prediction::slots(["I", "in", "I'm", "it"])
+        );
+        assert_eq!(e.accept(batch.token, 0), Some((1, "I ".into())));
     }
     #[test]
     fn a_layout_change_predicts_again_for_the_new_keys() {

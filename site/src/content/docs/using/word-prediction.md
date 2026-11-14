@@ -43,7 +43,9 @@ Earlier versions could learn words from your typing. Switchify PC now deletes an
 
 ## Capitals
 
-Suggestions follow Shift, Caps and the start of a sentence: the first word after a full stop is capitalised, and a word you start in capitals continues in capitals. The model's words are lowercase, so names and the word *I* are not capitalised on their own; use Shift for those.
+Suggestions follow Shift, Caps and the start of a sentence: the first word after a full stop is capitalised, and a word you start in capitals continues in capitals.
+
+Words that are written with a capital come with it, such as *I*, *London* and *Monday*, even if you typed the first letter in lowercase: typing *i* can offer *I*, and *mon* can offer *Monday*. Choosing one deletes the letters you typed and types the word with its capital and a space. Nothing changes until you choose it.
 
 ## Turning it off
 
