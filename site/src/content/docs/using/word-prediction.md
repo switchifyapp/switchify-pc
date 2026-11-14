@@ -11,7 +11,7 @@ The suggestion is typed one character at a time, with a very short gap between c
 
 ## The suggestion row
 
-Suggestions begin with the first letter you type, and continue after a space as suggestions for the next word. They complete the word you are typing, so each one starts with the letters you have typed so far.
+Suggestions begin with the first letter you type, and continue after a space as suggestions for the next word. Most complete the word you are typing, so they start with the letters you have typed so far.
 
 A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 
@@ -21,11 +21,17 @@ A long word shrinks a little to fit its slot. A word that is still too wide is s
 
 Suggestions only change when they need to, so the scan does not restart under you.
 
+## Nearby keys
+
+A press can land on the key next to the one you meant. Once you have typed two to eight letters, a suggestion can be a word that fits the keys around the ones you pressed. On QWERTY, for example, *hrl* can offer *help*: *e* is next to *r*, and *p* is close to *l*.
+
+Choosing a suggestion like this deletes the letters you typed and types the whole word and a space. Nothing changes until you choose it. It uses the keyboard layout you have chosen, so it works with QWERTY, Simple QWERTY and Common letters first alike. There is no separate setting: it is part of word prediction.
+
 ## What it suggests
 
 The word model is English. It suggests words made of the letters a to z and apostrophes, such as *can't*. While you are typing a number, an accented letter or another character, the row stays empty until you start a new word.
 
-Suggestions come from the model alone. It does not learn from your typing, and it does not correct mistyped letters. It can sometimes suggest something that is not a real word, or the word you have already typed.
+Suggestions come from the model alone. It does not learn from your typing. It can sometimes suggest something that is not a real word, or the word you have already typed.
 
 ## It stays on the computer
 

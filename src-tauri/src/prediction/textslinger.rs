@@ -5,7 +5,10 @@
 //! child inherits the worker's containment: its Windows kill-on-close job, or
 //! its macOS process group, so it never outlives the worker.
 use super::worker::{receive, send};
-use crate::prediction::model::{Predict, Prediction};
+use crate::prediction::{
+    model::{Predict, Prediction},
+    nearby::{correctable, KeyPosition},
+};
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
@@ -129,27 +132,38 @@ impl TextSlinger {
         self.replies.recv_timeout(deadline).map_err(|_| ())?
     }
 
-    fn query(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
+    fn query(
+        &mut self,
+        before: &str,
+        prefix: &str,
+        keys: &[KeyPosition],
+    ) -> Result<Prediction, ()> {
         if !self.healthy {
             return Err(());
         }
         self.sequence = self.sequence.checked_add(1).ok_or(())?;
-        send(
-            self.input.as_mut().ok_or(())?,
-            &serde_json::json!({"id": self.sequence, "before": before, "prefix": prefix}),
-        )?;
+        let mut request =
+            serde_json::json!({"id": self.sequence, "before": before, "prefix": prefix});
+        // Keys only matter when the bridge may correct this prefix.
+        let corrections = !keys.is_empty() && correctable(prefix);
+        if corrections {
+            request["keys"] = serde_json::to_value(keys).map_err(|_| ())?;
+        }
+        send(self.input.as_mut().ok_or(())?, &request)?;
         let value = self.reply(REPLY)?;
-        prediction_reply(value, self.sequence, prefix)
+        prediction_reply(value, self.sequence, prefix, corrections)
     }
 }
 
 /// Checks a reply against the request it answers. Words that are not plain
-/// lowercase completions of the prefix are dropped; anything else in the
+/// lowercase completions of the prefix are dropped, unless `corrections`
+/// allows a plain lowercase word that replaces it; anything else in the
 /// reply makes it invalid.
 pub(in crate::prediction) fn prediction_reply(
     value: serde_json::Value,
     sequence: u64,
     prefix: &str,
+    corrections: bool,
 ) -> Result<Prediction, ()> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -166,7 +180,7 @@ pub(in crate::prediction) fn prediction_reply(
         !word.is_empty()
             && word.len() <= 128
             && word.chars().all(|c| c.is_ascii_lowercase() || c == '\'')
-            && word.starts_with(&prefix)
+            && (corrections || word.starts_with(&prefix))
     });
     Ok(Prediction {
         words: std::array::from_fn(|_| words.next()),
@@ -175,7 +189,15 @@ pub(in crate::prediction) fn prediction_reply(
 
 impl Predict for TextSlinger {
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
-        let result = self.query(before, prefix);
+        self.predict_near(before, prefix, &[])
+    }
+    fn predict_near(
+        &mut self,
+        before: &str,
+        prefix: &str,
+        keys: &[KeyPosition],
+    ) -> Result<Prediction, ()> {
+        let result = self.query(before, prefix, keys);
         // Never let a late response answer another request after a timeout.
         self.healthy &= result.is_ok();
         result

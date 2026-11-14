@@ -104,7 +104,7 @@ fn reply_ids_and_envelopes_fail_closed() {
         serde_json::json!({"id": 2, "words": ["a", "b", "c", "d", "e", "f"]}),
         serde_json::json!({"id": 2, "words": [null]}),
     ] {
-        assert!(prediction_reply(value, 2, "").is_err());
+        assert!(prediction_reply(value, 2, "", false).is_err());
     }
 }
 
@@ -114,6 +114,7 @@ fn invalid_candidates_do_not_break_a_valid_reply() {
         serde_json::json!({"id": 3, "words": ["coffee", "2", "café", "wrong", ""]}),
         3,
         "co",
+        false,
     )
     .unwrap();
     assert_eq!(result.words, crate::prediction::slots(["coffee"]));
@@ -172,6 +173,57 @@ fn the_bundled_runtime_loads_suggests_and_inserts() {
     // Losing the foreground invalidates even a valid suggestion.
     e.foreground = || Ok(2);
     assert!(e.accept(current.token, 0).is_none());
+}
+
+#[test]
+fn the_bundled_runtime_corrects_a_nearby_key_and_keeps_correct_typing() {
+    let Some(runtime) = runtime() else { return };
+    let mut e = engine();
+    e.database = Database::open(&runtime);
+    e.respond(request(vec![append("hello ")], 1, None));
+    ready(&mut e);
+    let words = |e: &mut Engine, text: &str, layout| {
+        let revision = e.revision + 1;
+        let batch = response_batch(e.respond(layout_request(text, revision, layout)));
+        (
+            batch.token,
+            batch.words.into_iter().flatten().collect::<Vec<_>>(),
+        )
+    };
+    let layout = Some(KeyboardLayout::Qwerty);
+    for (text, slip) in [
+        ("can you hrl", "help"),
+        ("thank yoi", "you"),
+        ("i lobe", "love"),
+    ] {
+        let (token, shown) = words(&mut e, text, layout);
+        let index = shown.iter().position(|w| w == slip);
+        let Some(index) = index else {
+            panic!("{text}: {shown:?}")
+        };
+        let insert = e.respond(Request::Accept {
+            generation: 0,
+            token,
+            revision: e.revision,
+            index,
+        });
+        let typed = text.rsplit(' ').next().unwrap().len();
+        assert!(
+            matches!(insert, Response::Insert { backspaces, text: Some(ref t), .. } if backspaces == typed && *t == format!("{slip} ")),
+            "{text}"
+        );
+    }
+    // Correctly typed words get the suggestions they get without nearby keys.
+    for text in [
+        "hello wor",
+        "I would like a cup of co",
+        "see you tomo",
+        "i want to fo",
+    ] {
+        let (_, near) = words(&mut e, text, layout);
+        let (_, exact) = words(&mut e, text, None);
+        assert_eq!(near.first(), exact.first(), "{text}: {near:?} {exact:?}");
+    }
 }
 
 #[test]

@@ -1,7 +1,9 @@
 use super::{
     activity, context,
     database::{Database, Status},
+    nearby::{correctable, KeyPosition},
 };
+use crate::point_scan::KeyboardLayout;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -53,6 +55,9 @@ pub enum Request {
         /// a sentence start: it saw the punctuation, and whether the person
         /// cancelled the capital since.
         sentence_start: bool,
+        /// The keyboard's letter layout, so a suggestion can correct a press
+        /// that landed on a nearby key. `None` only completes.
+        layout: Option<KeyboardLayout>,
     },
     /// Start loading the model now, before any text. Sent once the parent has
     /// contained the worker, so a spare worker is ready when the keyboard
@@ -84,8 +89,8 @@ pub enum Response {
     Insert {
         generation: u64,
         /// Characters to delete before typing `text`: the typed prefix, when
-        /// accepting restores a capital the word has.
-        /// Never more than the owned prefix.
+        /// accepting restores a capital the word has or replaces letters that
+        /// landed on a nearby key. Never more than the owned prefix.
         backspaces: usize,
         text: Option<String>,
         foreground: Option<usize>,
@@ -133,6 +138,9 @@ pub struct Engine {
     inserts: Inserts,
     token: u64,
     case: (Shift, bool, bool),
+    /// Where the letters of `layout` sit, worked out when it changes.
+    layout: Option<KeyboardLayout>,
+    keys: Vec<KeyPosition>,
     displayed: Option<(Batch, Inserts)>,
     generation: u64,
 }
@@ -155,6 +163,8 @@ impl Engine {
             inserts: Default::default(),
             token: 0,
             case: (Shift::Off, false, false),
+            layout: None,
+            keys: Vec::new(),
             displayed: None,
             generation: 0,
         }
@@ -256,7 +266,7 @@ impl Engine {
         } else {
             self.database.reset();
             self.displayed = None;
-            let (status, prediction) = self.database.predict(&ctx);
+            let (status, prediction) = self.database.predict(&ctx, &self.keys);
             self.status = status;
             (prediction, false)
         };
@@ -266,11 +276,8 @@ impl Engine {
         // Each shown word takes the next free slot, so none leaves a gap.
         let mut index = 0;
         for word in prediction.words.into_iter().flatten() {
-            let (label, insert) = {
-                let typed = ctx.prefix.as_str();
-                let Some(offset) = prefix_offset(&word, typed) else {
-                    continue;
-                };
+            let typed = ctx.prefix.as_str();
+            let (label, insert) = if let Some(offset) = prefix_offset(&word, typed) {
                 let suffix = if shouting(&ctx.prefix) {
                     word[offset..].to_uppercase()
                 } else {
@@ -298,6 +305,15 @@ impl Engine {
                     ),
                     None => (ctx.prefix.clone() + &suffix, (0, suffix + " ")),
                 }
+            } else {
+                // Not a completion: a word that replaces letters which landed
+                // on a nearby key. The prefix is plain letters, so each is one
+                // Backspace.
+                let Some(label) = corrected(&word, typed, shift, caps, !self.keys.is_empty())
+                else {
+                    continue;
+                };
+                (label.clone(), (typed.len(), label + " "))
             };
             // Input refuses longer text, so such a suggestion is not offered.
             if insert.1.chars().count() > crate::scan_executor::PREDICTION_TEXT {
@@ -321,6 +337,15 @@ impl Engine {
             words: labels,
         });
         self.batch.clone()
+    }
+    /// Works out where the letters are when the layout changes. Shown words
+    /// were for the old keys, so the next query predicts afresh.
+    fn set_layout(&mut self, layout: Option<KeyboardLayout>) {
+        if self.layout != layout {
+            self.layout = layout;
+            self.keys = layout.map(super::nearby::positions).unwrap_or_default();
+            self.snapshot = None;
+        }
     }
     fn accept(&mut self, token: u64, index: usize) -> Option<(usize, String)> {
         if !self.stable(self.target?, self.activity) {
@@ -367,6 +392,7 @@ impl Engine {
                 shift,
                 caps,
                 sentence_start,
+                layout,
             } => {
                 if self.generation != generation {
                     self.database.reset();
@@ -383,6 +409,7 @@ impl Engine {
                 {
                     self.displayed = None;
                 }
+                self.set_layout(layout);
                 let batch = self.query(edits, revision, shift, caps, sentence_start);
                 self.status = self.database.status();
                 let tracking = self
@@ -459,6 +486,35 @@ fn restored(typed: &str, head: &str) -> Option<String> {
         })
         .collect();
     (merged != typed).then_some(merged)
+}
+
+/// A word that replaces the typed prefix, as it will read, or `None` when
+/// it may not. A capital the person typed stays at its position, a word
+/// written in capitals stays in capitals, and letters past the prefix follow
+/// Caps and Shift locked as a completion's do.
+fn corrected(word: &str, typed: &str, shift: Shift, caps: bool, nearby: bool) -> Option<String> {
+    if !nearby
+        || !correctable(typed)
+        || word.is_empty()
+        || !word.chars().all(|c| c.is_ascii_lowercase() || c == '\'')
+    {
+        return None;
+    }
+    if shouting(typed) {
+        return Some(word.to_uppercase());
+    }
+    let upper = caps ^ (shift == Shift::Locked);
+    Some(
+        word.chars()
+            .enumerate()
+            .map(|(i, c)| match typed.as_bytes().get(i) {
+                Some(t) if t.is_ascii_uppercase() => c.to_ascii_uppercase(),
+                Some(_) => c,
+                None if upper => c.to_ascii_uppercase(),
+                None => c,
+            })
+            .collect(),
+    )
 }
 
 /// A typed prefix of two or more letters, all capitals, is a word being
@@ -614,6 +670,7 @@ mod tests {
                 shift: Shift::Off,
                 caps: false,
                 sentence_start: false,
+                layout: None,
             },
         )
         .unwrap();
@@ -650,6 +707,7 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
+            layout: None,
         }
     }
     fn response_batch(response: Response) -> Batch {
@@ -657,6 +715,106 @@ mod tests {
             Response::Suggestions { batch: Some(b), .. } => b,
             _ => panic!("missing batch"),
         }
+    }
+    /// Corrects any prefix to "help" when given keys, and says how many keys
+    /// it was given.
+    struct Slips(std::sync::Arc<std::sync::Mutex<Vec<usize>>>);
+    impl super::super::model::Predict for Slips {
+        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
+            unreachable!("the worker always passes keys, even none")
+        }
+        fn predict_near(
+            &mut self,
+            _: &str,
+            prefix: &str,
+            keys: &[KeyPosition],
+        ) -> Result<super::super::model::Prediction, ()> {
+            self.0.lock().unwrap().push(keys.len());
+            Ok(super::super::model::Prediction {
+                words: crate::prediction::slots(
+                    ["help", "hrly", "can't"]
+                        .into_iter()
+                        .filter(|w| !keys.is_empty() || w.starts_with(&prefix.to_lowercase())),
+                ),
+            })
+        }
+    }
+    fn layout_request(text: &str, revision: u64, layout: Option<KeyboardLayout>) -> Request {
+        Request::Query {
+            generation: 0,
+            edits: vec![edit(Edit::Reset), append(text)],
+            revision,
+            displayed: None,
+            shift: Shift::Off,
+            caps: false,
+            sentence_start: false,
+            layout,
+        }
+    }
+    #[test]
+    fn a_nearby_key_correction_replaces_only_the_typed_prefix() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Slips(calls.clone())));
+        let layout = Some(KeyboardLayout::Qwerty);
+        for (revision, typed, help, completed) in [
+            (1, "can you hrl", "help", "hrly"),
+            (2, "Hrl", "Help", "Hrly"),
+            (3, "HRL", "HELP", "HRLY"),
+        ] {
+            let batch = response_batch(e.respond(layout_request(typed, revision, layout)));
+            let shown: Vec<_> = batch.words.iter().flatten().map(String::as_str).collect();
+            assert_eq!(shown[..2], [help, completed]);
+            let insert = e.respond(Request::Accept {
+                generation: 0,
+                token: batch.token,
+                revision,
+                index: 0,
+            });
+            // Three Backspaces remove "hrl", then the whole word is typed.
+            assert!(
+                matches!(insert, Response::Insert { backspaces: 3, text: Some(ref t), .. } if *t == format!("{help} ")),
+                "{typed}"
+            );
+        }
+        assert!(calls.lock().unwrap().iter().all(|&n| n == 26));
+        // A one-letter prefix and an apostrophe are completed, never replaced.
+        for (revision, typed) in [(4, "h"), (5, "can'")] {
+            let batch = response_batch(e.respond(layout_request(typed, revision, layout)));
+            assert!(
+                batch
+                    .words
+                    .iter()
+                    .flatten()
+                    .all(|w| w.to_lowercase().starts_with(typed)),
+                "{typed}: {:?}",
+                batch.words
+            );
+        }
+        // Without a layout, nothing is corrected.
+        let batch = response_batch(e.respond(layout_request("hrl", 6, None)));
+        assert_eq!(batch.words, crate::prediction::slots(["hrly"]));
+        assert_eq!(calls.lock().unwrap().last(), Some(&0));
+    }
+    #[test]
+    fn a_layout_change_predicts_again_for_the_new_keys() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(Slips(calls.clone())));
+        let first =
+            response_batch(e.respond(layout_request("hrl", 1, Some(KeyboardLayout::Qwerty))));
+        let same = e.respond(Request::Query {
+            generation: 0,
+            edits: vec![],
+            revision: 1,
+            displayed: Some(first.token),
+            shift: Shift::Off,
+            caps: false,
+            sentence_start: false,
+            layout: Some(KeyboardLayout::CommonLetters),
+        });
+        assert_ne!(response_batch(same).token, first.token);
+        assert_eq!(calls.lock().unwrap().len(), 2);
     }
     #[test]
     fn unshown_words_leave_no_gap() {
@@ -1279,6 +1437,7 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
+            layout: None,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
     }

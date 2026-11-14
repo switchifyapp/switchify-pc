@@ -5,8 +5,13 @@ then a UTF-8 JSON object of at most LIMIT bytes. It never opens a network
 connection and never logs, saves or prints the text it receives.
 
 Requests and replies:
-  -> {"id": <1..2**64-1>, "before": <accepted text>, "prefix": <word being typed>}
-  <- {"id": <same>, "words": [<up to five completions of prefix>]}
+  -> {"id": <1..2**64-1>, "before": <accepted text>, "prefix": <word being typed>,
+      "keys": [[<letter>, <x>, <y>], ...]}
+  <- {"id": <same>, "words": [<up to five words>]}
+"keys" is optional: where each letter sits on the keyboard, in key widths.
+With it, a prefix of two or more letters on those keys is read as presses
+that may have landed on a nearby key, so a word can correct the prefix
+instead of completing it. Without it, every word completes the prefix.
   -> {"shutdown": true}
   <- {"stopped": true}
 On start it loads the model and sends {"ready": true}.
@@ -14,11 +19,13 @@ On start it loads the model and sends {"ready": true}.
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import struct
 import sys
 import threading
+import time
 import traceback
 
 LIMIT = 16384
@@ -29,6 +36,23 @@ CONTEXT_LIMIT = 1024
 REQUEST_WATCHDOG_SECONDS = 30
 SPELLING = tuple("abcdefghijklmnopqrstuvwxyz'")
 SUGGESTIONS = 5
+# Nearby-key spread, in key widths. Tight enough that a correctly typed word
+# keeps the suggestions it gets without nearby keys; keys further than RADIUS
+# from a press are not considered.
+SPREAD = 0.3
+RADIUS = 1.5
+# Prefixes outside this range are completed only. One letter says too little
+# to tell a slip from the start of another word, and the search slows as the
+# prefix grows: about 0.25 s for eight letters and 0.6 s for twelve, against
+# the worker's 1.2 s reply deadline. Keep in step with nearby::correctable.
+NEARBY_MIN_PREFIX = 2
+NEARBY_MAX_PREFIX = 8
+# Longest a nearby-key search may run before the prefix is completed instead,
+# so a slow computer still answers well within the reply deadline.
+NEARBY_BUDGET_SECONDS = 0.4
+LETTERS = "abcdefghijklmnopqrstuvwxyz"
+# Each letter at most once, so the list is short.
+KEYS_LIMIT = len(LETTERS)
 
 
 def read_exact(stream, size):
@@ -56,8 +80,74 @@ def send(stream, value):
     stream.flush()
 
 
-def suggestions(model, before, prefix):
-    """Up to SUGGESTIONS completions of prefix, lowercase, or none."""
+def key_positions(keys):
+    """{letter: (x, y)} from a request's keys, or ValueError."""
+    if not isinstance(keys, list) or len(keys) > KEYS_LIMIT:
+        raise ValueError
+    positions = {}
+    for key in keys:
+        if not isinstance(key, list) or len(key) != 3:
+            raise ValueError
+        letter, x, y = key
+        if (not isinstance(letter, str) or len(letter) != 1 or letter not in LETTERS
+                or letter in positions):
+            raise ValueError
+        if any(type(v) not in (int, float) for v in (x, y)):
+            raise ValueError
+        try:
+            x, y = float(x), float(y)
+        except OverflowError:
+            raise ValueError
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise ValueError
+        positions[letter] = (x, y)
+    return positions
+
+
+def press(letter, positions):
+    """One press of letter, which may have been meant for a nearby key."""
+    from textslinger import InputEvent
+
+    px, py = positions[letter]
+    alternatives = []
+    for key, (x, y) in positions.items():
+        distance = (x - px) ** 2 + (y - py) ** 2
+        if distance <= RADIUS ** 2:
+            alternatives.append((key, -distance / (2 * SPREAD ** 2)))
+    # The density of a stray press, which the channel can explain as an extra
+    # event: any key, equally.
+    return InputEvent(alternatives=tuple(alternatives),
+                      channel_insertion_log_density=-math.log(len(positions)))
+
+
+def nearby_words(model, before, prefix, positions):
+    """Words for presses that may have landed on nearby keys, or None when the
+    search runs past NEARBY_BUDGET_SECONDS."""
+    from textslinger import InputChannelConfig
+    from textslinger.cancellation import cancellation_scope
+    from textslinger.exceptions import PredictionCancelled
+
+    deadline = time.monotonic() + NEARBY_BUDGET_SECONDS
+    try:
+        with cancellation_scope(lambda: time.monotonic() > deadline):
+            result = model.predict_words(
+                left_context=before.lower(),
+                input_sequence=[press(character, positions) for character in prefix],
+                input_channel=InputChannelConfig(channel_insertion_probability=0.005,
+                                                 channel_deletion_probability=0.005),
+                word_spelling_characters=SPELLING,
+                word_ending_characters=(" ",),
+                nbest=SUGGESTIONS,
+            )
+            return [p.word.lower() for p in result.top(SUGGESTIONS)]
+    except PredictionCancelled:
+        return None
+
+
+def suggestions(model, before, prefix, positions=None):
+    """Up to SUGGESTIONS lowercase words for prefix, or none. Each completes
+    prefix, unless positions are given, when a word may instead correct
+    presses that landed on a nearby key."""
     prefix = prefix.lower()
     # With no prefix, a non-space tail (an opening quote, a hyphen) is a
     # fragment in TextSlinger's word model, not the start of a fresh word.
@@ -66,6 +156,15 @@ def suggestions(model, before, prefix):
     # the next supported word still gets suggestions.
     if not boundary_supported or not all(character in SPELLING for character in prefix):
         return []
+    # Only at a word that starts after a space or at the start: TextSlinger
+    # takes anything after the last space as part of the word, so after "(" or
+    # a quote its words would carry that character.
+    if (positions and NEARBY_MIN_PREFIX <= len(prefix) <= NEARBY_MAX_PREFIX
+            and (not before or before.endswith(" "))
+            and all(character in positions for character in prefix)):
+        words = nearby_words(model, before, prefix, positions)
+        if words is not None:
+            return words
     result = model.predict_words(
         left_context=(before + prefix).lower(),
         word_spelling_characters=SPELLING,
@@ -90,7 +189,7 @@ def serve(model, source, target):
             if request == {"shutdown": True}:
                 send(target, {"stopped": True})
                 return
-            if not isinstance(request, dict) or set(request) != {"id", "before", "prefix"}:
+            if not isinstance(request, dict) or set(request) - {"keys"} != {"id", "before", "prefix"}:
                 raise ValueError
             sequence = request["id"]
             if type(sequence) is not int or not 0 < sequence < 2**64:
@@ -100,7 +199,8 @@ def serve(model, source, target):
                 raise ValueError
             if len(before) + len(prefix) > CONTEXT_LIMIT:
                 raise ValueError
-            send(target, {"id": sequence, "words": suggestions(model, before, prefix)})
+            positions = key_positions(request["keys"]) if "keys" in request else None
+            send(target, {"id": sequence, "words": suggestions(model, before, prefix, positions)})
         finally:
             timer.cancel()
 
