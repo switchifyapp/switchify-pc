@@ -25,6 +25,7 @@ from pathlib import Path
 import struct
 import sys
 import threading
+import time
 import traceback
 
 LIMIT = 16384
@@ -46,8 +47,12 @@ RADIUS = 1.5
 # the worker's 1.2 s reply deadline. Keep in step with nearby::correctable.
 NEARBY_MIN_PREFIX = 2
 NEARBY_MAX_PREFIX = 8
+# Longest a nearby-key search may run before the prefix is completed instead,
+# so a slow computer still answers well within the reply deadline.
+NEARBY_BUDGET_SECONDS = 0.4
+LETTERS = "abcdefghijklmnopqrstuvwxyz"
 # Each letter at most once, so the list is short.
-KEYS_LIMIT = len(SPELLING)
+KEYS_LIMIT = len(LETTERS)
 
 
 def read_exact(stream, size):
@@ -84,11 +89,18 @@ def key_positions(keys):
         if not isinstance(key, list) or len(key) != 3:
             raise ValueError
         letter, x, y = key
-        if not isinstance(letter, str) or letter not in SPELLING or letter in positions:
+        if (not isinstance(letter, str) or len(letter) != 1 or letter not in LETTERS
+                or letter in positions):
             raise ValueError
-        if any(type(v) not in (int, float) or not math.isfinite(v) for v in (x, y)):
+        if any(type(v) not in (int, float) for v in (x, y)):
             raise ValueError
-        positions[letter] = (float(x), float(y))
+        try:
+            x, y = float(x), float(y)
+        except OverflowError:
+            raise ValueError
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise ValueError
+        positions[letter] = (x, y)
     return positions
 
 
@@ -108,6 +120,30 @@ def press(letter, positions):
                       channel_insertion_log_density=-math.log(len(positions)))
 
 
+def nearby_words(model, before, prefix, positions):
+    """Words for presses that may have landed on nearby keys, or None when the
+    search runs past NEARBY_BUDGET_SECONDS."""
+    from textslinger import InputChannelConfig
+    from textslinger.cancellation import cancellation_scope
+    from textslinger.exceptions import PredictionCancelled
+
+    deadline = time.monotonic() + NEARBY_BUDGET_SECONDS
+    try:
+        with cancellation_scope(lambda: time.monotonic() > deadline):
+            result = model.predict_words(
+                left_context=before.lower(),
+                input_sequence=[press(character, positions) for character in prefix],
+                input_channel=InputChannelConfig(channel_insertion_probability=0.005,
+                                                 channel_deletion_probability=0.005),
+                word_spelling_characters=SPELLING,
+                word_ending_characters=(" ",),
+                nbest=SUGGESTIONS,
+            )
+            return [p.word.lower() for p in result.top(SUGGESTIONS)]
+    except PredictionCancelled:
+        return None
+
+
 def suggestions(model, before, prefix, positions=None):
     """Up to SUGGESTIONS lowercase words for prefix, or none. Each completes
     prefix, unless positions are given, when a word may instead correct
@@ -120,20 +156,15 @@ def suggestions(model, before, prefix, positions=None):
     # the next supported word still gets suggestions.
     if not boundary_supported or not all(character in SPELLING for character in prefix):
         return []
+    # Only at a word that starts after a space or at the start: TextSlinger
+    # takes anything after the last space as part of the word, so after "(" or
+    # a quote its words would carry that character.
     if (positions and NEARBY_MIN_PREFIX <= len(prefix) <= NEARBY_MAX_PREFIX
+            and (not before or before.endswith(" "))
             and all(character in positions for character in prefix)):
-        from textslinger import InputChannelConfig
-
-        result = model.predict_words(
-            left_context=before.lower(),
-            input_sequence=[press(character, positions) for character in prefix],
-            input_channel=InputChannelConfig(channel_insertion_probability=0.005,
-                                             channel_deletion_probability=0.005),
-            word_spelling_characters=SPELLING,
-            word_ending_characters=(" ",),
-            nbest=SUGGESTIONS,
-        )
-        return [p.word.lower() for p in result.top(SUGGESTIONS)]
+        words = nearby_words(model, before, prefix, positions)
+        if words is not None:
+            return words
     result = model.predict_words(
         left_context=(before + prefix).lower(),
         word_spelling_characters=SPELLING,
