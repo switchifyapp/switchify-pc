@@ -62,13 +62,14 @@ describe("AccountSection", () => {
     it("announces the sync status only once it is known", async () => {
       vi.spyOn(api, "account").mockResolvedValue(signedIn);
       vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
-      let resolve: (view: SyncView) => void = () => undefined;
-      vi.spyOn(api, "settingsSync").mockImplementation(() => new Promise((done) => { resolve = done; }));
+      let resolve!: (view: SyncView) => void;
+      const sync = new Promise<SyncView>((done) => { resolve = done; });
+      vi.spyOn(api, "settingsSync").mockReturnValue(sync);
       vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
       render(<AccountSection />);
       const placeholder = await screen.findByText("Checking settings sync…");
       expect(placeholder).not.toHaveAttribute("role", "status");
-      act(() => resolve({ status: "upToDate", lastSyncedAt: null, message: null }));
+      await act(async () => resolve({ status: "upToDate", lastSyncedAt: null, message: null }));
       expect(await screen.findByText("Settings are up to date.")).toHaveAttribute("role", "status");
     });
 
