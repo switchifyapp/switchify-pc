@@ -15,7 +15,9 @@ LIMIT = 16384
 SPELLING = tuple("abcdefghijklmnopqrstuvwxyz'")
 # A KenLM binary does not record its characters. This is the alphabet that the
 # ARPA text version of lm_dec19_char_tiny_12gram declares, in the same order,
-# so the binary model gives the same predictions.
+# so the binary model gives the same ranked predictions (scores differ slightly).
+# It is only valid for that model.
+BINARY_MODEL_NAME = "lm_dec19_char_tiny_12gram.kenlm"
 BINARY_MODEL_ALPHABET = tuple("!',. ?abcdefghijklmnopqrstuvwxyz")
 
 
@@ -102,7 +104,9 @@ def load_model(path):
         raise FileNotFoundError
     from textslinger import NGramLanguageModel
 
-    if Path(path).suffix == ".kenlm":
+    if Path(path).suffix.lower() == ".kenlm":
+        if Path(path).name.lower() != BINARY_MODEL_NAME:
+            raise ValueError
         model = NGramLanguageModel(path, model_alphabet=BINARY_MODEL_ALPHABET)
     else:
         model = NGramLanguageModel(path)

@@ -14,12 +14,20 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $cache = Join-Path $repo '.cache'
 if (!$Output) { $Output = Join-Path $cache 'textslinger-runtime' }
+# GIT_CEILING_DIRECTORIES below needs an absolute path.
+$Output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Output)
 $work = Join-Path $cache 'textslinger-runtime-build'
 $patch = Join-Path $PSScriptRoot 'textslinger/lazy-torch-imports.patch'
 
 $PythonVersion = '3.10.22'
-$Packages = @('numpy==1.26.4', 'regex==2026.9.29', 'textslinger==0.4.0')
-$KenLM = 'kenlm==0.2.0'
+# Exact files from PyPI, checked by hash.
+$Packages = @(
+    'numpy==1.26.4 --hash=sha256:b97fe8060236edf3662adfc2c633f56a08ae30560c56310562cb4f95500022d5',
+    'regex==2026.9.29 --hash=sha256:23ae6fdad9e63e54038f5ef78aba2933faca61e24d432786589e737bc5522ebb',
+    'textslinger==0.4.0 --hash=sha256:d33238e58c2f18403f5b777bd4b8f1148638a6e4c4d6a1094f3b487d01f46f22'
+)
+$KenLM = 'kenlm==0.2.0 --hash=sha256:c2dc1dc09d3c150e6a1777ef0fd5cac3688e1dc1cc13e41472d0284e5e88ac7f'
+$BuildTools = @('cmake==4.4.4', 'setuptools==84.2.1', 'wheel==0.48.0', 'pip==26.3')
 $ModelUrl = 'https://osf.io/download/zyj25/'
 $ModelSha256 = 'd17ea73ef2edf180b55e0e636524f32c76fb6ab110c69ed196432438b1baf9c3'
 $ModelName = 'lm_dec19_char_tiny_12gram.kenlm'
@@ -43,8 +51,11 @@ New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 # Standalone CPython, managed by uv.
 Invoke-Checked $Uv @('python', 'install', $PythonVersion)
-$basePython = (& $Uv python find $PythonVersion | Select-Object -Last 1).Trim()
-if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $basePython)) { throw "Python $PythonVersion was not found" }
+# Only uv's own standalone build, never an active venv or a system Python.
+$found = & $Uv python find --managed-python --no-project $PythonVersion
+if ($LASTEXITCODE -ne 0 -or !$found) { throw "uv could not find its managed Python $PythonVersion" }
+$basePython = ($found | Select-Object -Last 1).Trim()
+if (!(Test-Path -LiteralPath $basePython)) { throw "Python $PythonVersion was not found at $basePython" }
 $base = Split-Path -Parent $basePython
 
 # KenLM has no Windows wheel and must be built with MAX_ORDER=12 for this
@@ -54,10 +65,12 @@ $kenlmWheel = Get-ChildItem -Path $wheels -Filter 'kenlm-0.2.0-*.whl' -ErrorActi
 if (!$kenlmWheel) {
     $buildVenv = Join-Path $work 'build-venv'
     if (!(Test-Path -LiteralPath (Join-Path $buildVenv 'Scripts/python.exe'))) {
-        Invoke-Checked $Uv @('venv', '--python', $PythonVersion, $buildVenv)
+        Invoke-Checked $Uv @('venv', '--python', $basePython, $buildVenv)
     }
     $buildPython = Join-Path $buildVenv 'Scripts/python.exe'
-    Invoke-Checked $Uv @('pip', 'install', '--python', $buildPython, 'cmake==4.4.4', 'setuptools>=77', 'wheel', 'pip')
+    Invoke-Checked $Uv (@('pip', 'install', '--python', $buildPython) + $BuildTools)
+    $kenlmRequirements = Join-Path $work 'kenlm-requirements.txt'
+    Set-Content -LiteralPath $kenlmRequirements -Value $KenLM -Encoding ascii
     $saved = @{ PATH = $env:PATH; MAX_ORDER = $env:MAX_ORDER; CMAKE_GENERATOR = $env:CMAKE_GENERATOR; CMAKE_POLICY_VERSION_MINIMUM = $env:CMAKE_POLICY_VERSION_MINIMUM }
     try {
         $env:PATH = (Join-Path $buildVenv 'Scripts') + ';' + $env:PATH
@@ -65,7 +78,7 @@ if (!$kenlmWheel) {
         $env:CMAKE_GENERATOR = $CMakeGenerator
         $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
         Invoke-Checked $buildPython @('-m', 'pip', 'wheel', '--no-cache-dir', '--no-build-isolation', '--no-deps',
-            '--no-binary', 'kenlm', '-w', $wheels, $KenLM)
+            '--no-binary', 'kenlm', '--require-hashes', '-w', $wheels, '-r', $kenlmRequirements)
     } finally {
         foreach ($name in $saved.Keys) {
             if ($null -eq $saved[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
@@ -111,7 +124,11 @@ foreach ($name in $TrimLib) { Remove-Item -LiteralPath (Join-Path $Output "Lib/$
 $sitePackages = Join-Path $Output 'Lib/site-packages'
 New-Item -ItemType Directory -Path $sitePackages | Out-Null
 
-Invoke-Checked $Uv (@('pip', 'install', '--python', $basePython, '--no-deps', '--target', $sitePackages) + $Packages + @($kenlmWheel.FullName))
+$requirements = Join-Path $work 'requirements.txt'
+Set-Content -LiteralPath $requirements -Value $Packages -Encoding ascii
+Invoke-Checked $Uv @('pip', 'install', '--python', $basePython, '--no-deps', '--require-hashes', '--target', $sitePackages, '-r', $requirements)
+# The KenLM wheel is built locally from the hash-checked source above.
+Invoke-Checked $Uv @('pip', 'install', '--python', $basePython, '--no-deps', '--target', $sitePackages, $kenlmWheel.FullName)
 
 # Temporary until kdv123/textslinger#2 is released. Inside a repository, git
 # apply resolves paths from its root and skips ignored files, so stop it from

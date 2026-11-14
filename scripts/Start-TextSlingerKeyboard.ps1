@@ -17,6 +17,9 @@ if ($Runtime) {
 }
 if (!$Model) { $Model = Join-Path (Split-Path -Parent $repo) 'textslinger/assets/lm_dec19_char_tiny_12gram.arpa' }
 $Python = (Resolve-Path -LiteralPath $Python).Path
+# The built runtime runs isolated, as its build check does, so PYTHONPATH,
+# PYTHONHOME and user site-packages cannot replace its patched packages.
+$pythonArguments = if ($Runtime) { @($Python, '-I') } else { @($Python) }
 $Model = (Resolve-Path -LiteralPath $Model).Path
 if (Get-Process -Name switchify-pc -ErrorAction SilentlyContinue) {
     throw 'Quit Switchify PC from its tray menu before building or opening this trial'
@@ -33,7 +36,7 @@ try {
         $previous = $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND
         try {
             $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND = ConvertTo-Json -Compress -InputObject @(
-                $Python, (Join-Path $PSScriptRoot 'textslinger-spike.py'), '--model', $Model, '--keyboard-trial'
+                $pythonArguments + @((Join-Path $PSScriptRoot 'textslinger-spike.py'), '--model', $Model, '--keyboard-trial')
             )
             & npm.cmd run tauri -- dev --features textslinger-trial
             if ($LASTEXITCODE -ne 0) { throw 'TextSlinger keyboard dev exited with an error' }
@@ -52,14 +55,15 @@ try {
         Get-ChildItem -LiteralPath (Split-Path -Parent $builtBinary) -Filter '*.dll' -File | ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination $appDirectory -Force
         }
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'textslinger-spike.py') -Destination $bridge -Force
     }
+    # Always refresh the bridge so -SkipBuild cannot launch an older copy.
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'textslinger-spike.py') -Destination $bridge -Force
     if (!(Test-Path -LiteralPath $binary) -or !(Test-Path -LiteralPath $bridge)) { throw 'The trial executable has not been built' }
     if (!$NoLaunch) {
         $previous = $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND
         try {
             $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND = ConvertTo-Json -Compress -InputObject @(
-                $Python, $bridge, '--model', $Model, '--keyboard-trial'
+                $pythonArguments + @($bridge, '--model', $Model, '--keyboard-trial')
             )
             Start-Process -FilePath $binary -WorkingDirectory $repo -WindowStyle Normal
         } finally {

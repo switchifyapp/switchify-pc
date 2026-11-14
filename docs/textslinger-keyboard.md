@@ -50,8 +50,8 @@ to assess interaction with elevated or protected applications.
 `.cache/textslinger-runtime` with no PyTorch. It contains:
 
 - Standalone CPython 3.10.22 from uv, without tests, tkinter, idlelib, ensurepip, lib2to3 or turtledemo.
-- numpy 1.26.4, regex and textslinger 0.4.0 from PyPI, installed without their dependencies.
-- KenLM 0.2.0 built once with `MAX_ORDER=12`. It needs Visual Studio C++ tools; the generator can be changed with `-CMakeGenerator`.
+- numpy 1.26.4, regex and textslinger 0.4.0 from PyPI, checked by hash and installed without their dependencies.
+- KenLM 0.2.0 built once with `MAX_ORDER=12` from its hash-checked source, using pinned build tools. It needs Visual Studio C++ tools; the generator can be changed with `-CMakeGenerator`.
 - The upstream binary model `lm_dec19_char_tiny_12gram.kenlm` (OSF `zyj25`), checked against a pinned SHA-256.
 
 textslinger 0.4.0 imports PyTorch when it loads. Until
@@ -61,7 +61,7 @@ installed package and fails if the patch didn't apply. Delete the patch and that
 step once a release includes the change. The script ends by loading the model
 and checking that a prediction works without PyTorch.
 
-Then start the keyboard trial with it:
+`-Runtime` starts the runtime with `python -I`, so environment variables and user site-packages can't replace its packages. Then start the keyboard trial with it:
 
 ```powershell
 ./scripts/Build-TextSlingerRuntime.ps1
