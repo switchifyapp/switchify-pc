@@ -11,8 +11,6 @@ $releaseDirectory = Join-Path $root "src-tauri\target\$($windowsTarget.ReleaseRe
 $main = Join-Path $releaseDirectory 'switchify-pc.exe'
 $launcher = Join-Path $releaseDirectory 'switchify-pc-startup.exe'
 $generatedInstaller = Join-Path $releaseDirectory "nsis\$($windowsTarget.Nsis)\installer.nsi"
-$workerNames = @('switchify-smol-worker.exe')
-if ($windowsTarget.Accelerated) { $workerNames += 'switchify-smol-worker-avx2.exe' }
 $installer = Get-ChildItem (Join-Path $releaseDirectory 'bundle\nsis') -Filter "*_$($windowsTarget.Nsis)-setup.exe" |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 
@@ -63,9 +61,9 @@ $installerScript = Get-Content -LiteralPath $generatedInstaller -Raw
 foreach ($expected in @(
   '!define INSTALLMODE "perMachine"',
   'switchify-pc-startup.exe',
-  'model.gguf',
-  'installer-hooks.nsh'
-) + $workerNames) {
+  'installer-hooks.nsh',
+  'bridge.py'
+)) {
   if (-not $installerScript.Contains($expected)) {
     throw "Generated NSIS script is missing: $expected"
   }
@@ -85,17 +83,6 @@ New-Item -ItemType Directory -Path $unpacked | Out-Null
 try {
   & $archiveTool x $installer "-o$unpacked" -y | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Could not extract the installer for verification.' }
-  & node (Join-Path $PSScriptRoot 'check-packaged-prediction.mjs') $unpacked --signed
-  if ($LASTEXITCODE -ne 0) { throw 'Installed prediction resources failed verification.' }
-  if (-not $windowsTarget.Accelerated -and
-      @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter 'switchify-smol-worker-avx2.exe').Count -ne 0) {
-    throw 'The AVX2 worker must only ship in the x64 package.'
-  }
-  foreach ($name in $workerNames) {
-    $workers = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $name)
-    if ($workers.Count -ne 1) { throw "Expected one installed $name" }
-    Assert-Signature $workers[0].FullName
-  }
   # The bundled TextSlinger runtime: every program and library signed, and
   # the installed copy answers a fixed request through the bridge.
   $runtimes = @(Get-ChildItem -LiteralPath $unpacked -Recurse -Directory -Filter 'runtime' |

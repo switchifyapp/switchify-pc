@@ -41,7 +41,6 @@ export type AppSettings = {
   cursorCrosshairs: boolean;
   shareDiagnostics: boolean;
   autoApproveAccountDevices: boolean;
-  learnWordPrediction: boolean;
 };
 
 export type PlatformCapabilities = {

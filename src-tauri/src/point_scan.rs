@@ -51,16 +51,7 @@ pub struct Config {
     #[serde(deserialize_with = "crate::scan_preferences::deserialize_preferences")]
     pub scan_preferences: crate::scan_preferences::Preferences,
     pub word_prediction: bool,
-    /// Opt-in corrections for unused instant-word slots.
-    #[serde(skip_serializing_if = "is_false")]
-    pub nearby_key_predictions: bool,
-    /// Opt-in words from letters typed in order, for unused instant-word slots.
-    #[serde(skip_serializing_if = "is_false")]
-    pub abbreviation_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
-    /// Retained for saved-settings compatibility; the model is always used
-    /// when `word_prediction` is enabled.
-    pub enhanced_word_prediction: bool,
     pub keyboard_wait_after_typing: bool,
     /// Moves the keyboard or mouse panel away while the pointer is over it.
     pub panel_avoids_pointer: bool,
@@ -81,9 +72,6 @@ pub struct Config {
     pub back_key: String,
     pub pause_key: String,
 }
-fn is_false(value: &bool) -> bool {
-    !*value
-}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -92,10 +80,7 @@ impl Default for Config {
             mouse_repeat_stop_edge: MouseRepeatStopEdge::Release,
             scan_preferences: Default::default(),
             word_prediction: true,
-            nearby_key_predictions: false,
-            abbreviation_predictions: false,
             keyboard_layout: KeyboardLayout::Qwerty,
-            enhanced_word_prediction: false,
             keyboard_wait_after_typing: false,
             panel_avoids_pointer: false,
             scanner_color: Default::default(),
@@ -170,8 +155,6 @@ impl Config {
             keyboard_scan: self.resolved(crate::scan_preferences::Area::Keyboard),
             mouse_scan: self.resolved(crate::scan_preferences::Area::Mouse),
             word_prediction: self.word_prediction,
-            nearby_key_predictions: self.nearby_key_predictions,
-            abbreviation_predictions: self.abbreviation_predictions,
             keyboard_layout: self.keyboard_layout,
             panel_avoids_pointer: self.panel_avoids_pointer,
             scanner_color: self.resolved(crate::scan_preferences::Area::Point).color,
@@ -201,8 +184,6 @@ pub struct PointSettings {
     pub keyboard_scan: crate::scan_preferences::Resolved,
     pub mouse_scan: crate::scan_preferences::Resolved,
     pub word_prediction: bool,
-    pub nearby_key_predictions: bool,
-    pub abbreviation_predictions: bool,
     pub keyboard_layout: KeyboardLayout,
     pub panel_avoids_pointer: bool,
     pub scanner_color: crate::scanning::ScannerColor,
@@ -619,46 +600,26 @@ impl Technique for Engine {
 mod tests {
 
     #[test]
-    fn abbreviation_predictions_are_opt_in_and_saved_settings_remain_compatible() {
-        let legacy: Config =
-            serde_json::from_str(r#"{"wordPrediction":true,"nearbyKeyPredictions":true}"#).unwrap();
-        assert!(!legacy.abbreviation_predictions);
-        assert!(serde_json::to_value(&legacy)
-            .unwrap()
-            .get("abbreviationPredictions")
-            .is_none());
-        let enabled = Config {
-            abbreviation_predictions: true,
-            ..legacy
-        };
-        let saved = serde_json::to_value(&enabled).unwrap();
-        assert_eq!(saved["abbreviationPredictions"], true);
-        let restored: Config = serde_json::from_value(saved).unwrap();
-        assert!(restored.abbreviation_predictions);
-        assert!(restored.point().abbreviation_predictions);
-        assert!(restored.nearby_key_predictions);
-    }
-
-    #[test]
-    fn nearby_predictions_are_opt_in_and_saved_settings_remain_compatible() {
-        let legacy: Config =
-            serde_json::from_str(r#"{"wordPrediction":true,"keyboardLayout":"commonLetters"}"#)
-                .unwrap();
-        assert!(!legacy.nearby_key_predictions);
-        assert!(serde_json::to_value(&legacy)
-            .unwrap()
-            .get("nearbyKeyPredictions")
-            .is_none());
-        let enabled = Config {
-            nearby_key_predictions: true,
-            ..legacy
-        };
-        let saved = serde_json::to_value(&enabled).unwrap();
-        assert_eq!(saved["nearbyKeyPredictions"], true);
-        let restored: Config = serde_json::from_value(saved).unwrap();
-        assert!(restored.nearby_key_predictions);
-        assert!(restored.point().nearby_key_predictions);
-        assert_eq!(restored.keyboard_layout, KeyboardLayout::CommonLetters);
+    fn settings_saved_with_retired_prediction_options_still_load() {
+        // Nearby-key and abbreviation suggestions, and the compatibility-only
+        // enhanced setting, belonged to the built-in predictor TextSlinger
+        // replaced. Settings saved with them load, keep everything else,
+        // and no longer write them.
+        let legacy: Config = serde_json::from_str(
+            r#"{"wordPrediction":false,"nearbyKeyPredictions":true,"abbreviationPredictions":true,"enhancedWordPrediction":true,"keyboardLayout":"commonLetters"}"#,
+        )
+        .unwrap();
+        assert!(!legacy.word_prediction);
+        assert_eq!(legacy.keyboard_layout, KeyboardLayout::CommonLetters);
+        let saved = serde_json::to_value(&legacy).unwrap();
+        for retired in [
+            "nearbyKeyPredictions",
+            "abbreviationPredictions",
+            "enhancedWordPrediction",
+        ] {
+            assert!(saved.get(retired).is_none(), "{retired} is no longer saved");
+        }
+        assert_eq!(saved["wordPrediction"], false);
     }
 
     #[test]
@@ -1247,7 +1208,6 @@ mod tests {
         json["mouseRepeatStopEdge"] = serde_json::json!("release");
         json["wordPrediction"] = serde_json::json!(true);
         json["keyboardLayout"] = serde_json::json!("qwerty");
-        json["enhancedWordPrediction"] = serde_json::json!(false);
         json["keyboardWaitAfterTyping"] = serde_json::json!(false);
         json["panelAvoidsPointer"] = serde_json::json!(false);
         json["radarSpeed"] = serde_json::Value::Null;

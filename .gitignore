@@ -16,13 +16,14 @@ src-tauri/icons/android/
 src-tauri/icons/ios/
 src-tauri/tauri.release*.generated.json
 tools/prediction-data/target/
-src-tauri/resources/prediction-model/
 
+# Left in older checkouts by the removed prediction engine.
+src-tauri/resources/prediction-model/
+src-tauri/resources/prediction-neural/
 src-tauri/prediction-benchmark.json
+src-tauri/neural-benchmark.json
 
 .cache/
-src-tauri/resources/prediction-neural/
-src-tauri/neural-benchmark.json
 
 src/find/model/
 

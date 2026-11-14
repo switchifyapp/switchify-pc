@@ -319,7 +319,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/verify-macos-release.sh "$RELEASE_TAG" "$APPLE_SIGNING_IDENTITY" "$APPLE_TEAM_ID"
-          node scripts/check-textslinger-runtime.mjs src-tauri/target/aarch64-apple-darwin/release/bundle/macos
           bundle_root='src-tauri/target/aarch64-apple-darwin/release/bundle'
           dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           updater_path="$(find "$bundle_root/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"

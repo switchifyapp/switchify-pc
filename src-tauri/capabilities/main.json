@@ -36,7 +36,6 @@
     "allow-disconnect-all",
     "allow-set-switch-keys-released",
     "allow-forget-device",
-    "allow-forget-learned-words",
     "allow-save-settings",
     "allow-set-telemetry-consent",
     "allow-mark-setup-shown",

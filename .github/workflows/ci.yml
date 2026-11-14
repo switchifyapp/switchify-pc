@@ -177,7 +177,7 @@ jobs:
           $found = $candidates | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'clang.exe') } | Select-Object -First 1
           if (-not $found) { throw 'clang.exe was not found; ring needs it on ARM64 Windows.' }
           $found >> $env:GITHUB_PATH
-      - name: Fetch prediction model and released companion workers
+      - name: Fetch the find model and TextSlinger runtime
         if: needs.changes.outputs.app == 'true'
         run: npm run prediction-model
       - name: Test the TextSlinger bridge with the bundled runtime
@@ -188,12 +188,6 @@ jobs:
           python="$runtime/$(node -p "require('./$runtime/manifest.json').python")"
           "$python" -I -B scripts/textslinger-bridge-test.py
           node scripts/check-textslinger-runtime.mjs src-tauri/resources
-      - name: Diagnose released ARM worker
-        if: needs.changes.outputs.app == 'true' && (runner.os == 'macOS')
-        env:
-          SWITCHIFY_BENCHMARK_MODEL: src-tauri/resources/prediction-model/english.ngrams
-          SWITCHIFY_BENCHMARK_WORKER: src-tauri/binaries/switchify-smol-worker-aarch64-apple-darwin
-        run: python3 scripts/probe-neural-worker.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
         if: needs.changes.outputs.app == 'true'
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
@@ -221,51 +215,7 @@ jobs:
           $env:SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE = '1'
           pwsh ./scripts/Verify-WindowsUiAccessPackage.ps1
 
-      - name: Verify macOS packaged prediction resources
+      # Windows checks its packaged runtime in Verify-WindowsUiAccessPackage.ps1.
+      - name: Check the packaged TextSlinger runtime on macOS
         if: needs.changes.outputs.app == 'true' && (runner.os == 'macOS')
-        shell: bash
-        run: |
-          model=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos)
-          echo "SWITCHIFY_BENCHMARK_MODEL=$model" >> "$GITHUB_ENV"
-          echo "SWITCHIFY_BENCHMARK_WORKER=$(node scripts/check-packaged-prediction.mjs src-tauri/target/release/bundle/macos --worker)" >> "$GITHUB_ENV"
-          node scripts/check-textslinger-runtime.mjs src-tauri/target/release/bundle/macos
-      - name: Verify Windows packaged prediction resources
-        if: needs.changes.outputs.app == 'true' && (runner.os == 'Windows')
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
-          $unpacked = Join-Path $env:RUNNER_TEMP 'prediction-package'
-          & 7z x $installer.FullName "-o$unpacked" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the installer.' }
-          $model = node scripts/check-packaged-prediction.mjs $unpacked
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged prediction resources failed verification.' }
-          "SWITCHIFY_BENCHMARK_MODEL=$model" >> $env:GITHUB_ENV
-          $worker = node scripts/check-packaged-prediction.mjs $unpacked --worker
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged workers failed verification.' }
-          "SWITCHIFY_BENCHMARK_WORKER=$worker" >> $env:GITHUB_ENV
-      - name: Measure packaged prediction without desktop input
-        if: needs.changes.outputs.app == 'true'
-        env:
-          SWITCHIFY_BENCHMARK_REPORT: prediction-benchmark.json
-        run: cargo test --release --lib --locked --manifest-path src-tauri/Cargo.toml bundled_prediction_benchmark -- --ignored --nocapture --test-threads=1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: needs.changes.outputs.app == 'true'
-        with:
-          python-version: '3.13'
-      - name: Measure packaged neural integration without desktop input
-        if: needs.changes.outputs.app == 'true'
-        run: |
-          python -m pip install psutil==7.0.0
-          python scripts/measure-neural.py --build --output src-tauri/neural-benchmark.json
-      - name: Diagnose packaged worker after benchmark failure
-        if: needs.changes.outputs.app == 'true' && (failure() && env.SWITCHIFY_BENCHMARK_WORKER != '')
-        run: python scripts/probe-neural-worker.py
-      - name: Upload prediction measurements
-        if: needs.changes.outputs.app == 'true' && (always())
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: prediction-benchmark-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            src-tauri/prediction-benchmark.json
-            src-tauri/neural-benchmark.json
-          if-no-files-found: error
+        run: node scripts/check-textslinger-runtime.mjs src-tauri/target/release/bundle/macos

@@ -55,7 +55,7 @@ export function ScanningSection({ controller, settings, onSettingsChange, reques
       {error && unsaved && <Button type="button" className="secondary" disabled={!!pending || !validSwitches(config)} onClick={retry}>Retry save</Button>}
       {!validSwitches(config) && <p role="alert">Each switch action needs a different key. Escape is reserved for cancel.</p>}
     </div>
-    <ScannerPreferences controller={controller} settings={settings} onSettingsChange={onSettingsChange} requestedArea={requestedArea} onAreaOpened={onAreaOpened}
+    <ScannerPreferences controller={controller} requestedArea={requestedArea} onAreaOpened={onAreaOpened}
       pointer={settings && onSettingsChange ? <PointerSettings settings={settings} onSettingsChange={onSettingsChange} scanning={controller} /> : null} />
     <details className="scanner-help"><summary>How scanning works</summary>
       <p>Point scanning chooses a screen location with a moving line or grid, then opens actions for clicks, scrolling and dragging. Mouse scanning moves a visible pointer ring and offers directions, clicks, dragging, scrolling and Keyboard in a persistent panel.</p>

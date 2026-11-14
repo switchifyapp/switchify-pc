@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "externalBin": ["binaries/switchify-pc-startup", "binaries/switchify-smol-worker", "binaries/switchify-smol-worker-avx2"],
+    "externalBin": ["binaries/switchify-pc-startup"],
     "windows": {
       "signCommand": {
         "cmd": "powershell.exe",
