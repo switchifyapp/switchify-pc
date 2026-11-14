@@ -59,7 +59,9 @@ export async function check(textslinger, { timeoutMs = 180000 } = {}) {
   const python = join(runtime, description.python);
   const started = Date.now();
   const child = spawn(python, ['-I', '-B', join(textslinger, 'bridge.py'), '--runtime', runtime],
-    { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    // stderr is shown: the input is fixed text and the bridge never prints
+    // exceptions, so a failing packaged interpreter can say why.
+    { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
   const decode = frames();
   const replies = [];
   let waiting;

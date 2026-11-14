@@ -16,15 +16,17 @@ if [[ ! -f "${runtime}/manifest.json" ]]; then
   exit 1
 fi
 
-keychain_args=()
+# One argument list, so an empty keychain needs no empty-array expansion,
+# which macOS's bash 3.2 treats as unbound under set -u.
+sign_args=(--force --options runtime --timestamp --sign "$identity")
 if [[ -n "$keychain" ]]; then
-  keychain_args=(--keychain "$keychain")
+  sign_args+=(--keychain "$keychain")
 fi
 
 signed=0
 while IFS= read -r -d '' candidate; do
   if file -b "$candidate" | grep -q 'Mach-O'; then
-    codesign --force --options runtime --timestamp --sign "$identity" "${keychain_args[@]}" "$candidate"
+    codesign "${sign_args[@]}" "$candidate"
     codesign --verify --strict "$candidate"
     signed=$((signed + 1))
   fi
