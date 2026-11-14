@@ -118,6 +118,23 @@ fn invalid_candidates_do_not_break_a_valid_reply() {
     )
     .unwrap();
     assert_eq!(result.words, crate::prediction::slots(["coffee"]));
+    // Case differs from the typed prefix only where the model has a capital.
+    let result = prediction_reply(
+        serde_json::json!({"id": 4, "words": ["I", "in", "Iñigo", "I'm", "it2"]}),
+        4,
+        "i",
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.words, crate::prediction::slots(["I", "in", "I'm"]));
+    let result = prediction_reply(
+        serde_json::json!({"id": 5, "words": ["London", "Paris"]}),
+        5,
+        "lon",
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.words, crate::prediction::slots(["London"]));
 }
 
 #[test]
@@ -136,10 +153,10 @@ fn the_bundled_runtime_loads_suggests_and_inserts() {
         }
     ));
     assert!(start.elapsed() < Duration::from_millis(500));
-    assert_eq!(ready(&mut e).words[0].as_deref(), Some("coffee"));
+    assert_eq!(ready(&mut e).words[0].as_deref(), Some("tea"));
     for (text, expected, suffix) in [
         ("I would like a co", "couple", "uple "),
-        ("please open the ", "door", "door "),
+        ("please open the ", "app", "app "),
         ("I would like a cup of CO", "COFFEE", "FFEE "),
     ] {
         let batch = response_batch(e.respond(request(
@@ -227,6 +244,51 @@ fn the_bundled_runtime_corrects_a_nearby_key_and_keeps_correct_typing() {
 }
 
 #[test]
+fn the_bundled_runtime_suggests_capitals_and_restores_them() {
+    let Some(runtime) = runtime() else { return };
+    let mut e = engine();
+    e.database = Database::open(&runtime);
+    e.respond(request(vec![append("hello ")], 1, None));
+    ready(&mut e);
+    let layout = Some(KeyboardLayout::Qwerty);
+    // A lowercase letter can begin a capitalised word; accepting it deletes
+    // the typed prefix and types the word with its capital.
+    for (text, word) in [
+        ("Yesterday i", "I"),
+        ("see you on mon", "Monday"),
+        ("we went to paris", "Paris"),
+        ("I think ", "I"),
+    ] {
+        let revision = e.revision + 1;
+        let batch = response_batch(e.respond(layout_request(text, revision, layout)));
+        let shown: Vec<_> = batch.words.iter().flatten().cloned().collect();
+        let Some(index) = shown.iter().position(|w| w == word) else {
+            panic!("{text}: {shown:?}")
+        };
+        let typed = text.rsplit(' ').next().unwrap().len();
+        let insert = e.respond(Request::Accept {
+            generation: 0,
+            token: batch.token,
+            revision: e.revision,
+            index,
+        });
+        assert!(
+            matches!(insert, Response::Insert { backspaces, text: Some(ref t), .. } if backspaces == typed && *t == format!("{word} ")),
+            "{text}"
+        );
+    }
+    // The model never capitalises a word for a sentence start itself: with
+    // nothing before the word, as here after a reset, it suggests as if
+    // mid-sentence, and the keyboard alone decides sentence starts.
+    for text in ["w", "Done. w"] {
+        let revision = e.revision + 1;
+        let batch = response_batch(e.respond(layout_request(text, revision, layout)));
+        let first = batch.words[0].as_deref().unwrap();
+        assert_eq!(first, first.to_lowercase(), "{text}: {:?}", batch.words);
+    }
+}
+
+#[test]
 fn unsupported_text_leaves_the_model_ready_for_the_next_word() {
     let Some(runtime) = runtime() else { return };
     let mut e = engine();
@@ -266,7 +328,7 @@ fn unsupported_text_leaves_the_model_ready_for_the_next_word() {
             e.revision + 1,
             None,
         )));
-        assert_eq!(next.words[0].as_deref(), Some("coffee"));
+        assert_eq!(next.words[0].as_deref(), Some("tea"));
     }
 }
 
@@ -276,7 +338,7 @@ fn a_bridge_that_stopped_makes_suggestions_unavailable() {
     let mut adapter = TextSlinger::launch(&command(&runtime).unwrap()).unwrap();
     assert_eq!(
         adapter.predict("I would like a cup of ", "").unwrap().words[0].as_deref(),
-        Some("coffee")
+        Some("tea")
     );
     send(
         adapter.input.as_mut().unwrap(),

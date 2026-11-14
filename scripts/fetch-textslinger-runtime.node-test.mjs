@@ -24,7 +24,7 @@ function archive(files, target = 'x86_64-pc-windows-msvc') {
 
 const pinsFor = pin => ({ targets: { 'x86_64-pc-windows-msvc': pin }, runtime_for: {} });
 
-test('pins name a v0.6 release asset for every shipped target', () => {
+test('pins name a release asset for every shipped target', () => {
   for (const target of ['x86_64-pc-windows-msvc', 'aarch64-apple-darwin', 'x86_64-apple-darwin']) {
     const pin = manifest.targets[target];
     assert.match(pin.url, new RegExp(`/releases/download/${manifest.release}/textslinger-runtime-${target}\\.zip$`));
