@@ -1188,8 +1188,6 @@ impl Keyboard {
             Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
             // Room for "Navigation" on the narrow Numbers page.
             Key::Page(_) => 1.3,
-            // Phrase slots hold two words.
-            Key::Prediction(i) if crate::prediction::PHRASE_SLOTS.contains(&i) => 2.0,
             _ => 1.0,
         }
     }
@@ -1329,10 +1327,7 @@ mod tests {
                     Some("walk".into()),
                     None,
                     Some("walnut".into()),
-                    None,
-                    Some("wavy hair".into()),
-                    None,
-                    None,
+                    Some("wavy".into()),
                 ],
             }),
             false,
@@ -1366,30 +1361,26 @@ mod tests {
                     words: [
                         Some("one".into()),
                         None,
+                        Some("three".into()),
                         None,
-                        Some("four".into()),
-                        None,
-                        Some("six seven".into()),
-                        None,
-                        Some("eight nine".into()),
+                        Some("five".into()),
                     ],
                 }),
                 false,
             );
             k.restart();
-            assert_eq!(k.rows[0].len(), 8);
+            assert_eq!(k.rows[0].len(), 5);
             let mut seen = std::collections::BTreeSet::new();
             for _ in 0..k.rows.iter().map(Vec::len).sum::<usize>() * 3 {
                 if let (0, Some(column)) = k.scan.position(&k.rows) {
-                    assert!([0, 3, 5, 7].contains(&column));
+                    assert!([0, 2, 4].contains(&column));
                     seen.insert(column);
                 }
                 k.handle(Action::Next);
             }
-            assert_eq!(seen, [0, 3, 5, 7].into_iter().collect());
+            assert_eq!(seen, [0, 2, 4].into_iter().collect());
             assert!(k.choose(Key::Prediction(1)).is_none());
-            assert!(k.choose(Key::Prediction(4)).is_none());
-            assert!(k.choose(Key::Prediction(6)).is_none());
+            assert!(k.choose(Key::Prediction(3)).is_none());
             let frame = k.frame(
                 Rect {
                     x: 0.,
@@ -1402,28 +1393,22 @@ mod tests {
             );
             // Every slot is drawn in its own place: the filled ones with
             // their words, the empty ones as wordless placeholders.
-            let row = &frame.tiles[3..11];
+            let row = &frame.tiles[3..8];
             assert_eq!(
                 row.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
-                ["one", "", "", "four", "", "six seven", "", "eight nine"]
+                ["one", "", "three", "", "five"]
             );
             assert!(row.iter().all(|t| t.rect.y == row[0].rect.y));
             assert!(row.iter().filter(|t| t.text.is_empty()).all(|t| t
                 .style
                 .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder)));
-            assert!(frame.tiles[11].rect.y > row[0].rect.y);
-            let tiles: Vec<_> = row.iter().filter(|t| !t.text.is_empty()).collect();
-            let pitch = (tiles[1].rect.x - tiles[0].rect.x) / 3.0;
-            let gap = pitch - tiles[0].rect.width;
-            assert!((tiles[1].rect.width - tiles[0].rect.width).abs() < 0.01);
-            assert!((tiles[2].rect.x - tiles[0].rect.x - 5.0 * pitch).abs() < 0.01);
-            // Phrase slots are twice as wide as word slots.
-            assert!((tiles[3].rect.width - tiles[2].rect.width).abs() < 0.01);
-            assert!(tiles[2].rect.width > tiles[0].rect.width * 1.5);
-            assert!(
-                (tiles[3].rect.x - tiles[2].rect.x - 2.0 * (tiles[2].rect.width + gap)).abs()
-                    < 0.01
-            );
+            assert!(frame.tiles[8].rect.y > row[0].rect.y);
+            // All five slots are the same width, evenly spaced.
+            let pitch = row[1].rect.x - row[0].rect.x;
+            for (i, tile) in row.iter().enumerate() {
+                assert!((tile.rect.width - row[0].rect.width).abs() < 0.01);
+                assert!((tile.rect.x - row[0].rect.x - i as f64 * pitch).abs() < 0.01);
+            }
         }
     }
 
@@ -3118,49 +3103,40 @@ mod tests {
     }
 
     #[test]
-    fn row_groups_skip_prediction_groups_with_no_suggestions() {
+    fn row_groups_scan_the_five_slots_as_one_group_skipping_empty_ones() {
         use crate::scan_preferences::Resolved;
-        let groups = crate::scan_items::row_groups(crate::prediction::SLOTS);
-        assert!(groups.len() > 2);
-        let highlighted = |words: [Option<String>; crate::prediction::SLOTS]| {
-            let mut k = Keyboard::configured(
-                false,
-                Resolved {
-                    row_groups: true,
-                    ..Default::default()
-                },
-            );
-            k.enable_predictions(true);
-            k.predictions(
-                Some(crate::prediction::worker::Batch {
-                    token: 1,
-                    refined: true,
-                    words,
-                }),
-                false,
-            );
-            k.restart();
-            assert_eq!(k.scan.highlight(&k.rows), (0, None));
-            k.handle(Action::Select);
-            let mut seen = std::collections::BTreeSet::new();
-            for _ in 0..groups.len() * 3 {
-                if k.scan.group_scan() {
-                    if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
-                        seen.insert(columns.start);
-                    }
-                }
-                k.handle(Action::Next);
-            }
-            seen
-        };
-        // Only the instant words have arrived: the other groups are empty.
+        // Five slots are too few to split into groups.
         assert_eq!(
-            highlighted(crate::prediction::slots(["one", "two", "three"])),
-            [0].into_iter().collect()
+            crate::scan_items::row_groups(crate::prediction::SLOTS),
+            vec![0..crate::prediction::SLOTS]
         );
-        let mut words = crate::prediction::slots(["one"]);
-        words[crate::prediction::SLOTS - 1] = Some("eight nine".into());
-        let last = groups.last().unwrap().start;
-        assert_eq!(highlighted(words), [0, last].into_iter().collect());
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                row_groups: true,
+                ..Default::default()
+            },
+        );
+        k.enable_predictions(true);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 1,
+                refined: true,
+                words: [Some("one".into()), None, Some("three".into()), None, None],
+            }),
+            false,
+        );
+        k.restart();
+        k.handle(Action::Select);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..crate::prediction::SLOTS * 3 {
+            if let (0, Some(column)) = k.scan.position(&k.rows) {
+                if column < crate::prediction::SLOTS {
+                    seen.insert(column);
+                }
+            }
+            k.handle(Action::Next);
+        }
+        assert_eq!(seen, [0, 2].into_iter().collect());
     }
 }

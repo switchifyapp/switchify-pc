@@ -8,7 +8,7 @@ mod nearby;
 mod textslinger;
 #[cfg(test)]
 pub(crate) use model::slots;
-pub(crate) use model::{PHRASE_SLOTS, SLOTS};
+pub(crate) use model::SLOTS;
 pub mod worker;
 
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};

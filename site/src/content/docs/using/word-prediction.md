@@ -1,6 +1,6 @@
 ---
 title: Word prediction
-description: Eight suggestions above the keyboard, computed on the computer and never sent anywhere. Learns from your typing if you let it.
+description: Five suggestions above the keyboard, computed on the computer and never sent anywhere. Learns from your typing if you let it.
 ---
 
 While you type on the scanning [keyboard](/using/keyboard/), a row of suggestions appears above it. Select one to insert it and a space.
@@ -8,20 +8,19 @@ While you type on the scanning [keyboard](/using/keyboard/), a row of suggestion
 The suggestion is typed one character at a time, with a very short gap between characters. This gives slower apps, such as Notepad, time to keep up. A normal word still appears almost at once.
 
 The three instant word suggestions appear almost as soon as the keyboard opens;
-the English word model is a small file that loads quickly. The AI words and
-phrases follow once the on-device model has started. The bundled AI worker uses
+the English word model is a small file that loads quickly. The AI words
+follow once the on-device model has started. The bundled AI worker uses
 less memory and reuses calculations while preparing suggestions. It still runs
 entirely on your computer.
 
-## What the eight slots are
+## What the five slots are
 
 - **Three instant words** from a statistical model that updates with every letter.
 - **Two words from an on-device AI model.**
-- **Three two-word phrases** from the same AI model, in wider slots at the end of the row.
 
 A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 
-When there are no suggestions at all, the row shows eight empty outlines and the scan skips the row. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
+When there are no suggestions at all, the row shows five empty outlines and the scan skips the row. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
 
 A long word shrinks a little to fit its slot. A word that is still too wide is split over two lines with a hyphen. Selecting it types the whole word. The same fitting applies to every key label on the keyboard.
 
@@ -42,7 +41,7 @@ The setting uses the built-in letter positions for QWERTY, Simple QWERTY or Comm
 Letters, following your chosen layout. Custom tile positions and switch timing
 are outside this model. It applies to unfinished prefixes of two to 32 English
 letters. Prefixes containing accents, apostrophes or other characters keep their
-usual completion behavior. Generated words and phrases keep their usual matching.
+usual completion behavior. Generated words keep their usual matching.
 
 ## Abbreviation suggestions
 
@@ -59,7 +58,7 @@ with Caps on, is inserted in capitals.
 
 It applies to unfinished words of two to 32 English letters. Words typed with
 accents, apostrophes or other characters keep their usual completion behavior.
-Generated words and phrases keep their usual matching.
+Generated words keep their usual matching.
 
 ## It stays on the computer
 
@@ -94,11 +93,11 @@ fails, choose **Retry predictions** to start the worker again.
 If a prediction stalls, suggestions stop and the retry key appears; typing
 remains available while you decide whether to retry.
 
-The trial uses up to five word suggestions and leaves the phrase slots empty.
+The trial uses up to five word suggestions.
 It uses English letters and apostrophes. Unsupported prefixes, including digits
 and accented words, leave the row empty until a supported prefix is typed.
 Names and the pronoun “I” may remain lowercase unless Shift or Caps changes
-them. Nearby-key suggestions, abbreviation suggestions, phrases, and learning
+them. Nearby-key suggestions, abbreviation suggestions and learning
 from typing are not used by this backend. It can suggest non-words or repeat
 the word already typed; choosing a completed word adds a space.
 

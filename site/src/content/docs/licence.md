@@ -105,4 +105,4 @@ Switchify PC includes work from other projects. Each part keeps its own licence.
 - **Bluetooth on a Mac**: [corebluetooth-rs](https://github.com/doom-fish/corebluetooth-rs), MIT or Apache License 2.0.
 - **Software libraries**: Switchify PC is built with [Tauri](https://tauri.app), [React](https://react.dev) and many open source Rust and JavaScript libraries. Each keeps its own licence.
 
-The three instant word suggestions are built from the texts above, and from your own typing if **Learn from my typing** is on. The AI words and phrases come from the SmolLM2 model. Any suggestion can sometimes be unsuitable or wrong.
+The three instant word suggestions are built from the texts above, and from your own typing if **Learn from my typing** is on. The AI words come from the SmolLM2 model. Any suggestion can sometimes be unsuitable or wrong.
