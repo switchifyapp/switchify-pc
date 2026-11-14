@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 12;
+pub const SCHEMA_VERSION: u32 = 13;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,7 +232,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             8 => upgrade_v8(value)?,
             9 => upgrade_v9(value)?,
             10 => upgrade_v10(value)?,
-            _ => upgrade_v11(value)?,
+            11 => upgrade_v11(value)?,
+            _ => upgrade_v12(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -407,6 +408,33 @@ fn upgrade_v11(mut value: Value) -> Result<Value, ParseError> {
         return Err(ParseError::Invalid(
             "it does not match version 11 settings".into(),
         ));
+    }
+    value["schemaVersion"] = Value::from(12);
+    Ok(value)
+}
+
+/// Version 13 drops the old prediction engine's options. Version 12 always
+/// wrote `enhancedWordPrediction`, and wrote the nearby-key and abbreviation
+/// options only when they were on.
+fn upgrade_v12(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(12)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let invalid = || ParseError::Invalid("it does not match version 12 settings".into());
+    let point_scan = value
+        .get_mut("pointScan")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(invalid)?;
+    point_scan
+        .remove("enhancedWordPrediction")
+        .filter(Value::is_boolean)
+        .ok_or_else(invalid)?;
+    for optional in ["nearbyKeyPredictions", "abbreviationPredictions"] {
+        if let Some(on) = point_scan.remove(optional) {
+            if on != Value::Bool(true) {
+                return Err(invalid());
+            }
+        }
     }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
@@ -647,6 +675,9 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 13 {
+        value["pointScan"]["enhancedWordPrediction"] = Value::Bool(false);
+    }
     if version < 11 {
         let switches = value["switches"].as_object_mut().unwrap();
         switches.remove("acceptMs");
@@ -882,6 +913,61 @@ mod tests {
             vec![crate::scanning::Action::OpenCustomPanel("greetings".into())];
         let value = serde_json::to_value(&document).unwrap();
         assert_eq!(parse(value, SCHEMA_VERSION).unwrap(), document);
+    }
+
+    #[test]
+    fn version_twelve_documents_drop_the_old_prediction_options() {
+        let original = local().document();
+        let current = serde_json::to_value(&original).unwrap();
+        for field in [
+            "enhancedWordPrediction",
+            "nearbyKeyPredictions",
+            "abbreviationPredictions",
+        ] {
+            assert!(current["pointScan"].get(field).is_none());
+        }
+        // As v1.8.x wrote it: enhancedWordPrediction always, false.
+        let old = written_by(current.clone(), 12);
+        assert_eq!(old["pointScan"]["enhancedWordPrediction"], json!(false));
+        assert_eq!(parse(old.clone(), 12).unwrap(), original);
+        // A later 12 build also wrote the opt-in options when they were on.
+        let mut opted_in = old.clone();
+        opted_in["pointScan"]["enhancedWordPrediction"] = json!(true);
+        opted_in["pointScan"]["nearbyKeyPredictions"] = json!(true);
+        opted_in["pointScan"]["abbreviationPredictions"] = json!(true);
+        assert_eq!(parse(opted_in, 12).unwrap(), original);
+        // Shapes version 12 never wrote are refused, not reset.
+        let refused: [fn(&mut Value); 4] = [
+            |v| {
+                v["pointScan"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("enhancedWordPrediction");
+            },
+            |v| v["pointScan"]["enhancedWordPrediction"] = json!("yes"),
+            |v| v["pointScan"]["nearbyKeyPredictions"] = json!(false),
+            |v| v["pointScan"]["abbreviationPredictions"] = json!(1),
+        ];
+        for corrupt in refused {
+            let mut value = old.clone();
+            corrupt(&mut value);
+            assert!(
+                matches!(parse(value.clone(), 12), Err(ParseError::Invalid(_))),
+                "accepted {value}"
+            );
+        }
+        // A current document still carrying an old option is refused.
+        let mut stale = current;
+        stale["pointScan"]["enhancedWordPrediction"] = json!(false);
+        assert!(matches!(
+            parse(stale, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // An older build reads a version 13 document as newer, not invalid.
+        assert_eq!(
+            parse(serde_json::to_value(&original).unwrap(), 14),
+            Err(ParseError::Newer(14))
+        );
     }
 
     #[test]
