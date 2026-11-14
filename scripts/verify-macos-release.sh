@@ -44,7 +44,9 @@ if [[ ! -x "$main_executable" ]]; then
   exit 1
 fi
 
-node "${project_directory}/scripts/check-packaged-prediction.mjs" "$app_path" --signed
+# The packaged TextSlinger runtime answers through its bridge; every nested
+# Mach-O file's signature is checked below.
+node "${project_directory}/scripts/check-textslinger-runtime.mjs" "$app_path"
 codesign --verify --deep --strict --verbose=2 "$app_path"
 codesign --verify --strict --verbose=2 "$dmg_path"
 

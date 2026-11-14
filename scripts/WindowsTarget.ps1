@@ -3,8 +3,8 @@
 # target\<triple>\release.
 
 $script:WindowsTargets = @{
-  'x86_64-pc-windows-msvc' = @{ Nsis = 'x64'; Accelerated = $true }
-  'aarch64-pc-windows-msvc' = @{ Nsis = 'arm64'; Accelerated = $false }
+  'x86_64-pc-windows-msvc' = @{ Nsis = 'x64' }
+  'aarch64-pc-windows-msvc' = @{ Nsis = 'arm64' }
 }
 
 function Get-RustHostTarget([string]$Rustc) {
@@ -25,7 +25,6 @@ function Resolve-WindowsTarget([string]$Target, [string]$Rustc) {
     Cross = $Target -ne $hostTarget
     ReleaseRelative = if ($Target -eq $hostTarget) { 'release' } else { "$Target\release" }
     Nsis = $info.Nsis
-    Accelerated = $info.Accelerated
   }
 }
 

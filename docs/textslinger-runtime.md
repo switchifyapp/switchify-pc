@@ -1,9 +1,9 @@
 # Bundled TextSlinger runtime
 
-Switchify PC is moving its word suggestions to the n-gram model from
-[TextSlinger](https://github.com/kdv123/textslinger) (tracking issue #1427). The app
-bundles a self-contained runtime for it. In this release the runtime is bundled,
-signed and checked, but the app does not use it yet; #1423 switches the keyboard to it.
+Switchify PC's word suggestions come from the n-gram model in
+[TextSlinger](https://github.com/kdv123/textslinger). The app
+bundles a self-contained runtime for it, signs and checks it, and runs it for the
+scanning keyboard's word suggestions; see [word prediction](word-prediction.md).
 
 ## Where it comes from
 

@@ -691,7 +691,6 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
         previous_dwell_delay,
         previous_mouse_repeat_enabled,
         previous_key_repeat_enabled,
-        previous_learn_word_prediction,
     ) = {
         let state = &model
             .shared
@@ -706,7 +705,6 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
             state.settings.dwell_click_delay_ms,
             state.settings.mouse_repeat_enabled,
             state.settings.key_repeat_enabled,
-            state.settings.learn_word_prediction,
         )
     };
     if settings.start_with_system != previous_start_with_system {
@@ -736,18 +734,8 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
     {
         platform_stop_mouse_repeat(app);
     }
-    if settings.learn_word_prediction != previous_learn_word_prediction {
-        prediction::learning_changed();
-    }
     overlay.apply_settings(settings);
     Ok(())
-}
-
-/// Deletes the words prediction learned on this computer. Returns whether
-/// they are gone already, rather than once prediction stops using them.
-#[tauri::command]
-fn forget_learned_words(app: AppHandle) -> Result<bool, String> {
-    prediction::forget_learned(&app)
 }
 
 #[tauri::command]
@@ -2058,7 +2046,7 @@ pub fn run() {
             switch_runtime::install(app.handle());
             remote_scan::install(app.handle());
             custom_panels::install(app.handle());
-            prediction::resume_forgetting(app.handle());
+            prediction::delete_learned_words(app.handle());
             point_scan_runtime::install(app.handle());
             settings_sync::install(app.handle());
             install_tray(app)?;
@@ -2165,7 +2153,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            forget_learned_words,
             get_switches,
             begin_switch_practice,
             get_switch_practice,

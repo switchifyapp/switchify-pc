@@ -1,79 +1,44 @@
 ---
 title: Word prediction
-description: Five suggestions above the keyboard, computed on the computer and never sent anywhere. Learns from your typing if you let it.
+description: Five word suggestions above the keyboard, from a word model that runs on the computer. Nothing you type is sent anywhere.
 ---
 
-While you type on the scanning [keyboard](/using/keyboard/), a row of suggestions appears above it. Select one to insert it and a space.
+While you type on the scanning [keyboard](/using/keyboard/), a row of up to five word suggestions appears above it. Select one to insert it and a space.
+
+Suggestions come from the [TextSlinger](https://github.com/kdv123/textslinger) word model, which is included with Switchify PC and runs on your computer. It starts loading when scanning starts, so it is usually ready by the time you open the keyboard. If it is still loading, the row stays empty for a moment; you can type as normal.
 
 The suggestion is typed one character at a time, with a very short gap between characters. This gives slower apps, such as Notepad, time to keep up. A normal word still appears almost at once.
 
-The three instant word suggestions appear almost as soon as the keyboard opens;
-the English word model is a small file that loads quickly. The AI words
-follow once the on-device model has started. The bundled AI worker uses
-less memory and reuses calculations while preparing suggestions. It still runs
-entirely on your computer.
+## The suggestion row
 
-## What the five slots are
-
-- **Three instant words** from a statistical model that updates with every letter.
-- **Two words from an on-device AI model.**
+Suggestions begin with the first letter you type, and continue after a space as suggestions for the next word. They complete the word you are typing, so each one starts with the letters you have typed so far.
 
 A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 
-When there are no suggestions at all, the row shows five empty outlines and the scan skips the row. Nothing is written across the keyboard. If prediction fails, a **Retry predictions** key appears on the keyboard; typing still works.
+When there are no suggestions at all, the row shows five empty outlines and the scan skips the row. Nothing is written across the keyboard. If suggestions stop working, a **Retry predictions** key appears on the keyboard; typing still works.
 
 A long word shrinks a little to fit its slot. A word that is still too wide is split over two lines with a hyphen. Selecting it types the whole word. The same fitting applies to every key label on the keyboard.
 
 Suggestions only change when they need to, so the scan does not restart under you.
 
-## Nearby-key suggestions
+## What it suggests
 
-In **Settings > Scanning**, open **More options**, then **Customise keyboard**.
-Under **Suggestions**, turn on **Nearby-key suggestions** to allow one nearby
-letter change in an unfinished word. It is off by default.
+The word model is English. It suggests words made of the letters a to z and apostrophes, such as *can't*. While you are typing a number, an accented letter or another character, the row stays empty until you start a new word.
 
-Matching instant completions keep their order. When there are fewer than three,
-this option can fill the remaining instant slots. On QWERTY, for example, `hrl`
-can produce `help` if a slot is available. Choosing the suggestion replaces the
-unfinished word and adds a space. Text changes only when you choose a suggestion.
-
-The setting uses the built-in letter positions for QWERTY, Simple QWERTY or Common
-Letters, following your chosen layout. Custom tile positions and switch timing
-are outside this model. It applies to unfinished prefixes of two to 32 English
-letters. Prefixes containing accents, apostrophes or other characters keep their
-usual completion behavior. Generated words keep their usual matching.
-
-## Abbreviation suggestions
-
-Under **Suggestions**, turn on **Abbreviation suggestions** to type a few letters
-of a word instead of its start. It is off by default.
-
-Type the first letter of the word, then some of its other letters in order. For
-example, `abt` can produce `about`, `ppl` can produce `people` and `tmrw` can
-produce `tomorrow`. Words that start with what you typed keep their places;
-abbreviated words only fill instant slots that are left over, ahead of any
-nearby-key suggestions. Choosing one replaces the unfinished word and adds a
-space. A capital first letter stays a capital. A word typed in capitals, or chosen
-with Caps on, is inserted in capitals.
-
-It applies to unfinished words of two to 32 English letters. Words typed with
-accents, apostrophes or other characters keep their usual completion behavior.
-Generated words keep their usual matching.
+Suggestions come from the model alone. It does not learn from your typing, and it does not correct mistyped letters. It can sometimes suggest something that is not a real word, or the word you have already typed.
 
 ## It stays on the computer
 
-Prediction runs entirely on the computer. Nothing you type leaves it, and no model has to be downloaded. The AI model is included with the app.
+Prediction runs entirely on the computer. Nothing you type leaves it, and no model has to be downloaded. Switchify PC keeps no copy of what you type.
 
 Switchify PC only looks at what you type with its own keyboard. It never reads text fields, documents or other apps.
 
-The vocabulary is English.
-
-## Learning from your typing
-
-**Learn from my typing** is on by default. The three instant slots learn the words you use; the AI model does not. What is learned stays on this computer and is not synced to your account. Choose **Forget learned words** in Settings to clear it.
-
-Learned words are stored in a file in Switchify PC's application data folder. If other people use the same computer login and you type something private, forget the learned words afterwards.
+Earlier versions could learn words from your typing. Switchify PC now deletes any learned words it finds from those versions.
 
 ## Capitals
 
-Suggestions follow Shift, Caps and the start of a sentence, so *i* becomes *I* and the first word after a full stop is capitalised.
+Suggestions follow Shift, Caps and the start of a sentence: the first word after a full stop is capitalised, and a word you start in capitals continues in capitals. The model's words are lowercase, so names and the word *I* are not capitalised on their own; use Shift for those.
+
+## Turning it off
+
+In **Settings > Scanning**, open **More options**, then **Customise keyboard**. Under **Suggestions**, turn off **Word prediction** to hide the row.

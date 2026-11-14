@@ -2,7 +2,6 @@ use super::{
     activity, context,
     database::{Database, Status},
 };
-use crate::point_scan::KeyboardLayout;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -31,27 +30,6 @@ pub enum Edit {
     End,
 }
 
-fn sentence_end(c: char) -> bool {
-    matches!(c, '.' | '!' | '?' | '\n' | '\r')
-}
-/// Letters, digits and apostrophes continue a word; anything else ends it.
-/// Whole graphemes are tested, so a combining accent stays with its letter.
-fn word_grapheme(g: &str) -> bool {
-    g.chars()
-        .next()
-        .is_some_and(|c| c.is_alphanumeric() || c == '\'' || c == '\u{2019}')
-}
-/// The end of the last grapheme in `text` that ends a word, if any.
-fn last_boundary(text: &str) -> Option<usize> {
-    text.grapheme_indices(true)
-        .rev()
-        .find(|(_, g)| !word_grapheme(g))
-        .map(|(i, g)| i + g.len())
-}
-/// Unlearned text is kept back this many characters from the end of a full
-/// buffer, so the latest words can still be corrected before they are learned.
-const RECENT: usize = 256;
-
 // Each edit is scoped before injection begins. Queued edits from before an
 // external activity or window change cannot become context for the new target.
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,11 +53,11 @@ pub enum Request {
         /// a sentence start: it saw the punctuation, and whether the person
         /// cancelled the capital since.
         sentence_start: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        nearby_layout: Option<KeyboardLayout>,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        abbreviations: bool,
     },
+    /// Start loading the model now, before any text. Sent once the parent has
+    /// contained the worker, so a spare worker is ready when the keyboard
+    /// opens. It has no reply.
+    Warm,
     Accept {
         generation: u64,
         token: u64,
@@ -147,9 +125,6 @@ pub struct Engine {
     activity: u64,
     tracked: bool,
     buffer: String,
-    /// Bytes at the start of `buffer` already learned. Learning sees each
-    /// piece of typed text once.
-    learned: usize,
     clipped: bool,
     revision: u64,
     snapshot: Option<String>,
@@ -158,9 +133,6 @@ pub struct Engine {
     inserts: Inserts,
     token: u64,
     case: (Shift, bool, bool),
-    nearby_layout: Option<KeyboardLayout>,
-    nearby_map: Option<switchify_prediction::KeyHitMap>,
-    abbreviations: bool,
     displayed: Option<(Batch, Inserts)>,
     generation: u64,
 }
@@ -176,7 +148,6 @@ impl Engine {
             target: None,
             activity: 0,
             buffer: String::new(),
-            learned: 0,
             clipped: false,
             revision: 0,
             snapshot: None,
@@ -184,70 +155,11 @@ impl Engine {
             inserts: Default::default(),
             token: 0,
             case: (Shift::Off, false, false),
-            nearby_layout: None,
-            nearby_map: None,
-            abbreviations: false,
             displayed: None,
             generation: 0,
         }
     }
-    /// Learn `buffer[learned..end]`.
-    fn learn_to(&mut self, end: usize) {
-        if end > self.learned {
-            let text = &self.buffer[self.learned..end];
-            if text.chars().any(char::is_alphanumeric) {
-                self.database.learn(text);
-            }
-            self.learned = end;
-        }
-    }
-    /// Learn the sentences that ended before the latest word began. Waiting
-    /// for the next word leaves a correction just after the punctuation
-    /// unlearned.
-    fn learn_sentences(&mut self) {
-        let rest = &self.buffer[self.learned..];
-        let Some(word) = rest.rfind(char::is_alphanumeric) else {
-            return;
-        };
-        if let Some(end) = rest[..word].rfind(sentence_end) {
-            self.learn_to(self.learned + end + 1);
-        }
-    }
-    /// Learn what is typed before the context is lost. Unless the text is
-    /// finished, a word still in progress may be incomplete and is left out.
-    fn learn_words(&mut self, finished: bool) {
-        let end = if finished {
-            self.buffer.len()
-        } else {
-            match last_boundary(&self.buffer[self.learned..]) {
-                Some(end) => self.learned + end,
-                None => return,
-            }
-        };
-        self.learn_to(end);
-    }
-    /// Before clipping drops text that is not learned yet, learn through the
-    /// last word boundary at least `RECENT` characters from the end. A long
-    /// stretch without punctuation is learned in long pieces that keep their
-    /// phrases, and the latest words can still be corrected.
-    fn learn_before_clipping(&mut self) {
-        let total = self.buffer.chars().count();
-        let dropped = total.saturating_sub(512);
-        if self.buffer[..self.learned].chars().count() >= dropped {
-            return;
-        }
-        let keep = self
-            .buffer
-            .char_indices()
-            .nth(total.saturating_sub(RECENT))
-            .map_or(self.buffer.len(), |(i, _)| i);
-        if let Some(end) = last_boundary(&self.buffer[self.learned..keep]) {
-            self.learn_to(self.learned + end);
-        }
-    }
     fn clear(&mut self) {
-        self.learn_words(false);
-        self.learned = 0;
         self.database.reset();
         self.displayed = None;
         self.buffer.clear();
@@ -262,35 +174,22 @@ impl Engine {
     fn apply_edit(&mut self, edit: Edit) {
         match edit {
             Edit::Reset => self.clear(),
-            Edit::End => {
-                self.learn_words(true);
-                self.clear();
-            }
+            Edit::End => self.clear(),
             Edit::Append(text) => {
                 if text.chars().count() > 512 {
                     self.clear();
                     return;
                 }
                 self.buffer.push_str(&text);
-                if self.buffer.chars().count() > 512 {
-                    self.learn_before_clipping();
-                }
                 while self.buffer.chars().count() > 512 {
                     let n = self.buffer.graphemes(true).next().unwrap().len();
                     self.buffer.drain(..n);
-                    self.learned = self.learned.saturating_sub(n);
                     self.clipped = true;
                 }
-                self.learn_sentences();
             }
             Edit::Backspace => {
                 if let Some((start, _)) = self.buffer.grapheme_indices(true).next_back() {
                     self.buffer.truncate(start);
-                    if self.learned > start {
-                        // A learned word is being corrected: learn it again
-                        // whole rather than its corrected ending alone.
-                        self.learned = last_boundary(&self.buffer).unwrap_or(0);
-                    }
                 } else {
                     self.clear();
                 }
@@ -357,9 +256,7 @@ impl Engine {
         } else {
             self.database.reset();
             self.displayed = None;
-            let (status, prediction) =
-                self.database
-                    .predict_with_layout(&ctx, self.nearby_layout, self.abbreviations);
+            let (status, prediction) = self.database.predict(&ctx);
             self.status = status;
             (prediction, false)
         };
@@ -368,35 +265,9 @@ impl Engine {
         let mut labels = std::array::from_fn(|_| None);
         // Each shown word takes the next free slot, so none leaves a gap.
         let mut index = 0;
-        for (slot, word) in prediction.words.into_iter().enumerate() {
-            let Some(word) = word else {
-                continue;
-            };
-            let (label, insert) = if prediction.abbreviated[slot] {
-                if slot >= 3
-                    || !self.abbreviations
-                    || prediction.corrections[slot].is_some()
-                    || !super::abbreviations::abbreviates(&ctx.prefix, &word)
-                {
-                    continue;
-                }
-                let whole = abbreviated_case(&ctx.prefix, &word, shift, caps);
-                (whole.clone(), (ctx.prefix.len(), whole + " "))
-            } else {
-                let corrected = if let Some(substitution) = &prediction.corrections[slot] {
-                    if slot >= 3 {
-                        continue;
-                    }
-                    let Some(corrected) = self.nearby_map.as_ref().and_then(|map| {
-                        super::nearby::corrected_prefix(&ctx.prefix, substitution, map)
-                    }) else {
-                        continue;
-                    };
-                    Some(corrected)
-                } else {
-                    None
-                };
-                let typed = corrected.as_deref().unwrap_or(&ctx.prefix);
+        for word in prediction.words.into_iter().flatten() {
+            let (label, insert) = {
+                let typed = ctx.prefix.as_str();
                 let Some(offset) = prefix_offset(&word, typed) else {
                     continue;
                 };
@@ -416,8 +287,7 @@ impl Engine {
                     None
                 } else {
                     restored(typed, &word[..offset])
-                }
-                .or_else(|| corrected.as_ref().cloned());
+                };
                 match head {
                     Some(head) => (
                         format!("{head}{suffix}"),
@@ -477,6 +347,18 @@ impl Engine {
     }
     pub fn respond(&mut self, request: Request) -> Response {
         match request {
+            // `serve` handles warming without a reply; answer with the status.
+            Request::Warm => {
+                self.status = self.database.status();
+                Response::Suggestions {
+                    generation: self.generation,
+                    batch: None,
+                    revision: self.revision,
+                    tracking: false,
+                    pending: false,
+                    status: self.status,
+                }
+            }
             Request::Query {
                 generation,
                 edits,
@@ -485,23 +367,8 @@ impl Engine {
                 shift,
                 caps,
                 sentence_start,
-                nearby_layout,
-                abbreviations,
             } => {
-                let mode_changed = self.nearby_layout != nearby_layout;
-                if mode_changed {
-                    self.nearby_layout = nearby_layout;
-                    self.nearby_map = nearby_layout.map(super::nearby::hit_map);
-                    self.batch = None;
-                    self.inserts = Default::default();
-                }
-                let mode_changed = mode_changed || self.abbreviations != abbreviations;
-                if self.abbreviations != abbreviations {
-                    self.abbreviations = abbreviations;
-                    self.batch = None;
-                    self.inserts = Default::default();
-                }
-                if self.generation != generation || mode_changed {
+                if self.generation != generation {
                     self.database.reset();
                     self.displayed = None;
                     self.snapshot = None;
@@ -559,13 +426,22 @@ impl Engine {
 /// `None` when nothing would change, which is the usual case and deletes
 /// nothing.
 fn prefix_offset(word: &str, typed: &str) -> Option<usize> {
-    let normalized = switchify_prediction::normalize(typed);
+    let normalized = normalize(typed);
     if normalized.is_empty() {
         return Some(0);
     }
     word.grapheme_indices(true)
         .map(|(i, g)| i + g.len())
-        .find(|&end| switchify_prediction::normalize(&word[..end]) == normalized)
+        .find(|&end| normalize(&word[..end]) == normalized)
+}
+/// Text compared in canonical form and without regard to case, with a curly
+/// apostrophe matching a straight one.
+fn normalize(text: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    text.nfc()
+        .flat_map(char::to_lowercase)
+        .map(|c| if c == '\u{2019}' { '\'' } else { c })
+        .collect()
 }
 
 fn restored(typed: &str, head: &str) -> Option<String> {
@@ -583,20 +459,6 @@ fn restored(typed: &str, head: &str) -> Option<String> {
         })
         .collect();
     (merged != typed).then_some(merged)
-}
-
-/// An abbreviated word replaces the whole typed prefix. Capitals typed as
-/// capitals throughout stay so, as do Caps or Shift locked the way they apply
-/// to a completion, and a typed capital first letter is kept.
-fn abbreviated_case(prefix: &str, word: &str, shift: Shift, caps: bool) -> String {
-    if shouting(prefix) || caps ^ (shift == Shift::Locked) {
-        return word.to_uppercase();
-    }
-    let mut chars = word.chars();
-    match (prefix.chars().next(), chars.next()) {
-        (Some(p), Some(w)) if p.is_uppercase() => w.to_uppercase().chain(chars).collect(),
-        _ => word.to_owned(),
-    }
 }
 
 /// A typed prefix of two or more letters, all capitals, is a word being
@@ -655,6 +517,12 @@ fn serve(
 ) -> Result<(), ()> {
     let mut start = Some(start);
     while let Ok(request) = receive::<Request>(input) {
+        // Warming starts the model only: no reply, and no activity observer
+        // until the keyboard sends text.
+        if matches!(request, Request::Warm) {
+            engine.status = engine.database.status();
+            continue;
+        }
         if let Some(start) = start.take() {
             engine.tracked = start();
         }
@@ -669,12 +537,11 @@ pub fn run_from_args() -> bool {
         return false;
     }
     let work = || -> Result<(), ()> {
-        if args.len() != 5 {
+        if args.len() != 4 {
             return Err(());
         }
-        let path = PathBuf::from(&args[2]);
-        // Empty when learning is off.
-        let personal = Some(PathBuf::from(&args[4])).filter(|p| !p.as_os_str().is_empty());
+        // The bundled TextSlinger runtime folder.
+        let runtime = PathBuf::from(&args[2]);
         let ignored: Vec<u32> = serde_json::from_str(&args[3].to_string_lossy()).map_err(|_| ())?;
         if ignored.len() > 129 {
             return Err(());
@@ -698,7 +565,7 @@ pub fn run_from_args() -> bool {
         activity::set_ignored(ignored);
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
-            let database = Database::open(&path, personal.as_deref());
+            let database = Database::open(&runtime);
             let mut engine = Engine::new(database, false);
             serve(
                 &mut engine,
@@ -715,306 +582,7 @@ pub fn run_from_args() -> bool {
 
 #[cfg(test)]
 mod tests {
-
-    #[derive(Clone)]
-    struct NearbyCandidate(super::super::model::Prediction);
-    impl super::super::model::Predict for NearbyCandidate {
-        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
-            Ok(self.0.clone())
-        }
-    }
-    fn correction() -> switchify_prediction::KeySubstitution {
-        switchify_prediction::KeySubstitution {
-            grapheme_index: 1,
-            typed: "r".into(),
-            intended: "e".into(),
-        }
-    }
-    fn correction_engine(
-        slot: usize,
-        word: &str,
-        metadata: Option<switchify_prediction::KeySubstitution>,
-    ) -> Engine {
-        let mut prediction = super::super::model::Prediction::default();
-        prediction.words[slot] = Some(word.into());
-        prediction.corrections[slot] = metadata;
-        let mut e = engine();
-        e.database = Database::with_predictor(Box::new(NearbyCandidate(prediction)));
-        e
-    }
-    fn nearby_request(
-        edits: Vec<RecordedEdit>,
-        revision: u64,
-        displayed: Option<u64>,
-        layout: Option<KeyboardLayout>,
-    ) -> Request {
-        let mut r = request(edits, revision, displayed);
-        if let Request::Query { nearby_layout, .. } = &mut r {
-            *nearby_layout = layout;
-        }
-        r
-    }
-    fn abbreviation_engine(slot: usize, word: &str) -> Engine {
-        let mut prediction = super::super::model::Prediction::default();
-        prediction.words[slot] = Some(word.into());
-        prediction.abbreviated[slot] = true;
-        let mut e = engine();
-        e.database = Database::with_predictor(Box::new(NearbyCandidate(prediction)));
-        e
-    }
-    fn abbreviation_request(edits: Vec<RecordedEdit>, enabled: bool) -> Request {
-        let mut r = request(edits, 1, None);
-        if let Request::Query { abbreviations, .. } = &mut r {
-            *abbreviations = enabled;
-        }
-        r
-    }
-    #[test]
-    fn abbreviation_replaces_the_owned_prefix_and_keeps_typed_capitals() {
-        for (prefix, word, expected) in [
-            ("abt", "about", "about "),
-            ("Abt", "about", "About "),
-            ("ABT", "about", "ABOUT "),
-            ("dont", "don't", "don't "),
-        ] {
-            let mut e = abbreviation_engine(0, word);
-            let b = response_batch(e.respond(abbreviation_request(
-                vec![append(&format!("tell me {prefix}"))],
-                true,
-            )));
-            assert_eq!(b.words[0].as_deref(), Some(expected.trim_end()));
-            assert_eq!(e.accept(b.token, 0), Some((prefix.len(), expected.into())));
-        }
-    }
-    #[test]
-    fn abbreviations_follow_caps_like_completions() {
-        let mut e = abbreviation_engine(0, "about");
-        let mut r = abbreviation_request(vec![append("abt")], true);
-        if let Request::Query { caps, .. } = &mut r {
-            *caps = true;
-        }
-        let b = response_batch(e.respond(r));
-        assert_eq!(b.words[0].as_deref(), Some("ABOUT"));
-        assert_eq!(e.accept(b.token, 0), Some((3, "ABOUT ".into())));
-    }
-    #[test]
-    fn abbreviations_require_the_mode_a_matching_word_and_an_instant_slot() {
-        // Off, a plain prefix, letters out of order, a non-ASCII or
-        // apostrophe prefix, and a forged later slot are all dropped.
-        for (prefix, word, slot, enabled) in [
-            ("abt", "about", 0, false),
-            ("abo", "about", 0, true),
-            ("atb", "about", 0, true),
-            ("bt", "about", 0, true),
-            ("ab'", "about", 0, true),
-            ("cfé", "café", 0, true),
-            ("a", "about", 0, true),
-            ("abt", "about", 3, true),
-            ("abt", "about", 4, true),
-        ] {
-            let mut e = abbreviation_engine(slot, word);
-            let b = response_batch(e.respond(abbreviation_request(vec![append(prefix)], enabled)));
-            assert!(
-                b.words.iter().all(Option::is_none),
-                "{prefix} {word} {slot}"
-            );
-        }
-        let mut e = abbreviation_engine(0, "about");
-        let first = response_batch(e.respond(abbreviation_request(vec![append("abt")], true)));
-        assert_eq!(first.words[0].as_deref(), Some("about"));
-        // Turning the mode off invalidates what was shown.
-        let off = e.respond(abbreviation_request(vec![], false));
-        if let Response::Suggestions { batch: Some(b), .. } = off {
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        assert!(e.accept(first.token, 0).is_none());
-    }
-    #[test]
-    fn correction_replaces_only_owned_prefix_and_preserves_typed_case() {
-        for (prefix, expected) in [
-            ("hrl", "hello "),
-            ("Hrl", "Hello "),
-            ("HRL", "HELLO "),
-            ("hrL", "heLlo "),
-        ] {
-            let mut e = correction_engine(0, "hello", Some(correction()));
-            let b = response_batch(e.respond(nearby_request(
-                vec![append(&format!("I need {prefix}"))],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            assert_eq!(b.words[0].as_deref(), Some(expected.trim_end()));
-            assert_eq!(e.accept(b.token, 0), Some((3, expected.into())));
-        }
-    }
-    #[test]
-    fn corrections_require_current_mode_valid_metadata_and_instant_origin() {
-        let mut invalid = vec![None, Some(correction())];
-        let mut wrong = correction();
-        wrong.grapheme_index = 99;
-        invalid.push(Some(wrong));
-        let mut wrong = correction();
-        wrong.typed = "x".into();
-        invalid.push(Some(wrong));
-        let mut wrong = correction();
-        wrong.intended = "z".into();
-        invalid.push(Some(wrong));
-        let mut wrong = correction();
-        wrong.intended = "ee".into();
-        invalid.push(Some(wrong));
-        for (i, metadata) in invalid.into_iter().enumerate() {
-            let mut e = correction_engine(0, "hello", metadata);
-            let mode = if i == 1 {
-                None
-            } else {
-                Some(KeyboardLayout::Qwerty)
-            };
-            let b = response_batch(e.respond(nearby_request(vec![append("hrl")], 1, None, mode)));
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        for slot in [3, 4] {
-            let mut e = correction_engine(slot, "hello", Some(correction()));
-            let b = response_batch(e.respond(nearby_request(
-                vec![append("hrl")],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        for prefix in [
-            "h?L",
-            "he\u{301}l",
-            "hr'l",
-            "r",
-            "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
-        ] {
-            let mut e = correction_engine(0, "hello", Some(correction()));
-            let b = response_batch(e.respond(nearby_request(
-                vec![append(prefix)],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        let mut e = correction_engine(0, "world", Some(correction()));
-        let b = response_batch(e.respond(nearby_request(
-            vec![append("hrl")],
-            1,
-            None,
-            Some(KeyboardLayout::Qwerty),
-        )));
-        assert!(b.words.iter().all(Option::is_none));
-    }
-
-    #[test]
-    fn prefix_and_neighbor_guards_block_otherwise_matching_forged_candidates() {
-        for (prefix, word) in [
-            ("hrl?", "hel?phant"),
-            ("hrle\u{301}", "hel?phant"),
-            ("hr'l", "he'llo"),
-        ] {
-            let mut e = correction_engine(0, word, Some(correction()));
-            let b = response_batch(e.respond(nearby_request(
-                vec![append(prefix)],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        let mut not_a_neighbor = correction();
-        not_a_neighbor.intended = "a".into();
-        let mut wrong_typed = correction();
-        wrong_typed.typed = "f".into();
-        for (word, metadata) in [("halo", not_a_neighbor), ("hello", wrong_typed)] {
-            let mut e = correction_engine(0, word, Some(metadata));
-            let b = response_batch(e.respond(nearby_request(
-                vec![append("hrl")],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            assert!(b.words.iter().all(Option::is_none));
-        }
-        let prefix = "h".to_owned() + "r" + &"l".repeat(31);
-        let word = "h".to_owned() + "e" + &"l".repeat(31) + "o";
-        let mut e = correction_engine(0, &word, Some(correction()));
-        let b = response_batch(e.respond(nearby_request(
-            vec![append(&prefix)],
-            1,
-            None,
-            Some(KeyboardLayout::Qwerty),
-        )));
-        assert!(b.words.iter().all(Option::is_none));
-        let mut metadata = correction();
-        metadata.grapheme_index = 0;
-        let mut e = correction_engine(0, "ello", Some(metadata));
-        let b = response_batch(e.respond(nearby_request(
-            vec![append("r")],
-            1,
-            None,
-            Some(KeyboardLayout::Qwerty),
-        )));
-        assert!(b.words.iter().all(Option::is_none));
-    }
-    #[test]
-    fn changed_layout_mode_edits_focus_and_activity_reject_old_corrections() {
-        for mode in [
-            None,
-            Some(KeyboardLayout::SimpleQwerty),
-            Some(KeyboardLayout::CommonLetters),
-        ] {
-            let mut e = correction_engine(0, "hello", Some(correction()));
-            let old = response_batch(e.respond(nearby_request(
-                vec![append("hrl")],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            e.respond(nearby_request(vec![], 1, Some(old.token), mode));
-            assert!(e.accept(old.token, 0).is_none());
-        }
-        for change in 0..4 {
-            let mut e = correction_engine(0, "hello", Some(correction()));
-            let old = response_batch(e.respond(nearby_request(
-                vec![append("hrl")],
-                1,
-                None,
-                Some(KeyboardLayout::Qwerty),
-            )));
-            match change {
-                0 => {
-                    e.respond(nearby_request(
-                        vec![append("x")],
-                        2,
-                        Some(old.token),
-                        Some(KeyboardLayout::Qwerty),
-                    ));
-                }
-                1 => e.foreground = || Ok(2),
-                2 => e.observe = || (1, true),
-                _ => e.observe = || (0, false),
-            }
-            assert!(e.accept(old.token, 0).is_none());
-        }
-    }
-    #[test]
-    fn old_private_queries_default_to_exact_matching() {
-        let legacy = serde_json::json!({"Query":{"generation":1,"edits":[],"displayed":null,"revision":0,"shift":"Off","caps":false,"sentence_start":false}});
-        let r: Request = serde_json::from_value(legacy.clone()).unwrap();
-        assert!(matches!(
-            r,
-            Request::Query {
-                nearby_layout: None,
-                abbreviations: false,
-                ..
-            }
-        ));
-        assert_eq!(serde_json::to_value(r).unwrap(), legacy);
-    }
+    mod textslinger;
 
     use super::*;
     fn engine() -> Engine {
@@ -1046,8 +614,6 @@ mod tests {
                 shift: Shift::Off,
                 caps: false,
                 sentence_start: false,
-                nearby_layout: None,
-                abbreviations: false,
             },
         )
         .unwrap();
@@ -1060,16 +626,12 @@ mod tests {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
             self.pending = true;
             Ok(super::super::model::Prediction {
-                corrections: Default::default(),
-                abbreviated: Default::default(),
                 words: crate::prediction::slots(["water", "walk", "waffle"]),
             })
         }
         fn poll(&mut self) -> Option<super::super::model::Prediction> {
             std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
                 words: crate::prediction::slots(["water", "walk", "waffle", "walnut", "wavy"]),
-                corrections: Default::default(),
-                abbreviated: Default::default(),
             })
         }
         fn pending(&self) -> bool {
@@ -1088,8 +650,6 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
-            nearby_layout: None,
-            abbreviations: false,
         }
     }
     fn response_batch(response: Response) -> Batch {
@@ -1099,146 +659,11 @@ mod tests {
         }
     }
     #[test]
-    #[ignore = "real offline model measurement; no desktop input"]
-    fn neural_integration_benchmark() {
-        use std::time::{Duration, Instant};
-        let path = std::env::var_os("SWITCHIFY_BENCHMARK_MODEL")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("resources/prediction-model/english.ngrams")
-            });
-        let mut immediate = Vec::new();
-        let mut refined = Vec::new();
-        let mut failures = 0;
-        let mut generated_words = 0;
-        let mut session_reports = Vec::new();
-        // A timeout deliberately disables refinement for the keyboard session.
-        // Simulate at most five explicit reopenings to collect 1,000 successes,
-        // reporting every failed attempt, including failures during warmup.
-        for session in 0..5 {
-            let mut e = engine();
-            e.database = Database::open(&path, None);
-            let cold = Instant::now();
-            while e.database.status() == Status::Loading {
-                assert!(cold.elapsed() < Duration::from_secs(30));
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            assert_eq!(e.database.status(), Status::Ready);
-            let prior_successes = refined.len();
-            let mut warmup_completed = 0;
-            let mut failed_during_warmup = false;
-            for i in 0..1020 {
-                let text = [
-                    "please send the ",
-                    "I need he",
-                    "can you ",
-                    "I want to ",
-                    "thank you for ",
-                ][i % 5];
-                let revision = (i + 1) as u64;
-                let start = Instant::now();
-                let first = response_batch(e.respond(request(
-                    vec![edit(Edit::Reset), append(text)],
-                    revision,
-                    None,
-                )));
-                let instant = first.words.iter().flatten().count();
-                assert!(instant <= 3 && first.words[instant..].iter().all(Option::is_none));
-                let first_ms = start.elapsed().as_secs_f64() * 1000.;
-                let mut success = false;
-                let mut words_ms = None;
-                while e.database.pending() {
-                    assert!(start.elapsed() < Duration::from_secs(35));
-                    std::thread::sleep(Duration::from_millis(20));
-                    let next =
-                        response_batch(e.respond(request(vec![], revision, Some(first.token))));
-                    if next.refined {
-                        assert_eq!(&first.words[..instant], &next.words[..instant]);
-                        let elapsed = start.elapsed().as_secs_f64() * 1000.;
-                        if words_ms.is_none() {
-                            words_ms = Some(elapsed);
-                            if i >= 20 {
-                                generated_words += next.words.iter().flatten().count() - instant;
-                            }
-                        }
-                        success = true;
-                    }
-                }
-                // A word request that failed fails this query, not the next.
-                if words_ms.is_none()
-                    && matches!(
-                        e.database.neural_status(),
-                        Some(switchify_prediction_neural::Status::Unavailable(_))
-                    )
-                {
-                    success = false;
-                }
-                if i >= 20 {
-                    immediate.push(first_ms);
-                    if let (true, Some(ms)) = (success, words_ms) {
-                        refined.push(ms);
-                    }
-                } else if success {
-                    warmup_completed += 1;
-                }
-                if !success {
-                    failures += 1;
-                    failed_during_warmup = i < 20;
-                    break;
-                }
-                if refined.len() == 1000 {
-                    break;
-                }
-            }
-            session_reports.push(serde_json::json!({
-                "session": session + 1, "warmup_completed": warmup_completed,
-                "failed_during_warmup": failed_during_warmup,
-                "successful_refinements": refined.len() - prior_successes,
-                "neural_status": e.database.neural_status()
-            }));
-            // Drop the whole context-bearing model before opening a new session.
-            drop(e);
-            if refined.len() == 1000 {
-                break;
-            }
-        }
-        immediate.sort_by(f64::total_cmp);
-        refined.sort_by(f64::total_cmp);
-        let stats = |values: &[f64]| {
-            serde_json::json!({
-                "samples":values.len(), "median_ms":values.get(values.len()/2),
-                "p95_ms":values.get((values.len()*95/100).min(values.len().saturating_sub(1))),
-                "max_ms":values.last()
-            })
-        };
-        let report = serde_json::json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
-            "queries":immediate.len(),"failures_including_warmup":failures,"immediate":stats(&immediate),"refinement":stats(&refined),
-            "sessions":session_reports,"maximum_sessions":5,
-            "retry_policy":"Benchmark simulates explicit keyboard reopenings after failure; production never retries automatically",
-            "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
-            "policy":"up to three instant words first, then up to two generated words in the next free slots",
-            "generated_words":generated_words,
-            "neural_slot_fill_rate":generated_words as f64 / (refined.len().max(1) * 2) as f64,
-            "production_qualified":false});
-        println!("{report}");
-        if let Some(path) = std::env::var_os("SWITCHIFY_NEURAL_REPORT") {
-            std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
-        }
-        assert_eq!(
-            refined.len(),
-            1000,
-            "must collect 1,000 successful warmed refinements within five keyboard sessions"
-        );
-    }
-    #[test]
     fn unshown_words_leave_no_gap() {
         struct Gappy;
         impl super::super::model::Predict for Gappy {
             fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
                 Ok(super::super::model::Prediction {
-                    corrections: Default::default(),
-                    abbreviated: Default::default(),
                     words: [
                         None,
                         Some("water".into()),
@@ -1270,15 +695,11 @@ mod tests {
             fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
                 self.pending = true;
                 Ok(super::super::model::Prediction {
-                    corrections: Default::default(),
-                    abbreviated: Default::default(),
                     words: crate::prediction::slots(["water"]),
                 })
             }
             fn poll(&mut self) -> Option<super::super::model::Prediction> {
                 std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
-                    corrections: Default::default(),
-                    abbreviated: Default::default(),
                     words: crate::prediction::slots(["water", "walnut", "wavy"]),
                 })
             }
@@ -1353,6 +774,23 @@ mod tests {
         assert_eq!(started.get(), 0);
         assert!(!idle.tracked);
         assert!(output.is_empty());
+
+        // A warmed spare loads its model, without a reply or an observer.
+        let mut warmed = Engine::new(Database::fixture(), false);
+        let mut frame = Vec::new();
+        send(&mut frame, &Request::Warm).unwrap();
+        let mut output = Vec::new();
+        serve(
+            &mut warmed,
+            &mut std::io::Cursor::new(frame),
+            &mut output,
+            start,
+        )
+        .unwrap();
+        assert_eq!(started.get(), 0);
+        assert!(!warmed.tracked);
+        assert!(output.is_empty());
+        assert_eq!(warmed.status, Status::Ready);
 
         let mut e = engine();
         e.tracked = false;
@@ -1807,8 +1245,6 @@ mod tests {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
             Ok(super::super::model::Prediction {
                 words: crate::prediction::slots(["water", self.0]),
-                corrections: Default::default(),
-                abbreviated: Default::default(),
             })
         }
     }
@@ -1843,126 +1279,7 @@ mod tests {
             shift: Shift::Off,
             caps: false,
             sentence_start: false,
-            nearby_layout: None,
-            abbreviations: false,
         };
         assert!(send(&mut Vec::new(), &request).is_err());
-    }
-
-    struct Learner(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
-    impl super::super::model::Predict for Learner {
-        fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
-            Ok(Default::default())
-        }
-        fn learn(&mut self, text: &str) {
-            self.0.lock().unwrap().push(text.to_owned());
-        }
-    }
-    /// An engine whose model records what it is asked to learn.
-    fn learner() -> (Engine, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
-        let learned = std::sync::Arc::default();
-        let mut e = engine();
-        e.database = Database::with_predictor(Box::new(Learner(std::sync::Arc::clone(&learned))));
-        (e, learned)
-    }
-    /// Types each character, then the edits, one query at a time.
-    fn typing(e: &mut Engine, revision: &mut u64, text: &str, then: &[Edit]) {
-        let edits = text
-            .chars()
-            .map(|c| Edit::Append(c.to_string()))
-            .chain(then.iter().cloned());
-        for edit in edits {
-            *revision += 1;
-            e.query(
-                vec![super::tests::edit(edit)],
-                *revision,
-                Shift::Off,
-                false,
-                false,
-            );
-        }
-    }
-    fn learned(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
-        std::mem::take(&mut *log.lock().unwrap())
-    }
-
-    #[test]
-    fn a_sentence_is_learned_once_when_the_next_one_begins() {
-        let (mut e, log) = learner();
-        let mut revision = 0;
-        typing(&mut e, &mut revision, "I need hummus. ", &[]);
-        assert!(learned(&log).is_empty(), "a correction is still possible");
-        typing(&mut e, &mut revision, "See you", &[]);
-        assert_eq!(learned(&log), ["I need hummus."]);
-        typing(&mut e, &mut revision, " soon", &[Edit::End]);
-        assert_eq!(
-            learned(&log),
-            [" See you soon"],
-            "Enter finishes the last word"
-        );
-        typing(&mut e, &mut revision, "ok", &[Edit::End]);
-        assert_eq!(learned(&log), ["ok"]);
-    }
-
-    #[test]
-    fn a_correction_after_the_punctuation_is_learned_corrected() {
-        let (mut e, log) = learner();
-        let mut revision = 0;
-        typing(
-            &mut e,
-            &mut revision,
-            "Helo.",
-            &[Edit::Backspace, Edit::Backspace],
-        );
-        typing(&mut e, &mut revision, "lo. Ok", &[]);
-        assert_eq!(learned(&log), ["Hello."]);
-        // Deleting into learned text learns the corrected word whole.
-        typing(&mut e, &mut revision, "", &vec![Edit::Backspace; 5]);
-        assert_eq!(e.buffer, "Hell");
-        typing(&mut e, &mut revision, "o! Bye", &[]);
-        assert_eq!(learned(&log), ["Hello!"]);
-    }
-
-    #[test]
-    fn lost_context_learns_completed_words_but_not_the_one_in_progress() {
-        let (mut e, log) = learner();
-        let mut revision = 0;
-        typing(&mut e, &mut revision, "call Siob", &[Edit::Reset]);
-        assert_eq!(learned(&log), ["call "]);
-        typing(&mut e, &mut revision, "...", &[Edit::Reset]);
-        assert!(learned(&log).is_empty(), "no words, nothing to learn");
-    }
-
-    #[test]
-    fn text_clipped_from_the_buffer_is_learned_in_long_whole_pieces() {
-        let (mut e, log) = learner();
-        let mut revision = 0;
-        for _ in 0..240 {
-            typing(&mut e, &mut revision, "abcd ", &[]);
-        }
-        // Long pieces keep their phrases; the latest words are not learned
-        // yet, so they can still be corrected.
-        let pieces = learned(&log);
-        assert!(!pieces.is_empty());
-        assert!(
-            pieces.iter().all(|p| p.chars().count() >= RECENT - 5),
-            "{pieces:?}"
-        );
-        assert!(pieces.concat().chars().count() <= 1200 - RECENT + 5);
-        typing(&mut e, &mut revision, "", &[Edit::End]);
-        let all = [pieces, learned(&log)].concat().concat();
-        let words: Vec<_> = all.split_whitespace().collect();
-        assert_eq!(words.len(), 240);
-        assert!(words.iter().all(|w| *w == "abcd"));
-    }
-
-    #[test]
-    fn a_combining_accent_stays_with_its_word() {
-        let (mut e, log) = learner();
-        let mut revision = 0;
-        typing(&mut e, &mut revision, "cafe\u{301}", &[Edit::Reset]);
-        assert!(learned(&log).is_empty(), "the word was in progress");
-        typing(&mut e, &mut revision, "cafe\u{301} ", &[Edit::Reset]);
-        assert_eq!(learned(&log), ["cafe\u{301} "]);
     }
 }

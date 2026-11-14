@@ -1,27 +1,21 @@
-# English prediction baseline
+# Word prediction runtime
 
-Switchify PC uses `switchify-prediction` v0.5.3 at commit
-`5c8dd9b4df698a7da3f6e4458cba43a56d4abdfd` and model `en-aac-oanc-v1`.
-The Rust dependency is pinned by commit and Cargo.lock. The baseline is the
-n-gram file `english.ngrams`, which contains 21,674 words and 539,151 n-grams.
-Its SHA-256 is
-`c6df388c845354a059333b1e4abe68719e5a7016e8514c44581e14ed16bf964a`.
+Switchify PC predicts words with the n-gram model from
+[TextSlinger](https://github.com/kdv123/textslinger), run by a self-contained
+runtime built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction).
 
-`npm run prediction-model` downloads the [versioned release](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.5.3)
-and verifies the archive and each shipped resource against
-`scripts/prediction-model.json`. No raw training files or personal data are bundled.
-The installed app uses the baseline offline and read-only. No ONNX runtime,
-model, tokenizer or third-party native-runtime download is used.
+`npm run prediction-model` downloads the runtime for the build target from the
+pinned switchify-prediction release and checks its size and SHA-256 against
+`scripts/textslinger-runtime.json` before unpacking it into `textslinger/runtime`.
+`textslinger/bridge.py` is this repository's helper that the app runs with it.
+The installed app never downloads anything; the runtime and model are used
+offline and read-only.
 
-New library code is MIT licensed; SQLite, used for the personal learning file, is public domain. Corpus licensing is
-separate: WorldAlphabets identifies its English Tatoeba CC0 source; Taskmaster
-and AAC are CC BY 4.0. OANC's current publisher grants unrestricted use and
-redistribution, including commercial use; its historical XML-release notice has
-different restrictions. Both notices remain included, and no independent legal
-clearance is claimed.
+The runtime contains standalone CPython 3.10, numpy, regex, KenLM, textslinger
+and the `lm_dec19_char_tiny_12gram` model. The model is redistributed with the
+TextSlinger authors' permission. Each component's licence is in the runtime's
+`notices` folder or in its package's `.dist-info` folder; `notices/NOTICE.md`
+lists them. Retain these when redistributing. KenLM is LGPL-2.1-or-later, and its
+unchanged source is included as `notices/kenlm/kenlm-0.2.0.tar.gz`.
 
-The application bundles ATTRIBUTION.md, LICENSE, production-model.json,
-source-manifest.json, aac-source-manifest.json and corpus-notices alongside the
-baseline. Retain these when redistributing. The corpus includes crowd-imagined
-AAC communication and older American speech; suggestions can be inappropriate
-or incorrect. Model quality results are available in the upstream release.
+Suggestions can be inappropriate or incorrect. No accuracy is claimed.

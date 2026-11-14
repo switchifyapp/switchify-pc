@@ -95,13 +95,7 @@ Switchify PC is provided as it is, without any warranty, as set out in sections 
 
 Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in each project's source code.
 
-- **Word prediction**: [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/tree/v0.5.3), MIT licence. Its word list is built from these sources, each under its own terms:
-  - English sentences from [Tatoeba](https://tatoeba.org), by way of [WorldAlphabets](https://github.com/AACTools/WorldAlphabets) (CC0 and CC BY 2.0 FR)
-  - [Taskmaster-1](https://github.com/google-research-datasets/Taskmaster) by Google LLC ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))
-  - [The Imagination of Crowds](https://aactext.org/imagine/) AAC sentences by Keith Vertanen and Per Ola Kristensson ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/))
-  - The spoken part of the [Open American National Corpus](https://anc.org/data/oanc/) by Nancy Ide and Keith Suderman, under its publisher's terms
-- **AI word suggestions**: the [SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) language model by Hugging Face, Apache License 2.0. It runs in switchify-prediction's AI worker, MIT licence.
-- **TextSlinger word suggestions**: Switchify PC includes the files for a move to [TextSlinger](https://github.com/kdv123/textslinger) word suggestions, which the app does not use yet. They are built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.6.1) and contain:
+- **Word suggestions**: suggestions come from [TextSlinger](https://github.com/kdv123/textslinger), run by files built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.6.1) and contain:
   - TextSlinger, MIT licence;
   - a small TextSlinger word model from the [Language Models for AAC](https://osf.io/ajm7t/) project, included with its authors' permission;
   - [KenLM](https://github.com/kpu/kenlm), GNU Lesser General Public License 2.1 or later, built from its unchanged source, which is included;
@@ -114,4 +108,4 @@ Switchify PC includes work from other projects. Each part keeps its own licence.
 - **Bluetooth on a Mac**: [corebluetooth-rs](https://github.com/doom-fish/corebluetooth-rs), MIT or Apache License 2.0.
 - **Software libraries**: Switchify PC is built with [Tauri](https://tauri.app), [React](https://react.dev) and many open source Rust and JavaScript libraries. Each keeps its own licence.
 
-The three instant word suggestions are built from the texts above, and from your own typing if **Learn from my typing** is on. The AI words come from the SmolLM2 model. Any suggestion can sometimes be unsuitable or wrong.
+Word suggestions come from the TextSlinger model. Any suggestion can sometimes be unsuitable or wrong.

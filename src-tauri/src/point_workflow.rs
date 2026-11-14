@@ -233,8 +233,6 @@ impl Workflow {
                 keyboard_options,
             )
             .with_layout(config.keyboard_layout)
-            .with_nearby_predictions(config.nearby_key_predictions)
-            .with_abbreviation_predictions(config.abbreviation_predictions)
             .with_wait_after_typing(
                 config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
             ),
@@ -399,8 +397,6 @@ impl Workflow {
             self.point.config.keyboard_scan,
         )
         .with_layout(self.point.config.keyboard_layout)
-        .with_nearby_predictions(self.point.config.nearby_key_predictions)
-        .with_abbreviation_predictions(self.point.config.abbreviation_predictions)
         .with_wait_after_typing(
             self.point.config.keyboard_scan.next_scan == crate::scan_preferences::NextScan::Wait,
         )
@@ -468,10 +464,6 @@ impl Workflow {
             .set_panel_theme(self.point.config.menu_scan.panel_theme);
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
-        self.keyboard
-            .set_nearby_predictions(self.point.config.nearby_key_predictions);
-        self.keyboard
-            .set_abbreviation_predictions(self.point.config.abbreviation_predictions);
         self.menu
             .set_period(self.point.config.menu_scan.interval_ms);
         if restart {
@@ -2151,63 +2143,6 @@ fn crosshair(point: Point, screen: Rect, s: f64) -> Vec<Rect> {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn abbreviation_preference_reaches_new_and_live_keyboards() {
-        let mut config = Config {
-            abbreviation_predictions: true,
-            ..Config::default()
-        };
-        let mut workflow = Workflow::new(
-            config.point(),
-            Rect {
-                x: 0.,
-                y: 0.,
-                width: 1000.,
-                height: 800.,
-            },
-            1.,
-        )
-        .unwrap();
-        assert!(workflow.keyboard.abbreviation_predictions);
-        assert!(workflow.new_keyboard().abbreviation_predictions);
-        config.abbreviation_predictions = false;
-        workflow.apply_config(config.point(), false);
-        assert!(!workflow.keyboard.abbreviation_predictions);
-        assert!(!workflow.new_keyboard().abbreviation_predictions);
-    }
-
-    #[test]
-    fn nearby_preference_reaches_new_and_live_keyboards() {
-        let mut config = Config {
-            nearby_key_predictions: true,
-            ..Config::default()
-        };
-        let mut workflow = Workflow::new(
-            config.point(),
-            Rect {
-                x: 0.,
-                y: 0.,
-                width: 1000.,
-                height: 800.,
-            },
-            1.,
-        )
-        .unwrap();
-        assert!(workflow.keyboard.nearby_predictions);
-        assert!(workflow.new_keyboard().nearby_predictions);
-        config.nearby_key_predictions = false;
-        workflow.apply_config(config.point(), false);
-        assert!(!workflow.keyboard.nearby_predictions);
-        config.nearby_key_predictions = true;
-        config.keyboard_layout = crate::point_scan::KeyboardLayout::CommonLetters;
-        workflow.apply_config(config.point(), false);
-        assert!(workflow.keyboard.nearby_predictions);
-        assert_eq!(
-            workflow.new_keyboard().layout,
-            crate::point_scan::KeyboardLayout::CommonLetters
-        );
-    }
     use super::*;
     use crate::{point_scan::Config, scanning::Session};
 

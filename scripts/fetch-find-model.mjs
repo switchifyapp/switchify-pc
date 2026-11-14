@@ -1,11 +1,24 @@
 // Build-time acquisition. The installed app only reads its bundled asset.
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, rename, rm, lstat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packModel } from '../src/find/semantic.ts';
 import { vocabularyFromTokenizerJson } from '../src/find/wordpiece.ts';
-import { verified } from './fetch-prediction-model.mjs';
+
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+// Whether every pinned file in directory exists with its size and SHA-256.
+export async function verified(directory, manifest) {
+  try {
+    for (const [name, expected] of Object.entries(manifest.files)) {
+      const path = join(directory, name);
+      const info = await lstat(path);
+      if (!info.isFile() || info.size !== expected.size || sha256(await readFile(path)) !== expected.sha256) return false;
+    }
+    return true;
+  } catch { return false; }
+}
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export async function acquire(target, manifest, fetcher = fetch) {

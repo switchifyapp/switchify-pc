@@ -708,33 +708,6 @@ it("saves row groups beside the pattern older versions read and lets an area cho
   expect(screen.getByRole("button", { name: "Rows, groups, then items" })).toHaveAttribute("aria-pressed", "true");
 });
 
-it("learns from typing by default, keeps the choice local and forgets only after confirming", async () => {
-  const onSettingsChange = vi.fn();
-  function WithSettings() {
-    const controller = useScanning();
-    return <ScanningSection controller={controller} settings={browserState.settings} onSettingsChange={onSettingsChange} />;
-  }
-  render(<WithSettings />);
-  await screen.findByText(initial.message);
-  more();
-  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
-  const learn = screen.getByRole("checkbox", { name: "Learn from my typing" });
-  expect(learn).toBeChecked();
-  fireEvent.click(learn);
-  expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, learnWordPrediction: false });
-  expect(mocks.invoke).not.toHaveBeenCalledWith("configure_point_scan", expect.anything());
-  fireEvent.click(screen.getByRole("button", { name: "Forget learned words…" }));
-  expect(mocks.invoke).not.toHaveBeenCalledWith("forget_learned_words");
-  fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
-  expect(mocks.invoke).not.toHaveBeenCalledWith("forget_learned_words");
-  fireEvent.click(screen.getByRole("button", { name: "Forget learned words…" }));
-  mocks.invoke.mockImplementation(async (command, args) =>
-    command === "forget_learned_words" ? false : command === "get_point_scan" ? initial : { ...initial, ...args });
-  fireEvent.click(screen.getByRole("button", { name: "Forget learned words" }));
-  expect(mocks.invoke).toHaveBeenCalledWith("forget_learned_words");
-  expect(await screen.findByText(/will be forgotten in a moment/)).toBeInTheDocument();
-});
-
 it("saves first-item and in-group timing, which start off", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
@@ -749,71 +722,20 @@ it("saves first-item and in-group timing, which start off", async () => {
 });
 
 
-it("defaults nearby-key suggestions off for old settings and keeps the choice when prediction is disabled", async () => {
-  const legacy = { ...initial.config };
-  delete legacy.nearbyKeyPredictions;
-  mocks.invoke.mockImplementation(async (command, args) => {
-    if (command === "get_point_scan") return { ...initial, config: legacy };
-    if (command === "configure_point_scan") {
-      const saved = { ...args.config };
-      if (!saved.nearbyKeyPredictions) delete saved.nearbyKeyPredictions;
-      return { ...initial, config: saved };
-    }
-    return { ...initial, ...args };
-  });
+it("offers word prediction on its own, with no retired suggestion options", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   more();
   fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
-  const nearby = screen.getByRole("checkbox", { name: "Nearby-key suggestions" });
-  expect(nearby).not.toBeChecked();
-  fireEvent.click(nearby);
+  const prediction = screen.getByRole("checkbox", { name: "Word prediction" });
+  expect(prediction).toBeChecked();
+  expect(screen.getByText(/up to five words/)).toBeInTheDocument();
+  for (const retired of ["Nearby-key suggestions", "Abbreviation suggestions", "Learn from my typing"]) {
+    expect(screen.queryByRole("checkbox", { name: retired })).toBeNull();
+  }
+  expect(screen.queryByRole("button", { name: /Forget learned words/ })).toBeNull();
+  fireEvent.click(prediction);
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ nearbyKeyPredictions: true })
-  }));
-  fireEvent.click(nearby);
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ nearbyKeyPredictions: false })
-  }));
-  await waitFor(() => expect(nearby).not.toBeChecked());
-  fireEvent.click(nearby);
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ nearbyKeyPredictions: true })
-  }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
-  expect(nearby).toBeDisabled();
-  expect(nearby).toBeChecked();
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ wordPrediction: false, nearbyKeyPredictions: true })
-  }));
-});
-
-it("defaults abbreviation suggestions off for old settings and saves the choice", async () => {
-  const legacy = { ...initial.config };
-  delete legacy.abbreviationPredictions;
-  mocks.invoke.mockImplementation(async (command, args) => {
-    if (command === "get_point_scan") return { ...initial, config: legacy };
-    if (command === "configure_point_scan") {
-      const saved = { ...args.config };
-      if (!saved.abbreviationPredictions) delete saved.abbreviationPredictions;
-      return { ...initial, config: saved };
-    }
-    return { ...initial, ...args };
-  });
-  render(<PointScan />);
-  await screen.findByText(initial.message);
-  more();
-  fireEvent.click(screen.getByRole("button", { name: "Customise keyboard" }));
-  const abbreviations = screen.getByRole("checkbox", { name: "Abbreviation suggestions" });
-  expect(abbreviations).not.toBeChecked();
-  fireEvent.click(abbreviations);
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ abbreviationPredictions: true })
-  }));
-  await waitFor(() => expect(abbreviations).toBeChecked());
-  fireEvent.click(screen.getByRole("checkbox", { name: "Word prediction" }));
-  expect(abbreviations).toBeDisabled();
-  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
-    config: expect.objectContaining({ wordPrediction: false, abbreviationPredictions: true })
+    config: expect.objectContaining({ wordPrediction: false })
   }));
 });
