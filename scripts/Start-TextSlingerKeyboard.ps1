@@ -19,7 +19,10 @@ if (!$Model) { $Model = Join-Path (Split-Path -Parent $repo) 'textslinger/assets
 $Python = (Resolve-Path -LiteralPath $Python).Path
 # The built runtime runs isolated, as its build check does, so PYTHONPATH,
 # PYTHONHOME and user site-packages cannot replace its patched packages.
-$pythonArguments = if ($Runtime) { @($Python, '-I') } else { @($Python) }
+# Build the array explicitly: an if expression would unroll a one-item array
+# into a string and break the JSON argv.
+$pythonArguments = @($Python)
+if ($Runtime) { $pythonArguments += '-I' }
 $Model = (Resolve-Path -LiteralPath $Model).Path
 if (Get-Process -Name switchify-pc -ErrorAction SilentlyContinue) {
     throw 'Quit Switchify PC from its tray menu before building or opening this trial'

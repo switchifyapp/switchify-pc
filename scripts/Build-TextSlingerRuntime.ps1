@@ -27,7 +27,13 @@ $Packages = @(
     'textslinger==0.4.0 --hash=sha256:d33238e58c2f18403f5b777bd4b8f1148638a6e4c4d6a1094f3b487d01f46f22'
 )
 $KenLM = 'kenlm==0.2.0 --hash=sha256:c2dc1dc09d3c150e6a1777ef0fd5cac3688e1dc1cc13e41472d0284e5e88ac7f'
-$BuildTools = @('cmake==4.4.4', 'setuptools==84.2.1', 'wheel==0.48.0', 'pip==26.3')
+$BuildTools = @(
+    'cmake==4.4.4 --hash=sha256:ad8e0a38b5707e27882701146bdfffecacd80e7703fa0fc36c77528518d545af',
+    'setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2',
+    'wheel==0.48.0 --hash=sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab',
+    'pip==26.3 --hash=sha256:f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13',
+    'packaging==26.3 --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c'
+)
 $ModelUrl = 'https://osf.io/download/zyj25/'
 $ModelSha256 = 'd17ea73ef2edf180b55e0e636524f32c76fb6ab110c69ed196432438b1baf9c3'
 $ModelName = 'lm_dec19_char_tiny_12gram.kenlm'
@@ -52,7 +58,7 @@ New-Item -ItemType Directory -Path $work -Force | Out-Null
 # Standalone CPython, managed by uv.
 Invoke-Checked $Uv @('python', 'install', $PythonVersion)
 # Only uv's own standalone build, never an active venv or a system Python.
-$found = & $Uv python find --managed-python --no-project $PythonVersion
+$found = & $Uv python find --managed-python --no-project --system $PythonVersion
 if ($LASTEXITCODE -ne 0 -or !$found) { throw "uv could not find its managed Python $PythonVersion" }
 $basePython = ($found | Select-Object -Last 1).Trim()
 if (!(Test-Path -LiteralPath $basePython)) { throw "Python $PythonVersion was not found at $basePython" }
@@ -60,7 +66,9 @@ $base = Split-Path -Parent $basePython
 
 # KenLM has no Windows wheel and must be built with MAX_ORDER=12 for this
 # model. Build it once into a cached wheel.
-$wheels = Join-Path $work 'wheels'
+# The cache path names the source hash and order, so a wheel built any other
+# way is never reused.
+$wheels = Join-Path $work 'wheels/kenlm-0.2.0-c2dc1dc0-order12'
 $kenlmWheel = Get-ChildItem -Path $wheels -Filter 'kenlm-0.2.0-*.whl' -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$kenlmWheel) {
     $buildVenv = Join-Path $work 'build-venv'
@@ -68,7 +76,9 @@ if (!$kenlmWheel) {
         Invoke-Checked $Uv @('venv', '--python', $basePython, $buildVenv)
     }
     $buildPython = Join-Path $buildVenv 'Scripts/python.exe'
-    Invoke-Checked $Uv (@('pip', 'install', '--python', $buildPython) + $BuildTools)
+    $toolRequirements = Join-Path $work 'build-tools.txt'
+    Set-Content -LiteralPath $toolRequirements -Value $BuildTools -Encoding ascii
+    Invoke-Checked $Uv @('pip', 'install', '--python', $buildPython, '--require-hashes', '-r', $toolRequirements)
     $kenlmRequirements = Join-Path $work 'kenlm-requirements.txt'
     Set-Content -LiteralPath $kenlmRequirements -Value $KenLM -Encoding ascii
     $saved = @{ PATH = $env:PATH; MAX_ORDER = $env:MAX_ORDER; CMAKE_GENERATOR = $env:CMAKE_GENERATOR; CMAKE_POLICY_VERSION_MINIMUM = $env:CMAKE_POLICY_VERSION_MINIMUM }
@@ -129,6 +139,11 @@ Set-Content -LiteralPath $requirements -Value $Packages -Encoding ascii
 Invoke-Checked $Uv @('pip', 'install', '--python', $basePython, '--no-deps', '--require-hashes', '--target', $sitePackages, '-r', $requirements)
 # The KenLM wheel is built locally from the hash-checked source above.
 Invoke-Checked $Uv @('pip', 'install', '--python', $basePython, '--no-deps', '--target', $sitePackages, $kenlmWheel.FullName)
+
+# Files the runtime never uses: KenLM link files, numpy's f2py launcher and
+# uv's install leftovers.
+Get-ChildItem -LiteralPath $sitePackages -File | Where-Object { $_.Extension -in '.lib', '.exp', '.whl' -or $_.Name -eq '.lock' } | Remove-Item
+Remove-Item -LiteralPath (Join-Path $sitePackages 'bin') -Recurse -Force -ErrorAction SilentlyContinue
 
 # Temporary until kdv123/textslinger#2 is released. Inside a repository, git
 # apply resolves paths from its root and skips ignored files, so stop it from

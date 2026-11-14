@@ -14,9 +14,9 @@ import threading
 LIMIT = 16384
 SPELLING = tuple("abcdefghijklmnopqrstuvwxyz'")
 # A KenLM binary does not record its characters. This is the alphabet that the
-# ARPA text version of lm_dec19_char_tiny_12gram declares, in the same order,
-# so the binary model gives the same ranked predictions (scores differ slightly).
-# It is only valid for that model.
+# ARPA text version of lm_dec19_char_tiny_12gram declares, in the same order.
+# Scores differ slightly from the ARPA model, so close candidates can swap
+# places. It is only valid for that model.
 BINARY_MODEL_NAME = "lm_dec19_char_tiny_12gram.kenlm"
 BINARY_MODEL_ALPHABET = tuple("!',. ?abcdefghijklmnopqrstuvwxyz")
 
