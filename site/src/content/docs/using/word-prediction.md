@@ -23,7 +23,7 @@ Suggestions only change when they need to, so the scan does not restart under yo
 
 ## Nearby keys
 
-A press can land on the key next to the one you meant. Once you have typed two to eight letters, a suggestion can be a word that fits the keys around the ones you pressed. On QWERTY, for example, *hrl* can offer *help*: *e* is next to *r*, and *p* is close to *l*.
+A press can land on the key next to the one you meant. Once you have typed two to eight letters of a word that starts after a space, a suggestion can be a word that fits the keys around the ones you pressed. After a bracket, a quote or a hyphen, suggestions only complete what you typed. On QWERTY, for example, *hrl* can offer *help*: *e* is next to *r*, and *p* is close to *l*.
 
 Choosing a suggestion like this deletes the letters you typed and types the whole word and a space. Nothing changes until you choose it. It uses the keyboard layout you have chosen, so it works with QWERTY, Simple QWERTY and Common letters first alike. There is no separate setting: it is part of word prediction.
 
