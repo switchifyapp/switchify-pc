@@ -17,45 +17,6 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **Find any setting.** Type a word such as *speed* or *colour* into **Find a setting** and go straight to it. Section buttons at the top of a page take you to its controls, and Home lists common tasks.
 - **Set the pace.** Automatic or manual scanning, the scan rate, how many passes before it stops, highlight colour and thickness, and panel size are all yours to change.
 
-## New in v1.9.0
-
-- **New word prediction.** Word suggestions now come from the [TextSlinger](https://github.com/kdv123/textslinger) word model, which runs on your computer. It loads when scanning starts, so suggestions are usually ready as soon as you open the keyboard. See [Word prediction](/using/word-prediction/).
-- **Five suggestions.** The row above the keyboard has five equal word slots. Two-word phrase suggestions are gone. If you add tiles beside the keyboard, the suggestions still span the full width of the keys.
-- **Fewer prediction settings.** Nearby-key suggestions, abbreviation suggestions and **Learn from my typing** are removed, along with **Forget learned words**. Words learned by earlier versions are deleted. The **Word prediction** setting still turns suggestions on and off.
-- **Update every computer to keep syncing.** After you change a setting on a computer running v1.9.0, computers on your account still on an earlier version ask you to update Switchify PC before they sync again.
-
-## New in v1.8.2
-
-- **See which key is repeating.** A repeating key on the scanned keyboard now uses the active colour and shows a **Repeating** label. The mark clears when repetition stops. See [Keyboard](/using/keyboard/#repeating-keys).
-
-## New in v1.8.1
-
-- **Steadier word suggestions.** When you pick a suggestion, it is now typed one character at a time with a very short gap, so slower apps such as Notepad have time to keep up. If you click or type outside Switchify while a suggestion is being typed, it stops. See [Word prediction](/using/word-prediction/).
-
-## New in v1.8.0
-
-- **Abbreviation suggestions.** A new option, off by default, lets the keyboard suggest a word from some of its letters typed in order, such as `abt` for *about*. See [Word prediction](/using/word-prediction/).
-- **Updated word prediction library.** The bundled prediction library is updated. The word list is unchanged.
-
-## New in v1.7.3
-
-- **Windows on ARM.** Switchify PC now has a Windows installer for PCs with an ARM processor, such as Snapdragon, so it no longer needs Windows emulation on those PCs. See [Install](/get-started/install/) to pick the right installer.
-- **Mouse panel clicks.** The mouse panel stays on screen when it clicks, instead of closing and reopening each time. See [Mouse panel](/using/mouse-panel/).
-- **Nearby-key suggestions.** A new option, off by default, lets the keyboard suggest words that differ from what you typed by one nearby letter. See [Word prediction](/using/word-prediction/).
-- **Updated word prediction library.** The bundled prediction library is updated. The word list is unchanged.
-
-## New in v1.7.2
-
-The Windows tray and Mac menu bar now use a single-colour Switchify icon that follows the system light or dark setting.
-
-## New in v1.7.1
-
-This maintenance update includes a fix for Mac Bluetooth connection handling and updated dependencies.
-
-## New in v1.7.0
-
-Assign a switch press or hold action to open one of your panels. Settings now opens a category menu, so you can view one group of controls at a time. Dialogs and confirmations use consistent keyboard focus and navigation.
-
 ## Using the settings window
 
 The pages are in a sidebar on the left, with an icon beside each name. **Switches** has a round switch with a cable, **Scanning** has a moving line, and **Settings** has sliders. The sidebar and **Find a setting** at the top stay available as you scroll. Settings and Help sit at the bottom of the sidebar. In a very narrow window, the pages move above the workspace. The current page has a red background and a short marker beside it. Chosen settings have a filled background and a checkmark.
