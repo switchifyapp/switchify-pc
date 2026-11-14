@@ -1,0 +1,160 @@
+diff --git a/textslinger/__init__.py b/textslinger/__init__.py
+index 9f78299..0078b08 100644
+--- a/textslinger/__init__.py
++++ b/textslinger/__init__.py
+@@ -1,5 +1,8 @@
+ __version__ = "0.4.0"
+ 
++from importlib import import_module
++from typing import TYPE_CHECKING
++
+ from .cancellation import cancellation_scope
+ from .ngram import (
+     NGramLanguageModel,
+@@ -15,20 +18,6 @@ from .ppm import (
+     ConfigPredictCharactersPPM,
+     ConfigScoreItemsPPM,
+ )
+-from .causal_byte import (
+-    CausalByteLanguageModel,
+-    DEFAULT_BYTE_WORD_ENDING_CHARACTERS,
+-    ConfigPredictWordsByte,
+-    ConfigPredictCharactersByte,
+-    ConfigScoreItemsByte,
+-)
+-from .causal_subword import (
+-    CausalSubwordLanguageModel,
+-    DEFAULT_SUBWORD_WORD_ENDING_CHARACTERS,
+-    ConfigPredictWordsSubword,
+-    ConfigPredictCharactersSubword,
+-    ConfigScoreItemsSubword,
+-)
+ from .language_model import (
+     LanguageModel,
+     ConfigPredictWords,
+@@ -65,9 +54,55 @@ from .exceptions import (
+     InvalidLanguageModelException,
+ )
+ 
+-from .compilation import CompilationPreparation, prepare_compilation
+ from .compilation_diagnostics import compilation_diagnostics
+ 
++# The byte and subword models need PyTorch and Transformers. They are imported
++# on first use so the n-gram and PPM models can be used without either.
++_LAZY_EXPORTS = {
++    "CausalByteLanguageModel": "causal_byte",
++    "DEFAULT_BYTE_WORD_ENDING_CHARACTERS": "causal_byte",
++    "ConfigPredictWordsByte": "causal_byte",
++    "ConfigPredictCharactersByte": "causal_byte",
++    "ConfigScoreItemsByte": "causal_byte",
++    "CausalSubwordLanguageModel": "causal_subword",
++    "DEFAULT_SUBWORD_WORD_ENDING_CHARACTERS": "causal_subword",
++    "ConfigPredictWordsSubword": "causal_subword",
++    "ConfigPredictCharactersSubword": "causal_subword",
++    "ConfigScoreItemsSubword": "causal_subword",
++    "CompilationPreparation": "compilation",
++    "prepare_compilation": "compilation",
++}
++
++if TYPE_CHECKING:
++    from .causal_byte import (
++        CausalByteLanguageModel,
++        DEFAULT_BYTE_WORD_ENDING_CHARACTERS,
++        ConfigPredictWordsByte,
++        ConfigPredictCharactersByte,
++        ConfigScoreItemsByte,
++    )
++    from .causal_subword import (
++        CausalSubwordLanguageModel,
++        DEFAULT_SUBWORD_WORD_ENDING_CHARACTERS,
++        ConfigPredictWordsSubword,
++        ConfigPredictCharactersSubword,
++        ConfigScoreItemsSubword,
++    )
++    from .compilation import CompilationPreparation, prepare_compilation
++
++
++def __getattr__(name):
++    module_name = _LAZY_EXPORTS.get(name)
++    if module_name is None:
++        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
++    value = getattr(import_module(f".{module_name}", __name__), name)
++    globals()[name] = value
++    return value
++
++
++def __dir__():
++    return sorted(set(globals()) | set(_LAZY_EXPORTS))
++
+ __all__ = [
+     "compilation_diagnostics",
+     "CompilationPreparation",
+diff --git a/textslinger/helpers.py b/textslinger/helpers.py
+index 8a8cd83..239d5c7 100644
+--- a/textslinger/helpers.py
++++ b/textslinger/helpers.py
+@@ -1,11 +1,15 @@
+ """Helper functions and classes."""
+ 
++from __future__ import annotations
++
+ from enum import Enum
+ import math
+-from typing import Any, Sequence
++from typing import TYPE_CHECKING, Any, Sequence
+ 
+ import numpy as np
+-import torch
++
++if TYPE_CHECKING:
++    import torch
+ 
+ 
+ _LOG_TWO = math.log(2.0)
+@@ -78,11 +82,23 @@ class ModelQuantization(str, Enum):
+     NF4_DOUBLE = "nf4-double"
+ 
+ 
+-PRECISION_TO_TORCH = {
+-    Precision.FP32: torch.float32,
+-    Precision.FP16: torch.float16,
+-    Precision.BF16: torch.bfloat16,
+-}
++def _precision_to_torch() -> dict[Precision, torch.dtype]:
++    """Build the precision to dtype map, importing PyTorch only when needed."""
++    import torch
++
++    return {
++        Precision.FP32: torch.float32,
++        Precision.FP16: torch.float16,
++        Precision.BF16: torch.bfloat16,
++    }
++
++
++def __getattr__(name: str) -> Any:
++    # PRECISION_TO_TORCH stays importable without importing PyTorch at module
++    # load, so the n-gram and PPM models work without PyTorch installed.
++    if name == "PRECISION_TO_TORCH":
++        return _precision_to_torch()
++    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+ 
+ 
+ def convert_device(device: Device) -> str:
+@@ -92,6 +108,8 @@ def convert_device(device: Device) -> str:
+     :return: string name of the resolved backend
+     """
+     if device == Device.AUTO:
++        import torch
++
+         if torch.cuda.is_available():
+             resolved = Device.CUDA
+         elif torch.backends.mps.is_available():
+@@ -110,7 +128,7 @@ def precision_to_dtype(precision: Precision) -> torch.dtype:
+     :return: torch dtype for model loading
+     """
+     try:
+-        return PRECISION_TO_TORCH[precision]
++        return _precision_to_torch()[precision]
+     except KeyError:
+         raise ValueError(f"Unsupported precision: {precision}")
+ 

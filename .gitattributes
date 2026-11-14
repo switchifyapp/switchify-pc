@@ -6,3 +6,6 @@ src-tauri/gen/** text eol=lf
 # Digests for the bundled model notices must match on every build host.
 scripts/find-model.LICENSE text eol=lf
 scripts/find-model.NOTICE text eol=lf
+
+# The TextSlinger patch applies to LF files from the PyPI wheel.
+scripts/textslinger/*.patch text eol=lf

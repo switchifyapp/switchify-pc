@@ -3,10 +3,18 @@ param(
     [string]$Model,
     [switch]$Dev,
     [switch]$SkipBuild,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    # Use the runtime from Build-TextSlingerRuntime.ps1 instead of the spike venv.
+    [switch]$Runtime
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+if ($Runtime) {
+    $runtimeDirectory = Join-Path $repo '.cache/textslinger-runtime'
+    if (!$PSBoundParameters.ContainsKey('Python')) { $Python = Join-Path $runtimeDirectory 'python.exe' }
+    if (!$Model) { $Model = Join-Path $runtimeDirectory 'model/lm_dec19_char_tiny_12gram.kenlm' }
+    if (!(Test-Path -LiteralPath $Python)) { throw 'Run scripts/Build-TextSlingerRuntime.ps1 first' }
+}
 if (!$Model) { $Model = Join-Path (Split-Path -Parent $repo) 'textslinger/assets/lm_dec19_char_tiny_12gram.arpa' }
 $Python = (Resolve-Path -LiteralPath $Python).Path
 $Model = (Resolve-Path -LiteralPath $Model).Path
