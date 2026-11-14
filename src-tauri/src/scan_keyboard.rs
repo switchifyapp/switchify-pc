@@ -440,8 +440,7 @@ impl Keyboard {
     }
     /// The widest row of keys, in key widths, with the gaps between them.
     /// The user's tiles are left out: they take their width from the keys.
-    /// The widest row of keys, in key widths. The suggestion row fits itself
-    /// to this width, so it is not counted.
+    /// The suggestion row fits itself to this width, so it is not counted.
     fn widest_keys(&self) -> f64 {
         let gap = crate::scan_panel::KEY_GAP;
         self.rows
