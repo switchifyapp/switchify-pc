@@ -129,11 +129,14 @@ test('a runtime without its stamp or manifest is not current', async () => {
     const destination = join(dir, 'runtime');
     const pin = { sha256: 'a'.repeat(64) };
     await mkdir(destination);
-    await writeFile(`${destination}.sha256`, `${pin.sha256}\n`);
+    await writeFile(`${destination}.sha256`, `${pin.sha256} unpack-2\n`);
     assert.equal(await isCurrent(destination, pin), false);
     await writeFile(join(destination, 'manifest.json'), '{}');
     assert.equal(await isCurrent(destination, pin), true);
     assert.equal(await isCurrent(destination, { sha256: 'b'.repeat(64) }), false);
+    // A copy unpacked by an earlier version of the fetcher is refreshed.
+    await writeFile(`${destination}.sha256`, `${pin.sha256}\n`);
+    assert.equal(await isCurrent(destination, pin), false);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

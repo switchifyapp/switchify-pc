@@ -70,12 +70,15 @@ export function unpackRuntime(bytes, pin, runtime) {
 }
 
 const stampFor = directory => `${directory}.sha256`;
+// Bump when what is unpacked from the same archive changes, so older copies refresh.
+const UNPACK_VERSION = 2;
+const stampText = pin => `${pin.sha256} unpack-${UNPACK_VERSION}`;
 
 export async function isCurrent(directory, pin) {
   try {
     const stamp = (await readFile(stampFor(directory), 'utf8')).trim();
     JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8'));
-    return stamp === pin.sha256;
+    return stamp === stampText(pin);
   } catch { return false; }
 }
 
@@ -123,7 +126,7 @@ export async function acquireRuntime(directory, runtime, pins = manifest, fetche
     try { await renameWithRetry(staging, directory, 5, rename_); }
     catch (error) { if (moved) await rename(previous, directory); throw error; }
     await rm(previous, { recursive: true, force: true });
-    await writeFile(stampFor(directory), `${pin.sha256}\n`);
+    await writeFile(stampFor(directory), `${stampText(pin)}\n`);
     return true;
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
@@ -131,8 +134,12 @@ export async function acquireRuntime(directory, runtime, pins = manifest, fetche
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const target = buildTarget();
   if (target.includes('-linux-')) {
-    // Switchify PC does not ship on Linux; this keeps other checks usable there.
-    console.log(`No TextSlinger runtime for ${target}; skipping. Linux builds cannot be packaged.`);
+    // Switchify PC does not ship on Linux. A placeholder keeps the resource
+    // glob in tauri.conf.json valid so Linux development builds still compile;
+    // without a manifest.json, nothing treats it as a runtime.
+    await mkdir(runtimeDirectory, { recursive: true });
+    await writeFile(join(runtimeDirectory, 'NOT-BUNDLED.txt'), 'No TextSlinger runtime is bundled on Linux.\n');
+    console.log(`No TextSlinger runtime for ${target}; wrote a placeholder. Word suggestions are unavailable on Linux.`);
   } else {
     const runtime = runtimeTarget(target);
     const fetched = await acquireRuntime(runtimeDirectory, runtime);

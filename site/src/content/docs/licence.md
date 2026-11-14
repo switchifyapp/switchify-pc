@@ -107,7 +107,7 @@ Switchify PC includes work from other projects. Each part keeps its own licence.
   - [KenLM](https://github.com/kpu/kenlm), GNU Lesser General Public License 2.1 or later, built from its unchanged source, which is included;
   - Python 3.10 from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), Python Software Foundation licence, with libraries such as OpenSSL, libffi, SQLite and zlib under their own licences;
   - numpy, BSD licence, with OpenBLAS, LAPACK and GCC runtime libraries (libgfortran and libquadmath) under their own licences;
-  - regex, Apache License 2.0.
+  - regex, Apache License 2.0, with parts under the CNRI Python licence.
 
   In the bundled `textslinger/runtime` folder, the licences for Python and KenLM are in `notices`. The licences for TextSlinger, numpy and regex, including numpy's bundled libraries, are in each package's `.dist-info` folder.
 - **Finding a setting**: the [Model2Vec potion-base-2M model](https://huggingface.co/minishlab/potion-base-2M) by Minish Lab, MIT licence, with vocabulary from [BAAI bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), MIT licence. Its LICENSE and NOTICE ship beside the bundled find model in the app assets.

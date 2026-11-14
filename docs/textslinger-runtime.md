@@ -21,7 +21,7 @@ pins the release and each archive's size and SHA-256.
 
 Windows ARM64 bundles the Windows x64 runtime and runs it under Windows' x64
 emulation, because there is no Python 3.10 or numpy 1.26 build for ARM64. macOS
-releases are Apple Silicon only. On Linux the fetch is skipped, since Switchify PC is not packaged there.
+releases are Apple Silicon only. On Linux, where Switchify PC is not packaged, the fetch writes a placeholder so development builds still compile.
 
 ## The bridge
 
