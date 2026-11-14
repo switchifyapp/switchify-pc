@@ -290,3 +290,41 @@ fn a_stalled_bridge_is_unavailable_before_the_parent_deadline() {
     );
     assert!(elapsed < Duration::from_secs(2), "cleanup took {elapsed:?}");
 }
+
+#[test]
+fn a_missed_reply_restarts_the_bridge_until_it_fails_three_times_in_a_row() {
+    let Some(runtime) = runtime() else { return };
+    // A peer that always answers too late.
+    let mut e = engine();
+    e.database = Database::textslinger(faulty(&runtime, "timeout"));
+    let wait_ready = |e: &mut Engine| {
+        let until = Instant::now() + Duration::from_secs(60);
+        while e.database.status() != Status::Ready {
+            assert!(Instant::now() < until, "the bridge did not start");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    let mut revision = 0;
+    for expected in [Status::Loading, Status::Loading, Status::Unavailable] {
+        wait_ready(&mut e);
+        revision += 1;
+        let start = Instant::now();
+        let response = e.respond(request(
+            vec![edit(Edit::Reset), append("I would like a cup of ")],
+            revision,
+            None,
+        ));
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "within the parent's deadline"
+        );
+        assert!(
+            matches!(response, Response::Suggestions { status, batch: Some(ref batch), .. } if status == expected && batch.words.iter().all(Option::is_none)),
+            "expected {expected:?}"
+        );
+        if expected == Status::Unavailable {
+            break;
+        }
+    }
+    assert_eq!(e.database.status(), Status::Unavailable);
+}

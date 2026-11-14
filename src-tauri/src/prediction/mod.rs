@@ -49,6 +49,13 @@ impl Job {
             Ok(job)
         }
     }
+    /// Ends every process in the job at once: the worker and anything it
+    /// started, such as the TextSlinger runtime.
+    fn terminate(&self) {
+        unsafe {
+            windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1);
+        }
+    }
 }
 #[cfg(target_os = "windows")]
 impl Drop for Job {
@@ -64,7 +71,7 @@ struct Client {
     replies: mpsc::Receiver<Result<Response, ()>>,
     reader: Option<JoinHandle<()>>,
     #[cfg(target_os = "windows")]
-    _job: Job,
+    job: Job,
 }
 impl Client {
     /// A worker for the TextSlinger runtime in `runtime`. It is contained
@@ -123,12 +130,17 @@ impl Client {
             replies,
             reader: Some(reader),
             #[cfg(target_os = "windows")]
-            _job: job,
+            job,
         })
     }
 }
 impl Client {
     fn terminate(&mut self) {
+        // The runtime the worker starts inherits the worker's pipes, so the
+        // reader below only sees EOF once it is gone too. End the whole job
+        // or process group, never only the worker.
+        #[cfg(target_os = "windows")]
+        self.job.terminate();
         #[cfg(target_os = "macos")]
         unsafe {
             libc::kill(-(self.child.id() as i32), libc::SIGKILL);
@@ -188,16 +200,18 @@ fn learned_words(app: &AppHandle) -> Option<PathBuf> {
             .join("prediction/personal.sqlite"),
     )
 }
+/// Whether every file is gone. Each one is attempted even if another fails.
 fn delete_learned_words_at(path: &Path) -> bool {
     ["", "-journal", "-wal", "-shm", ".forget"]
         .iter()
-        .all(|suffix| {
+        .fold(true, |all, suffix| {
             let mut file = path.as_os_str().to_owned();
             file.push(suffix);
-            match std::fs::remove_file(PathBuf::from(file)) {
+            let gone = match std::fs::remove_file(PathBuf::from(file)) {
                 Ok(()) => true,
                 Err(error) => error.kind() == std::io::ErrorKind::NotFound,
-            }
+            };
+            all && gone
         })
 }
 /// Deletes words an earlier version learned from typing. Run at startup.
@@ -1472,6 +1486,37 @@ mod tests {
         client.terminate();
         assert!(client.child.try_wait().unwrap().is_some());
         assert!(start.elapsed() < Duration::from_secs(3));
+    }
+    #[test]
+    fn terminating_a_worker_also_ends_what_it_started() {
+        // A grandchild that inherited the worker's output pipe, as the
+        // TextSlinger runtime does. Killing only the worker would leave the
+        // reader waiting for EOF until the grandchild exits.
+        #[cfg(target_os = "windows")]
+        let command = {
+            let mut c = Command::new("cmd.exe");
+            // Silent, so the reader keeps waiting rather than failing on output.
+            c.args([
+                "/C",
+                "powershell.exe -NoProfile -NonInteractive -Command Start-Sleep -Seconds 30",
+            ]);
+            c
+        };
+        #[cfg(target_os = "macos")]
+        let command = {
+            let mut c = Command::new("/bin/sh");
+            c.args(["-c", "/bin/sleep 30; :"]);
+            c
+        };
+        let mut client = Client::spawn(command).expect("fake worker starts");
+        std::thread::sleep(Duration::from_millis(500));
+        let start = Instant::now();
+        client.terminate();
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "terminate waited {:?} for the grandchild",
+            start.elapsed()
+        );
     }
     fn sleeper() -> Client {
         #[cfg(target_os = "windows")]

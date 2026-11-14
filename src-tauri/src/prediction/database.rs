@@ -13,6 +13,10 @@ const SLOW_CALL: Duration = Duration::from_millis(1500);
 /// Slow calls in a row that mark the model unavailable. One stall, such as
 /// a busy disk or a waking laptop, is not a model that cannot keep up.
 const SLOW_CALLS: u8 = 3;
+/// Failed calls in a row after which a model that can be started again is
+/// left unavailable. Each failure before that starts it again, so one missed
+/// reply does not need Retry predictions.
+const FAILURES: u8 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
@@ -37,6 +41,9 @@ pub struct Database {
     state: State,
     slow_call: Duration,
     slow_calls: u8,
+    /// How to start the model again after a failed call, when it can be.
+    relaunch: Option<Vec<String>>,
+    failures: u8,
 }
 impl Database {
     fn with_state(state: State) -> Self {
@@ -44,6 +51,8 @@ impl Database {
             state,
             slow_call: SLOW_CALL,
             slow_calls: 0,
+            relaunch: None,
+            failures: 0,
         }
     }
     /// The TextSlinger runtime in `runtime`. Nothing starts until the first
@@ -58,7 +67,10 @@ impl Database {
     /// Windows that is after the parent has put the worker in its kill job,
     /// so the runtime cannot outlive it.
     pub fn textslinger(argv: Vec<String>) -> Self {
-        Self::with_state(State::Startup(argv))
+        Self {
+            relaunch: Some(argv.clone()),
+            ..Self::with_state(State::Startup(argv))
+        }
     }
     fn load(loader: impl FnOnce() -> Loaded + Send + 'static) -> State {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -119,9 +131,18 @@ impl Database {
             0
         };
         let Some(prediction) = result.ok().filter(|_| self.slow_calls < SLOW_CALLS) else {
-            self.state = State::Unavailable;
-            return (Status::Unavailable, Prediction::default());
+            self.failures = self.failures.saturating_add(1);
+            self.slow_calls = 0;
+            // The failed model is dropped, which stops it, and a fresh one
+            // starts loading, unless it has failed too often in a row.
+            self.state = match &self.relaunch {
+                Some(argv) if self.failures < FAILURES => State::Startup(argv.clone()),
+                _ => State::Unavailable,
+            };
+            let status = self.status();
+            return (status, Prediction::default());
         };
+        self.failures = 0;
         (Status::Ready, prediction)
     }
     #[cfg(test)]

@@ -95,7 +95,7 @@ Switchify PC is provided as it is, without any warranty, as set out in sections 
 
 Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in each project's source code.
 
-- **Word suggestions**: suggestions come from [TextSlinger](https://github.com/kdv123/textslinger), run by files built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.6.1) and contain:
+- **Word suggestions**: suggestions come from [TextSlinger](https://github.com/kdv123/textslinger). The files that run it are built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.6.1) and contain:
   - TextSlinger, MIT licence;
   - a small TextSlinger word model from the [Language Models for AAC](https://osf.io/ajm7t/) project, included with its authors' permission;
   - [KenLM](https://github.com/kpu/kenlm), GNU Lesser General Public License 2.1 or later, built from its unchanged source, which is included;

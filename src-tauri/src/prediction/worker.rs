@@ -84,7 +84,7 @@ pub enum Response {
     Insert {
         generation: u64,
         /// Characters to delete before typing `text`: the typed prefix, when
-        /// accepting restores a capital or validates a nearby-key correction.
+        /// accepting restores a capital the word has.
         /// Never more than the owned prefix.
         backspaces: usize,
         text: Option<String>,

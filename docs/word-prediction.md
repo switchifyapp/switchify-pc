@@ -1,6 +1,6 @@
 # Word prediction
 
-Word prediction is enabled by default in Scanning settings. Its five-position row appears only on the Letters page. Empty positions are skipped. Select the row and then a word using the existing switches. Acceptance appends the missing suffix and a space without selecting text or using the clipboard. It deletes nothing, with one bounded exception: when the word has a capital where a lowercase letter was typed, as in “i” for I’m, it backspaces the typed prefix and types the whole word. Shift and Caps affect completion casing; Ctrl, Alt/Option and Windows/Command suppress suggestions.
+Word prediction is enabled by default in Scanning settings. Its five-position row appears only on the Letters page. Empty positions are skipped. Select the row and then a word using the existing switches. Acceptance appends the missing suffix and a space without selecting text or using the clipboard. It deletes nothing, with one bounded exception described in [retyping the prefix](#retyping-the-prefix), which TextSlinger's lowercase words never need. Shift and Caps affect completion casing; Ctrl, Alt/Option and Windows/Command suppress suggestions.
 
 Predictions use only a temporary buffer of successful Switchify keyboard input, starting with the first letter. Existing text, pasted text and hardware keyboard typing are never read into it. Switchify does not inspect fields, selections, passwords or caret positions. Suggestions may therefore appear anywhere the keyboard is open, including password fields or applications without a text field. The buffer records successful input injection; it cannot verify what an application actually accepted.
 
@@ -63,7 +63,7 @@ For the word “water”:
 
 ### Retyping the prefix
 
-Accepting restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as in “i” for I’m. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed. A capital the person typed is kept, and a word typed in capitals is never retyped.
+TextSlinger's words are lowercase, so this does not happen with its suggestions; the worker keeps it for any word that has a capital. Accepting such a word restores a capital the typed prefix lacks by backspacing that prefix and typing the whole word, as “i” would become “I’m” if “I’m” were suggested. When the case already matches, which is the usual case, nothing is deleted and only the missing suffix is typed. A capital the person typed is kept, and a word typed in capitals is never retyped.
 
 The deletion is bounded. The prefix is text Switchify typed itself in the current window with no outside activity since. It is never more than one word, and the executor refuses more than 32 deletions. Any keyboard or mouse activity not made by Switchify between choosing the suggestion and typing it cancels the acceptance, so nothing else is deleted.
 
@@ -81,7 +81,7 @@ The model loads in a spare worker before the keyboard is first opened. Once scan
 
 Closing the keyboard kills and reaps the worker that held the typed text, then starts a new spare for the next open. A spare waits as long as the app runs: it uses memory for the runtime even while the keyboard stays closed, which is the cost of not waiting for it on each open. It is killed and reaped whenever scanning ends or restarts, such as after saving settings, when Word prediction is turned off, on Retry predictions and on exit. A spare started for different switch keys is not adopted. If the spare cannot start, the keyboard starts its own worker when it opens, and no spare is retried until then.
 
-The runtime has a 90-second allowance to load, for a cold disk or an antivirus scan of its files. Each request has 1.2 seconds within the worker's two-second reply deadline. A missed reply, an invalid reply or a helper that exited makes the model unavailable for that worker; the keyboard shows Retry predictions, and there is no automatic retry loop. A request that takes the helper more than 30 seconds makes it exit; idle waiting has no limit.
+The runtime has a 90-second allowance to load, for a cold disk or an antivirus scan of its files. Each request has 1.2 seconds within the worker's two-second reply deadline. A missed reply, an invalid reply or a helper that exited stops that helper and starts a fresh one, which reports loading until it is ready. After three failures in a row with no successful reply between them, the model stays unavailable for that worker and the keyboard shows Retry predictions. A request that takes the helper more than 30 seconds makes it exit; idle waiting has no limit.
 
 Before accepting a suggestion, the worker checks its token, edit revision, foreground identity and external activity. The main process checks its generation and foreground again before injection. Verification and native insertion cannot be atomic across applications; the target can still change in that short interval.
 
