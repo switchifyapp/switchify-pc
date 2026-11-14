@@ -706,6 +706,10 @@ pub fn run_from_args() -> bool {
         activity::set_ignored(ignored);
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
+            #[cfg(feature = "textslinger-trial")]
+            let database = Database::trial_from_env()
+                .unwrap_or_else(|| Database::open(&path, personal.as_deref()));
+            #[cfg(not(feature = "textslinger-trial"))]
             let database = Database::open(&path, personal.as_deref());
             let mut engine = Engine::new(database, false);
             serve(

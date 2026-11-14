@@ -78,3 +78,30 @@ Learned words are stored in a file in Switchify PC's application data folder. If
 ## Capitals
 
 Suggestions follow Shift, Caps and the start of a sentence, so *i* becomes *I* and the first word after a full stop is capitalised.
+
+## Trying TextSlinger on Windows
+
+There is an optional local trial build for trying TextSlinger in the scanning
+keyboard. It is not included in the regular installer. With a prepared native
+TextSlinger runtime and model, run `scripts/Start-TextSlingerKeyboard.ps1` from
+the source checkout. The developer setup and paths are described in
+`docs/textslinger-keyboard.md` in the repository.
+
+Quit any other Switchify PC instance first. Open your keyboard as usual after
+the trial app starts. Its suggestion row stays empty while the model loads;
+this can take tens of seconds. Typing remains available. If loading or prediction
+fails, choose **Retry predictions** to start the worker again.
+
+The trial uses up to five word suggestions and leaves the phrase slots empty.
+It uses English letters and apostrophes. Unsupported prefixes, including digits
+and accented words, leave the row empty until a supported prefix is typed.
+Names and the pronoun “I” may remain lowercase unless Shift or Caps changes
+them. Nearby-key suggestions, abbreviation suggestions, phrases, and learning
+from typing are not used by this backend. It can suggest non-words or repeat
+the word already typed; choosing a completed word adds a space.
+
+Predictions stay on this computer. The trial reads only text entered through
+Switchify's keyboard and does not save that text. It shares your usual Switchify
+settings. To return to normal predictions, quit the trial from the
+tray and open your installed Switchify PC again. The launch command does not
+save a backend preference.

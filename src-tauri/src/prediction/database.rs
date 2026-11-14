@@ -21,8 +21,11 @@ pub enum Status {
     Unavailable,
 }
 
+type Loaded = Result<Box<dyn Predict>, ()>;
 enum State {
-    Loading(mpsc::Receiver<Result<Model, ()>>),
+    Loading(mpsc::Receiver<Loaded>),
+    #[cfg(any(test, feature = "textslinger-trial"))]
+    TextSlingerStartup(Vec<String>),
     Ready(Box<dyn Predict>),
     Unavailable,
 }
@@ -45,9 +48,15 @@ impl Database {
     pub fn open(model: &Path, personal: Option<&Path>) -> Self {
         let model = model.to_path_buf();
         let personal = personal.map(Path::to_path_buf);
+        Self::load(move || {
+            Model::open(&model, personal.as_deref())
+                .map(|model| Box::new(model) as Box<dyn Predict>)
+        })
+    }
+    fn load(loader: impl FnOnce() -> Loaded + Send + 'static) -> Self {
         let (tx, rx) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let _ = tx.send(Model::open(&model, personal.as_deref()));
+            let _ = tx.send(loader());
         });
         Self {
             state: State::Loading(rx),
@@ -55,10 +64,48 @@ impl Database {
             slow_calls: 0,
         }
     }
+    #[cfg(feature = "textslinger-trial")]
+    pub fn trial_from_env() -> Option<Self> {
+        let command = std::env::var_os("SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND")?;
+        let argv = command
+            .to_str()
+            .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok());
+        Some(
+            match argv.filter(|args| {
+                !args.is_empty() && args.len() <= 16 && args.iter().all(|arg| arg.len() <= 4096)
+            }) {
+                Some(argv) => Self::textslinger(argv),
+                None => Self {
+                    state: State::Unavailable,
+                    slow_call: SLOW_CALL,
+                    slow_calls: 0,
+                },
+            },
+        )
+    }
+    #[cfg(any(test, feature = "textslinger-trial"))]
+    pub fn textslinger(argv: Vec<String>) -> Self {
+        // Defer child creation until the parent sends its first request. On
+        // Windows that happens after the worker is contained in its kill job.
+        Self {
+            state: State::TextSlingerStartup(argv),
+            slow_call: SLOW_CALL,
+            slow_calls: 0,
+        }
+    }
     pub fn status(&mut self) -> Status {
+        #[cfg(any(test, feature = "textslinger-trial"))]
+        if let State::TextSlingerStartup(argv) = &mut self.state {
+            let argv = std::mem::take(argv);
+            self.state = Self::load(move || {
+                super::textslinger::TextSlinger::launch(&argv)
+                    .map(|model| Box::new(model) as Box<dyn Predict>)
+            })
+            .state;
+        }
         if let State::Loading(rx) = &self.state {
             self.state = match rx.try_recv() {
-                Ok(Ok(model)) => State::Ready(Box::new(model)),
+                Ok(Ok(model)) => State::Ready(model),
                 Err(mpsc::TryRecvError::Empty) => return Status::Loading,
                 _ => State::Unavailable,
             };
@@ -67,6 +114,8 @@ impl Database {
             State::Loading(_) => Status::Loading,
             State::Ready(_) => Status::Ready,
             State::Unavailable => Status::Unavailable,
+            #[cfg(any(test, feature = "textslinger-trial"))]
+            State::TextSlingerStartup(_) => Status::Loading,
         }
     }
     pub fn poll(&mut self) -> Option<Prediction> {
@@ -123,7 +172,7 @@ impl Database {
         (Status::Ready, prediction)
     }
     #[cfg(test)]
-    pub fn pending_fixture() -> (Self, mpsc::SyncSender<Result<Model, ()>>) {
+    pub fn pending_fixture() -> (Self, mpsc::SyncSender<Loaded>) {
         let (tx, rx) = mpsc::sync_channel(1);
         (
             Self {

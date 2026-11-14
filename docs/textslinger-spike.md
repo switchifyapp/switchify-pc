@@ -2,6 +2,11 @@
 
 Issue: [#1417](https://github.com/switchifyapp/switchify-pc/issues/1417).
 
+This records the original engine-only spike. For the subsequent opt-in live
+keyboard trial and its launcher, see [the keyboard trial](textslinger-keyboard.md).
+That trial shares the adapter and adds asynchronous startup and idle checks;
+the measurements and test counts below describe the original spike.
+
 ## Finding
 
 Real TextSlinger n-gram predictions can pass through Switchify's Windows Rust

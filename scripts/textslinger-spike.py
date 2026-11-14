@@ -40,16 +40,22 @@ def send(stream, value):
     stream.flush()
 
 
-def serve(model, source, target):
+def serve(model, source, target, keep_alive=False):
     send(target, {"ready": True})
     while True:
         # A bounded lifetime also covers an abandoned WSL launcher. This is
         # only a spike; production would need process-tree supervision.
-        timer = threading.Timer(30, lambda: os._exit(1))
-        timer.daemon = True
-        timer.start()
+        timer = None
         try:
-            request = receive(source)
+            # A live keyboard can remain idle. EOF still exits immediately;
+            # only an active request gets a deadline in trial mode.
+            if keep_alive:
+                request = receive(source)
+            timer = threading.Timer(30, lambda: os._exit(1))
+            timer.daemon = True
+            timer.start()
+            if not keep_alive:
+                request = receive(source)
             if request == {"shutdown": True}:
                 send(target, {"stopped": True})
                 return
@@ -83,7 +89,8 @@ def serve(model, source, target):
                 words = [prefix + p.replacement.text for p in result.top(5)]
             send(target, {"id": sequence, "words": words})
         finally:
-            timer.cancel()
+            if timer is not None:
+                timer.cancel()
 
 
 def load_model(path):
@@ -93,7 +100,8 @@ def load_model(path):
 
     model = NGramLanguageModel(path)
     # Ready means a usable backend, not just a constructor that returned.
-    if not model.predict_words(left_context="the ca", nbest=1).top(1):
+    if not model.predict_words(left_context="the ca", word_spelling_characters=SPELLING,
+                               word_ending_characters=(" ",), nbest=5).top(1):
         raise ValueError
     return model
 
@@ -101,6 +109,7 @@ def load_model(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
+    parser.add_argument("--keyboard-trial", action="store_true")
     args = parser.parse_args()
     # Preserve a private protocol handle, then redirect fd 1 as well as Python
     # stdout. Even native-library diagnostic writes cannot corrupt frames.
@@ -108,7 +117,7 @@ def main():
     with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as target:
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
         model = load_model(args.model)
-        serve(model, sys.stdin.buffer, target)
+        serve(model, sys.stdin.buffer, target, keep_alive=args.keyboard_trial)
 
 
 if __name__ == "__main__":

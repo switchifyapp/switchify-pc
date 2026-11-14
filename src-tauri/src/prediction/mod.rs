@@ -4,6 +4,8 @@ mod context;
 mod database;
 mod model;
 mod nearby;
+#[cfg(any(test, feature = "textslinger-trial"))]
+mod textslinger;
 #[cfg(test)]
 pub(crate) use model::slots;
 pub(crate) use model::{PHRASE_SLOTS, SLOTS};

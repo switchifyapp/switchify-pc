@@ -1,152 +1,64 @@
-// Normal module layout keeps Rust tools portable across Windows and POSIX.
 use super::*;
-use crate::prediction::model::{Predict, Prediction};
-use std::{
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc,
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use crate::prediction::model::Predict;
+use crate::prediction::textslinger::{prediction_reply, TextSlinger};
+use std::time::{Duration, Instant};
 
-/// Test-only adapter. Launch argv is explicit JSON, never a shell command.
-struct TextSlinger {
-    child: Child,
-    input: Option<ChildStdin>,
-    replies: mpsc::Receiver<Result<serde_json::Value, ()>>,
-    reader: Option<JoinHandle<()>>,
-    healthy: bool,
-    sequence: u64,
+#[test]
+fn textslinger_failed_load_becomes_unavailable() {
+    let mut db = Database::textslinger(vec!["".into()]);
+    let until = Instant::now() + Duration::from_secs(2);
+    while db.status() == crate::prediction::database::Status::Loading && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        db.status(),
+        crate::prediction::database::Status::Unavailable
+    );
 }
 
-impl TextSlinger {
-    fn open() -> Self {
-        Self::launch(&Self::argv())
-            .expect("backend startup failed; check the model and launcher paths")
-    }
-
-    fn argv() -> Vec<String> {
-        serde_json::from_str(
-            &std::env::var("SWITCHIFY_TEXTSLINGER_COMMAND")
-                .expect("set SWITCHIFY_TEXTSLINGER_COMMAND to a JSON argv array"),
-        )
-        .expect("invalid launcher argv")
-    }
-
-    fn launch(argv: &[String]) -> Result<Self, ()> {
-        let mut command = Command::new(argv.first().expect("empty launcher argv"));
-        command.args(&argv[1..]);
-        #[cfg(target_os = "windows")]
+#[test]
+#[ignore = "real keyboard backend loading and 35-second idle check; fake input only"]
+fn textslinger_keyboard_loading_and_idle() {
+    let mut argv = TextSlinger::argv();
+    argv.push("--keyboard-trial".into());
+    let mut e = engine();
+    e.database = Database::textslinger(argv);
+    let start = Instant::now();
+    let first = e.respond(request(vec![append("I would like a cup of ")], 1, None));
+    assert!(matches!(
+        first,
+        Response::Suggestions {
+            status: crate::prediction::database::Status::Loading,
+            ..
+        }
+    ));
+    assert!(start.elapsed() < Duration::from_millis(500));
+    let until = Instant::now() + Duration::from_secs(95);
+    loop {
+        let response = e.respond(request(vec![], 1, None));
+        if let Response::Suggestions {
+            status: crate::prediction::database::Status::Ready,
+            batch: Some(batch),
+            ..
+        } = response
         {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            assert_eq!(batch.words[0].as_deref(), Some("coffee"));
+            break;
         }
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| ())?;
-        let input = child.stdin.take();
-        let mut output = child.stdout.take().unwrap();
-        let (tx, replies) = mpsc::channel();
-        let reader = std::thread::spawn(move || loop {
-            let result = receive::<serde_json::Value>(&mut output);
-            let failed = result.is_err();
-            if tx.send(result).is_err() || failed {
-                break;
-            }
-        });
-        let mut adapter = Self {
-            child,
-            input,
-            replies,
-            reader: Some(reader),
-            healthy: true,
-            sequence: 0,
-        };
-        let ready = adapter.reply(Duration::from_secs(90))?;
-        if ready != serde_json::json!({"ready": true}) {
-            return Err(());
-        }
-        Ok(adapter)
+        assert!(
+            Instant::now() < until,
+            "keyboard backend did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
-
-    fn reply(&mut self, deadline: Duration) -> Result<serde_json::Value, ()> {
-        self.replies.recv_timeout(deadline).map_err(|_| ())?
-    }
-
-    fn query(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
-        if !self.healthy {
-            return Err(());
-        }
-        self.sequence = self.sequence.checked_add(1).ok_or(())?;
-        send(
-            self.input.as_mut().ok_or(())?,
-            &serde_json::json!({"id": self.sequence, "before": before, "prefix": prefix}),
-        )?;
-        let value = self.reply(Duration::from_millis(1200))?;
-        prediction_reply(value, self.sequence, prefix)
-    }
-}
-
-fn prediction_reply(
-    value: serde_json::Value,
-    sequence: u64,
-    prefix: &str,
-) -> Result<Prediction, ()> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Reply {
-        id: u64,
-        words: Vec<String>,
-    }
-    let reply: Reply = serde_json::from_value(value).map_err(|_| ())?;
-    if reply.id != sequence || reply.words.len() > 5 {
-        return Err(());
-    }
-    let prefix = prefix.to_lowercase();
-    let words = reply.words.into_iter().filter(|word| {
-        !word.is_empty()
-            && word.len() <= 128
-            && word.chars().all(|c| c.is_ascii_lowercase() || c == '\'')
-            && word.starts_with(&prefix)
-    });
-    Ok(Prediction {
-        words: crate::prediction::slots(words),
-        ..Prediction::default()
-    })
-}
-
-impl Predict for TextSlinger {
-    fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()> {
-        let result = self.query(before, prefix);
-        // Never let a late response answer another request after a timeout.
-        self.healthy &= result.is_ok();
-        result
-    }
-}
-
-impl Drop for TextSlinger {
-    fn drop(&mut self) {
-        if let Some(mut input) = self.input.take() {
-            let _ = send(&mut input, &serde_json::json!({"shutdown": true}));
-        }
-        let until = Instant::now() + Duration::from_secs(2);
-        while self.child.try_wait().ok().flatten().is_none() && Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        // EOF normally joins the reader immediately. A WSL process surviving
-        // launcher termination is a documented production cleanup gap.
-        if self
-            .reader
-            .as_ref()
-            .is_some_and(|reader| reader.is_finished())
-        {
-            let _ = self.reader.take().unwrap().join();
-        }
-    }
+    std::thread::sleep(Duration::from_secs(35));
+    let batch = response_batch(e.respond(request(
+        vec![edit(Edit::Reset), append("please open the ")],
+        2,
+        None,
+    )));
+    assert_eq!(batch.words[0].as_deref(), Some("door"));
+    assert_eq!(e.accept(batch.token, 0), Some((0, "door ".into())));
 }
 
 #[test]

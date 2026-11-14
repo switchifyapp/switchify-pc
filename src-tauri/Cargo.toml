@@ -10,6 +10,9 @@ rust-version = "1.97.1"
 name = "switchify_pc_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+textslinger-trial = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -88,6 +89,36 @@ class BridgeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(FileNotFoundError):
                 bridge.load_model(Path(directory) / "missing.arpa")
+
+    def test_warmup_uses_serving_alphabet(self):
+        calls = []
+        model = SimpleNamespace(predict_words=lambda **kwargs: (
+            calls.append(kwargs) or SimpleNamespace(top=lambda n: ["ready"])))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "model.arpa"
+            path.write_text("fixture", encoding="utf-8")
+            with patch.dict(sys.modules, {"textslinger": SimpleNamespace(NGramLanguageModel=lambda path: model)}):
+                self.assertIs(bridge.load_model(path), model)
+        self.assertEqual(calls[0]["word_spelling_characters"], bridge.SPELLING)
+        self.assertEqual(calls[0]["word_ending_characters"], (" ",))
+        self.assertEqual(calls[0]["nbest"], 5)
+
+    def test_keyboard_mode_waits_for_input_before_starting_timer(self):
+        source = io.BytesIO()
+        bridge.send(source, {"id": 1, "before": "", "prefix": "2"})
+        boundary = source.tell()
+        bridge.send(source, {"shutdown": True})
+        checks = {0: 0, boundary: 1}
+        with patch.object(bridge.threading, "Timer") as timer:
+            class CheckedInput(io.BytesIO):
+                def read(self, count):
+                    if self.tell() in checks:
+                        self_expected = checks[self.tell()]
+                        if timer.call_count != self_expected:
+                            raise AssertionError("idle timer started before input")
+                    return super().read(count)
+            bridge.serve(None, CheckedInput(source.getvalue()), io.BytesIO(), keep_alive=True)
+            self.assertEqual(timer.call_count, 2)
 
     def test_rejects_unexpected_or_oversized_context_before_model_call(self):
         for request in (
