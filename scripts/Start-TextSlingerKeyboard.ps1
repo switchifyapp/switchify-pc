@@ -1,6 +1,7 @@
 param(
     [string]$Python = (Join-Path $env:LOCALAPPDATA 'SwitchifyTextSlingerSpike/venv/Scripts/python.exe'),
     [string]$Model,
+    [switch]$Dev,
     [switch]$SkipBuild,
     [switch]$NoLaunch
 )
@@ -19,8 +20,23 @@ $appDirectory = Join-Path $trial 'app'
 $binary = Join-Path $appDirectory 'switchify-pc.exe'
 Push-Location $repo
 try {
+    if ($Dev) {
+        if ($SkipBuild -or $NoLaunch) { throw '-Dev cannot be combined with -SkipBuild or -NoLaunch' }
+        $previous = $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND
+        try {
+            $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND = ConvertTo-Json -Compress -InputObject @(
+                $Python, (Join-Path $PSScriptRoot 'textslinger-spike.py'), '--model', $Model, '--keyboard-trial'
+            )
+            & npm.cmd run tauri -- dev --features textslinger-trial
+            if ($LASTEXITCODE -ne 0) { throw 'TextSlinger keyboard dev exited with an error' }
+        } finally {
+            if ($null -eq $previous) { Remove-Item Env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND -ErrorAction SilentlyContinue }
+            else { $env:SWITCHIFY_TEXTSLINGER_KEYBOARD_COMMAND = $previous }
+        }
+        return
+    }
     if (!$SkipBuild) {
-        & npm.cmd run tauri -- build --debug --no-bundle --features textslinger-trial
+        & npm.cmd run tauri -- build --debug --no-bundle --features textslinger-trial,tauri/custom-protocol
         if ($LASTEXITCODE -ne 0) { throw 'TextSlinger keyboard build failed' }
         New-Item -ItemType Directory -Path $appDirectory -Force | Out-Null
         $builtBinary = Join-Path $repo 'src-tauri/target/debug/switchify-pc.exe'

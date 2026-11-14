@@ -11,7 +11,7 @@ Regular builds ignore that variable and keep their existing predictor.
 From the repository root:
 
 ```powershell
-./scripts/Start-TextSlingerKeyboard.ps1
+./scripts/Start-TextSlingerKeyboard.ps1 -Dev
 ```
 
 The defaults use the native Python environment prepared during the spike at
@@ -20,11 +20,16 @@ in the adjacent `textslinger/assets/lm_dec19_char_tiny_12gram.arpa` checkout.
 Use `-Python` and `-Model` to override those paths. See `textslinger-spike.md`
 for the runtime installation and model hash. No WSL is used by this launcher.
 
-The script builds the embedded frontend and a debug executable with the trial
+`-Dev` starts Vite and the native Tauri app together with TextSlinger enabled,
+and keeps the terminal running for hot reload. Close the app and stop that
+terminal command to end the development session.
+
+Without `-Dev`, the script builds the embedded frontend and a debug executable with the trial
 feature, snapshots the executable and bridge into `.cache/textslinger-keyboard`, and launches the
 app with the trial command only in its inherited environment. It restores the
 caller's environment afterward. It does not install or replace the regular app.
 Use `-SkipBuild` to reopen that snapshot; use `-NoLaunch` to build only.
+Those switches apply only to the standalone build, not `-Dev`.
 Quit any running Switchify PC instance using its tray menu before launching.
 The same application identity preserves your switch and keyboard settings.
 

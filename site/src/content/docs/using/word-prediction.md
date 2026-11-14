@@ -83,7 +83,7 @@ Suggestions follow Shift, Caps and the start of a sentence, so *i* becomes *I* a
 
 There is an optional local trial build for trying TextSlinger in the scanning
 keyboard. It is not included in the regular installer. With a prepared native
-TextSlinger runtime and model, run `scripts/Start-TextSlingerKeyboard.ps1` from
+TextSlinger runtime and model, run `scripts/Start-TextSlingerKeyboard.ps1 -Dev` from
 the source checkout. The developer setup and paths are described in
 `docs/textslinger-keyboard.md` in the repository.
 
