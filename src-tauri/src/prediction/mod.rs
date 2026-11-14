@@ -2,6 +2,7 @@ mod activity;
 mod context;
 mod database;
 mod model;
+mod nearby;
 mod textslinger;
 #[cfg(test)]
 pub(crate) use model::slots;
@@ -263,7 +264,15 @@ struct Service {
     /// unchanged and the observer healthy at the moment of injection.
     accept_activity: (u64, bool),
     accepting: bool,
-    case: Option<(worker::Shift, bool, bool, bool)>,
+    /// Shift, Caps, other modifiers, sentence start and the keyboard layout:
+    /// a change makes every shown suggestion stale.
+    case: Option<(
+        worker::Shift,
+        bool,
+        bool,
+        bool,
+        crate::point_scan::KeyboardLayout,
+    )>,
     tracking: bool,
 }
 /// How an accepted suggestion that was not fully typed left the text.
@@ -790,6 +799,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             keyboard.caps,
             keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off),
             keyboard.prediction_sentence_start(),
+            keyboard.layout,
         );
         if s.case != Some(case) {
             s.case = Some(case);
@@ -941,6 +951,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
                 shift: keyboard.prediction_shift(),
                 caps: keyboard.caps,
                 sentence_start: keyboard.prediction_sentence_start(),
+                layout: Some(keyboard.layout),
             }
         };
         let now = Instant::now();

@@ -17,6 +17,17 @@ pub fn slots(words: impl IntoIterator<Item = impl Into<String>>) -> [Option<Stri
 
 pub trait Predict: Send {
     fn predict(&mut self, before: &str, prefix: &str) -> Result<Prediction, ()>;
+    /// Like `predict`, with where each letter sits on the keyboard, so a
+    /// word may correct a press that landed on a nearby key instead of
+    /// completing the prefix. A predictor that cannot only completes.
+    fn predict_near(
+        &mut self,
+        before: &str,
+        prefix: &str,
+        _keys: &[super::nearby::KeyPosition],
+    ) -> Result<Prediction, ()> {
+        self.predict(before, prefix)
+    }
     /// A refinement of the last prediction, when the predictor makes one.
     fn poll(&mut self) -> Option<Prediction> {
         None

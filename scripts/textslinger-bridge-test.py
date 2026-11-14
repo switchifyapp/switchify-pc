@@ -112,6 +112,64 @@ class Serving(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(request)):
                 bridge.serve(None, source, io.BytesIO())
 
+    def nearby_model(self, calls):
+        class Model:
+            def predict_words(self, **kwargs):
+                calls.append(kwargs)
+                if "input_sequence" in kwargs:
+                    return SimpleNamespace(top=lambda n: [SimpleNamespace(word="Help")])
+                return completions("y")()
+
+        return Model()
+
+    def textslinger_types(self):
+        return {"textslinger": SimpleNamespace(
+            InputEvent=lambda **kwargs: SimpleNamespace(**kwargs),
+            InputChannelConfig=lambda **kwargs: SimpleNamespace(**kwargs))}
+
+    def test_nearby_keys_turn_each_press_into_likely_keys(self):
+        calls = []
+        keys = [["q", 0, 0], ["w", 1, 0], ["e", 2, 0], ["r", 3, 0], ["t", 4, 0], ["y", 5, 0],
+                ["a", 0.25, 1], ["s", 1.25, 1], ["d", 2.25, 1], ["f", 3.25, 1], ["g", 4.25, 1],
+                ["h", 5.25, 1], ["j", 6.25, 1], ["k", 7.25, 1], ["l", 8.25, 1], ["p", 9, 0],
+                ["u", 6, 0], ["i", 7, 0], ["o", 8, 0], ["n", 5.75, 2], ["b", 4.75, 2]]
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(self.nearby_model(calls), [
+                {"id": 1, "before": "Can you ", "prefix": "HRL", "keys": keys}])
+        self.assertEqual(replies[1], {"id": 1, "words": ["help"]})
+        call = calls[0]
+        # The context is the text before the word; the word is the presses.
+        self.assertEqual(call["left_context"], "can you ")
+        self.assertEqual(len(call["input_sequence"]), 3)
+        press = dict(call["input_sequence"][0].alternatives)
+        self.assertEqual(press["h"], 0.0)
+        self.assertLess(press["g"], press["h"])
+        self.assertIn("y", press)
+        self.assertNotIn("q", press)
+        self.assertNotIn("p", press)
+
+    def test_short_or_unplaced_prefixes_are_only_completed(self):
+        calls = []
+        keys = [["h", 0, 0], ["e", 1, 0]]
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(self.nearby_model(calls), [
+                {"id": 1, "before": "", "prefix": "h", "keys": keys},
+                {"id": 2, "before": "", "prefix": "hex", "keys": keys},
+                {"id": 3, "before": "", "prefix": "he'", "keys": keys},
+                {"id": 4, "before": "", "prefix": "he", "keys": []}])
+        self.assertEqual([r["words"] for r in replies[1:-1]], [["hy"], ["hexy"], ["he'y"], ["hey"]])
+        self.assertTrue(all("input_sequence" not in call for call in calls))
+
+    def test_malformed_keys_are_rejected_before_model_call(self):
+        for keys in ({}, [["h", 0]], [["h", 0, 0], ["h", 1, 0]], [["H", 0, 0]], [["1", 0, 0]],
+                     [["h", True, 0]], [["h", "0", 0]], [["h", float("nan"), 0]],
+                     [["h", float("inf"), 0]], [[c, 0, 0] for c in bridge.SPELLING] + [["a", 0, 0]]):
+            source = io.BytesIO()
+            bridge.send(source, {"id": 1, "before": "", "prefix": "he", "keys": keys})
+            source.seek(0)
+            with self.assertRaises(ValueError, msg=repr(keys)):
+                bridge.serve(None, source, io.BytesIO())
+
     def test_watchdog_covers_requests_but_not_idle_waiting(self):
         source = io.BytesIO()
         bridge.send(source, {"id": 1, "before": "", "prefix": "2"})

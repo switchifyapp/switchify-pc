@@ -1,6 +1,7 @@
 use super::{
     context::Context,
     model::{Predict, Prediction},
+    nearby::KeyPosition,
 };
 use std::{
     path::Path,
@@ -115,7 +116,9 @@ impl Database {
             model.reset();
         }
     }
-    pub fn predict(&mut self, context: &Context) -> (Status, Prediction) {
+    /// Words for `context`. With `keys`, a word may correct a press that
+    /// landed on a nearby key.
+    pub fn predict(&mut self, context: &Context, keys: &[KeyPosition]) -> (Status, Prediction) {
         let status = self.status();
         if status != Status::Ready || context.partial {
             return (status, Prediction::default());
@@ -124,7 +127,7 @@ impl Database {
             unreachable!()
         };
         let start = Instant::now();
-        let result = model.predict(&context.before, &context.prefix);
+        let result = model.predict_near(&context.before, &context.prefix, keys);
         self.slow_calls = if start.elapsed() > self.slow_call {
             self.slow_calls + 1
         } else {
@@ -209,19 +212,19 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel(1);
         let mut db = Database::with_state(State::Loading(rx));
         assert_eq!(
-            db.predict(&context()),
+            db.predict(&context(), &[]),
             (Status::Loading, Prediction::default())
         );
         tx.send(Err(())).unwrap();
         assert_eq!(
-            db.predict(&context()),
+            db.predict(&context(), &[]),
             (Status::Unavailable, Prediction::default())
         );
         let missing =
             std::env::temp_dir().join(format!("switchify-missing-runtime-{}", std::process::id()));
         let mut db = Database::open(&missing);
         assert_eq!(
-            db.predict(&context()),
+            db.predict(&context(), &[]),
             (Status::Unavailable, Prediction::default())
         );
     }
@@ -248,30 +251,30 @@ mod tests {
         {
             db.state = late();
             for _ in 1..SLOW_CALLS {
-                let (status, prediction) = db.predict(&context());
+                let (status, prediction) = db.predict(&context(), &[]);
                 assert_eq!(
                     (status, prediction.words),
                     (Status::Ready, super::super::model::slots(["late"]))
                 );
             }
             db.state = prompt();
-            assert_eq!(db.predict(&context()).0, Status::Ready);
+            assert_eq!(db.predict(&context(), &[]).0, Status::Ready);
         }
         db.state = late();
         for _ in 1..SLOW_CALLS {
-            assert_eq!(db.predict(&context()).0, Status::Ready);
+            assert_eq!(db.predict(&context(), &[]).0, Status::Ready);
         }
         assert_eq!(
-            db.predict(&context()),
+            db.predict(&context(), &[]),
             (Status::Unavailable, Prediction::default())
         );
         assert_eq!(
-            db.predict(&context()),
+            db.predict(&context(), &[]),
             (Status::Unavailable, Prediction::default())
         );
         // A model error is not forgiven, however fast.
         let mut db = Database::fixture();
         db.state = State::Ready(Box::new(Fake(Err(()), Duration::ZERO)));
-        assert_eq!(db.predict(&context()).0, Status::Unavailable);
+        assert_eq!(db.predict(&context(), &[]).0, Status::Unavailable);
     }
 }
