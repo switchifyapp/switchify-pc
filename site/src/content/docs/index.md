@@ -22,7 +22,7 @@ It is open source under the AGPL-3.0. See [licences, trial and purchase keys](/l
 - **New word prediction.** Word suggestions now come from the [TextSlinger](https://github.com/kdv123/textslinger) word model, which runs on your computer. It loads when scanning starts, so suggestions are usually ready as soon as you open the keyboard. See [Word prediction](/using/word-prediction/).
 - **Five suggestions.** The row above the keyboard has five equal word slots. Two-word phrase suggestions are gone. If you add tiles beside the keyboard, the suggestions still span the full width of the keys.
 - **Fewer prediction settings.** Nearby-key suggestions, abbreviation suggestions and **Learn from my typing** are removed, along with **Forget learned words**. Words learned by earlier versions are deleted. The **Word prediction** setting still turns suggestions on and off.
-- **Update every computer to keep syncing.** Once one computer on your account is on v1.9.0, computers still on an earlier version show a message asking you to update Switchify PC before they sync again.
+- **Update every computer to keep syncing.** After you change a setting on a computer running v1.9.0, computers on your account still on an earlier version ask you to update Switchify PC before they sync again.
 
 ## New in v1.8.2
 
