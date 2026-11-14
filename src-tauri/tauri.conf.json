@@ -44,7 +44,9 @@
       "resources/prediction-model/ATTRIBUTION.md",
       "resources/prediction-model/LICENSE",
       "resources/prediction-model/corpus-notices/*",
-      "resources/prediction-neural/**/*"
+      "resources/prediction-neural/**/*",
+      "resources/textslinger/bridge.py",
+      "resources/textslinger/runtime/**/*"
     ],
     "externalBin": ["binaries/switchify-smol-worker"],
     "active": true,

@@ -40,10 +40,18 @@ try {
   New-Item -ItemType Directory -Path $sidecarDirectory -Force | Out-Null
   Copy-Item -LiteralPath $launcherSource -Destination $sidecar -Force
 
+  # The TextSlinger runtime's interpreter is the one executable the app
+  # launches from its resources; sign it like the app's own executables.
+  $runtimePython = Join-Path $root 'src-tauri\resources\textslinger\runtime\python.exe'
+  if (-not (Test-Path -LiteralPath $runtimePython)) {
+    throw 'The TextSlinger runtime is missing; run npm run prediction-model first.'
+  }
+
   if ($SkipSign) {
     $env:SWITCHIFY_ALLOW_UNSIGNED_UIACCESS_PACKAGE = '1'
   } else {
     & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $sidecar
+    & (Join-Path $PSScriptRoot 'Sign-Windows.ps1') $runtimePython
   }
 
   & $npm @tauriArgs
