@@ -3140,7 +3140,15 @@ mod tests {
         // No suggestions yet, then only the instant words: the row and the
         // group holding the user's tile are never skipped.
         for batch in [None, Some(instant)] {
+            // Leave the suggestion row first, or a batch is queued, not shown.
+            k.restart();
+            k.handle(Action::Next);
+            assert_ne!(k.scan.position(&k.rows).0, 0);
+            let shown = batch.is_some();
             k.predictions(batch, false);
+            if shown {
+                assert_eq!(k.label(Key::Prediction(0)), "one");
+            }
             k.restart();
             assert_eq!(
                 k.scan.highlight(&k.rows).0,
@@ -3157,6 +3165,59 @@ mod tests {
             }
             assert!(reached, "the tile's group is highlighted");
         }
+    }
+
+    #[test]
+    fn row_groups_skip_the_group_of_empty_generated_slots_beside_tiles() {
+        use crate::scan_preferences::Resolved;
+        let tile = Cell {
+            label: "Hi".into(),
+            action: PanelAction::Text { text: "Hi".into() },
+            span: 1,
+        };
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                row_groups: true,
+                ..Default::default()
+            },
+        )
+        .with_extras(PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![tile.clone()], vec![tile]],
+        });
+        k.enable_predictions(true);
+        let slots = crate::prediction::SLOTS;
+        // Seven items: the three instant slots, the two generated slots, and
+        // the two tiles each form a group.
+        assert_eq!(
+            crate::scan_items::row_groups(slots + 2),
+            vec![0..3, 3..slots, slots..slots + 2]
+        );
+        // Show only the instant words, from another row so they are not queued.
+        k.restart();
+        k.handle(Action::Next);
+        assert_ne!(k.scan.position(&k.rows).0, 0);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 1,
+                refined: true,
+                words: crate::prediction::slots(["one", "two", "three"]),
+            }),
+            false,
+        );
+        assert_eq!(k.label(Key::Prediction(0)), "one");
+        k.restart();
+        assert_eq!(k.scan.highlight(&k.rows).0, 0);
+        k.handle(Action::Select);
+        let mut starts = std::collections::BTreeSet::new();
+        for _ in 0..12 {
+            if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+                starts.insert(columns.start);
+            }
+            k.handle(Action::Next);
+        }
+        assert_eq!(starts, [0, slots].into_iter().collect());
     }
 
     #[test]
