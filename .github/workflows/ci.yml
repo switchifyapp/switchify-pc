@@ -243,8 +243,6 @@ jobs:
           $worker = node scripts/check-packaged-prediction.mjs $unpacked --worker
           if ($LASTEXITCODE -ne 0) { throw 'Packaged workers failed verification.' }
           "SWITCHIFY_BENCHMARK_WORKER=$worker" >> $env:GITHUB_ENV
-          node scripts/check-textslinger-runtime.mjs $unpacked
-          if ($LASTEXITCODE -ne 0) { throw 'The packaged TextSlinger runtime failed its check.' }
       - name: Measure packaged prediction without desktop input
         if: needs.changes.outputs.app == 'true'
         env:

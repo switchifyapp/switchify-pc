@@ -16,12 +16,12 @@ pins the release and each archive's size and SHA-256.
 
 - downloads the archive for the build target (`TAURI_ENV_TARGET_TRIPLE`, or rustc's host);
 - checks its size and hash and that every path stays inside the runtime;
-- unpacks it to `src-tauri/resources/textslinger/runtime`, replacing any earlier copy all at once;
+- unpacks it to `src-tauri/resources/textslinger/runtime`, replacing any earlier copy all at once and leaving out static libraries (`.a`, `.lib`) that nothing loads;
 - records the archive's hash in `runtime.sha256`, so later runs skip the download.
 
 Windows ARM64 bundles the Windows x64 runtime and runs it under Windows' x64
 emulation, because there is no Python 3.10 or numpy 1.26 build for ARM64. macOS
-releases are Apple Silicon only. Linux has no runtime.
+releases are Apple Silicon only. On Linux the fetch is skipped, since Switchify PC is not packaged there.
 
 ## The bridge
 
@@ -44,13 +44,16 @@ receives. It waits while idle with no time limit. A request that takes more than
 `resources/textslinger/runtime/**/*`.
 
 - **macOS release:** `scripts/sign-macos-textslinger-runtime.sh` signs every Mach-O file in the runtime with the Developer ID, hardened runtime and a secure timestamp before `tauri build`. The release then runs the signed runtime once. `scripts/verify-macos-release.sh` already rejects any nested binary not signed with the release identity.
-- **Windows release:** `scripts/Build-WindowsUiAccess.ps1` signs the runtime's `python.exe` alongside the startup launcher.
+- **Windows release:** `scripts/Build-WindowsUiAccess.ps1` signs every `.exe`, `.dll` and `.pyd` in the runtime that isn't already validly signed, such as Microsoft's C runtime, because Smart App Control can block unsigned DLLs. `scripts/Verify-WindowsUiAccessPackage.ps1` checks every one in the installer and runs the installed runtime once. CI runs the same script with unsigned files allowed.
 
 ## Checks
 
 - `scripts/textslinger-bridge-test.py`: dependency-free bridge tests. CI runs them with the bundled Python.
 - `scripts/check-textslinger-runtime.mjs <folder>`: finds `textslinger/runtime` and `bridge.py` under a folder, runs them once with fixed text, and requires "door" for "please open the ". CI runs it after fetching, and on the packaged app on macOS, Windows x64 and Windows ARM64. The ARM64 run covers x64 emulation.
 - `scripts/fetch-textslinger-runtime.node-test.mjs`: pins, target mapping, archive checks and the all-at-once replacement.
+
+An installer update overwrites files but may not remove ones a newer runtime no
+longer ships. Check this when the runtime version first changes.
 
 To update the runtime, publish a switchify-prediction release, then update
 `scripts/textslinger-runtime.json` with its asset URLs, sizes and SHA-256 digests.

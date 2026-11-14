@@ -555,6 +555,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Before the build script, so the bundled TextSlinger runtime is there to sign.
+      - name: Fetch prediction model
+        run: npm run prediction-model
+
       - name: Verify Windows release configuration
         shell: powershell
         env:

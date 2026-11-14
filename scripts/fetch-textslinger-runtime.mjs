@@ -3,9 +3,9 @@
 // Fetches the TextSlinger runtime for the build target from a switchify-prediction
 // release, pinned by size and SHA-256, into src-tauri/resources/textslinger/runtime.
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 
@@ -44,6 +44,10 @@ async function download(url, pin, fetcher) {
   return Buffer.concat(chunks);
 }
 
+// Static libraries for building extensions. The runtime never loads them, and
+// leaving them out means no unsigned archives of Mach-O objects in the app.
+const unused = name => /\.(a|lib)$/i.test(name);
+
 // Checks the archive against its pin and returns its files. Nothing is written.
 export function unpackRuntime(bytes, pin, runtime) {
   if (bytes.length !== pin.bytes || digest(bytes) !== pin.sha256) throw new Error('TextSlinger runtime checksum mismatch');
@@ -55,7 +59,7 @@ export function unpackRuntime(bytes, pin, runtime) {
       throw new Error(`Unsafe TextSlinger runtime path: ${name}`);
     }
     seen.add(name);
-    return true;
+    return !unused(name);
   }});
   const description = JSON.parse(Buffer.from(entries['manifest.json'] ?? []).toString('utf8') || 'null');
   if (description?.format_version !== 1 || description.target !== runtime ||
@@ -75,9 +79,31 @@ export async function isCurrent(directory, pin) {
   } catch { return false; }
 }
 
+// Antivirus scanning of just-written files can briefly block a rename on Windows.
+export async function renameWithRetry(from, to, attempts = 5, rename_ = rename) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await rename_(from, to); }
+    catch (error) {
+      if (attempt >= attempts || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error;
+      await new Promise(done => setTimeout(done, 200 * attempt));
+    }
+  }
+}
+
+// Removes staging folders that an interrupted run left behind.
+export async function removeLeftovers(directory) {
+  const prefix = `${basename(directory)}.pending-`;
+  let names = [];
+  try { names = await readdir(dirname(directory)); } catch { return; }
+  for (const name of names) {
+    if (name.startsWith(prefix)) await rm(join(dirname(directory), name), { recursive: true, force: true });
+  }
+}
+
 // Replaces directory with the pinned runtime, all at once.
-export async function acquireRuntime(directory, runtime, pins = manifest, fetcher = fetch) {
+export async function acquireRuntime(directory, runtime, pins = manifest, fetcher = fetch, rename_ = rename) {
   const pin = pins.targets[runtime];
+  await removeLeftovers(directory);
   if (await isCurrent(directory, pin)) return false;
   const { entries, description } = unpackRuntime(await download(pin.url, pin, fetcher), pin, runtime);
   await mkdir(dirname(directory), { recursive: true });
@@ -92,9 +118,9 @@ export async function acquireRuntime(directory, runtime, pins = manifest, fetche
     // fflate does not carry file modes; the macOS interpreter must be executable.
     if (process.platform !== 'win32') await chmod(join(staging, description.python), 0o755);
     await rm(stampFor(directory), { force: true });
-    try { await rename(directory, previous); moved = true; }
+    try { await renameWithRetry(directory, previous, 5, rename_); moved = true; }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
-    try { await rename(staging, directory); }
+    try { await renameWithRetry(staging, directory, 5, rename_); }
     catch (error) { if (moved) await rename(previous, directory); throw error; }
     await rm(previous, { recursive: true, force: true });
     await writeFile(stampFor(directory), `${pin.sha256}\n`);
@@ -104,7 +130,12 @@ export async function acquireRuntime(directory, runtime, pins = manifest, fetche
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const target = buildTarget();
-  const runtime = runtimeTarget(target);
-  const fetched = await acquireRuntime(runtimeDirectory, runtime);
-  console.log(`${fetched ? 'Fetched and verified' : 'Verified'} TextSlinger runtime ${manifest.release} for ${target} (${runtime})`);
+  if (target.includes('-linux-')) {
+    // Switchify PC does not ship on Linux; this keeps other checks usable there.
+    console.log(`No TextSlinger runtime for ${target}; skipping. Linux builds cannot be packaged.`);
+  } else {
+    const runtime = runtimeTarget(target);
+    const fetched = await acquireRuntime(runtimeDirectory, runtime);
+    console.log(`${fetched ? 'Fetched and verified' : 'Verified'} TextSlinger runtime ${manifest.release} for ${target} (${runtime})`);
+  }
 }

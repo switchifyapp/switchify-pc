@@ -96,6 +96,17 @@ try {
     if ($workers.Count -ne 1) { throw "Expected one installed $name" }
     Assert-Signature $workers[0].FullName
   }
+  # The bundled TextSlinger runtime: every program and library signed, and
+  # the installed copy answers a fixed request through the bridge.
+  $runtimes = @(Get-ChildItem -LiteralPath $unpacked -Recurse -Directory -Filter 'runtime' |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') })
+  if ($runtimes.Count -ne 1) { throw 'Expected one installed TextSlinger runtime' }
+  $runtimeBinaries = @(Get-ChildItem -LiteralPath $runtimes[0].FullName -Recurse -File |
+    Where-Object { $_.Extension -in '.exe', '.dll', '.pyd' })
+  if ($runtimeBinaries.Count -eq 0) { throw 'The installed TextSlinger runtime has no programs' }
+  foreach ($binary in $runtimeBinaries) { Assert-Signature $binary.FullName }
+  & node (Join-Path $PSScriptRoot 'check-textslinger-runtime.mjs') $unpacked
+  if ($LASTEXITCODE -ne 0) { throw 'The installed TextSlinger runtime failed its check.' }
 } finally {
   $resolved = [IO.Path]::GetFullPath($unpacked)
   $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

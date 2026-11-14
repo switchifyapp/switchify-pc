@@ -5,7 +5,8 @@ import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
-import { acquireRuntime, buildTarget, isCurrent, manifest, runtimeTarget, unpackRuntime } from './fetch-textslinger-runtime.mjs';
+import { acquireRuntime, buildTarget, isCurrent, manifest, renameWithRetry, runtimeTarget, unpackRuntime } from './fetch-textslinger-runtime.mjs';
+import { rename } from 'node:fs/promises';
 import { frame, frames } from './check-textslinger-runtime.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -56,11 +57,16 @@ test('archives must match the pin, stay inside the runtime and describe themselv
     const bad = archive({ [name]: strToU8('x') });
     assert.throws(() => unpackRuntime(bad.zip, bad.pin, 'x86_64-pc-windows-msvc'), /Unsafe/, name);
   }
+  const directory = archive({ 'site/': new Uint8Array() });
+  assert.throws(() => unpackRuntime(directory.zip, directory.pin, 'x86_64-pc-windows-msvc'), /Unsafe/);
+  const libraries = archive({ 'numpy/core/lib/npymath.lib': strToU8('lib'), 'numpy/core/lib/libnpymath.a': strToU8('a') });
+  const kept = Object.keys(unpackRuntime(libraries.zip, libraries.pin, 'x86_64-pc-windows-msvc').entries).sort();
+  assert.deepEqual(kept, ['manifest.json', 'model/m.kenlm', 'python.exe']);
   const other = archive({}, 'aarch64-apple-darwin');
   assert.throws(() => unpackRuntime(other.zip, other.pin, 'x86_64-pc-windows-msvc'), /manifest/);
 });
 
-test('acquiring writes the runtime once and keeps the previous one on failure', async () => {
+test('acquiring writes the runtime once and keeps it when a new download is wrong', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'textslinger-runtime-'));
   try {
     const destination = join(dir, 'runtime');
@@ -78,6 +84,43 @@ test('acquiring writes the runtime once and keeps the previous one on failure', 
     assert.equal(await readFile(join(destination, 'model/m.kenlm'), 'utf8'), 'model');
     await assert.rejects(stat(join(destination, 'extra.txt')));
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a failed swap restores the previous runtime, and leftovers are removed', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'textslinger-runtime-'));
+  try {
+    const destination = join(dir, 'runtime');
+    const first = archive({});
+    await acquireRuntime(destination, 'x86_64-pc-windows-msvc', pinsFor(first.pin), async () => new Response(first.zip));
+    const next = archive({ 'extra.txt': strToU8('new') });
+    // Moving the old runtime aside works; moving the new one into place does not.
+    const failing = async (from, to) => {
+      if (to === destination) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      return rename(from, to);
+    };
+    await assert.rejects(acquireRuntime(destination, 'x86_64-pc-windows-msvc', pinsFor(next.pin),
+      async () => new Response(next.zip), failing), /disk full/);
+    assert.equal(await readFile(join(destination, 'model/m.kenlm'), 'utf8'), 'model');
+    await assert.rejects(stat(join(destination, 'extra.txt')));
+
+    await mkdir(join(dir, 'runtime.pending-leftover'));
+    await acquireRuntime(destination, 'x86_64-pc-windows-msvc', pinsFor(next.pin), async () => new Response(next.zip));
+    assert.equal(await readFile(join(destination, 'extra.txt'), 'utf8'), 'new');
+    await assert.rejects(stat(join(dir, 'runtime.pending-leftover')));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('renames are retried while a scanner holds the folder', async () => {
+  let calls = 0;
+  const flaky = async () => {
+    calls++;
+    if (calls < 3) throw Object.assign(new Error('busy'), { code: 'EPERM' });
+  };
+  await renameWithRetry('a', 'b', 5, flaky);
+  assert.equal(calls, 3);
+  await assert.rejects(renameWithRetry('a', 'b', 5, async () => {
+    throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+  }), /gone/);
 });
 
 test('a runtime without its stamp or manifest is not current', async () => {
