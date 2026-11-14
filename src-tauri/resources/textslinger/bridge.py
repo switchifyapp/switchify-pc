@@ -55,13 +55,15 @@ SPREAD = 0.3
 RADIUS = 1.5
 # Prefixes outside this range are completed only. One letter says too little
 # to tell a slip from the start of another word, and the search slows as the
-# prefix grows: about 0.25 s for eight letters and 0.6 s for twelve, against
-# the worker's 1.2 s reply deadline. Keep in step with nearby::correctable.
+# prefix grows: with the mixed-case model, about 0.4 s for eight letters on a
+# fast PC, against the worker's 1.2 s reply deadline. Keep in step with
+# nearby::correctable.
 NEARBY_MIN_PREFIX = 2
 NEARBY_MAX_PREFIX = 8
 # Longest a nearby-key search may run before the prefix is completed instead,
-# so a slow computer still answers well within the reply deadline.
-NEARBY_BUDGET_SECONDS = 0.4
+# so a slow computer still answers well within the reply deadline: the
+# completion that follows takes about 0.05 s more.
+NEARBY_BUDGET_SECONDS = 0.6
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
 # Each letter at most once, so the list is short.
 KEYS_LIMIT = len(LETTERS)
@@ -178,10 +180,26 @@ def channel_words(model, before, prefix, positions, cased=False):
                 nbest=CASED_CANDIDATES if cased else SUGGESTIONS,
             )
             if cased:
-                return merged(p.word for p in result.top(CASED_CANDIDATES))
+                return [p.word for p in result.top(CASED_CANDIDATES)]
             return [p.word.lower() for p in result.top(SUGGESTIONS)]
     except PredictionCancelled:
         return None
+
+
+def completions(model, before, prefix, cased=False):
+    """Words that continue prefix as it was typed."""
+    context = ((before or MID_SENTENCE) + prefix) if cased else (before + prefix).lower()
+    result = model.predict_words(
+        left_context=context,
+        word_spelling_characters=CASED_SPELLING if cased else SPELLING,
+        word_ending_characters=(" ",),
+        predict_lower=not cased,
+        nbest=CASED_CANDIDATES if cased else SUGGESTIONS,
+    )
+    # TextSlinger splits words on spaces; Switchify uses Unicode word
+    # boundaries. Keep the model's full context, but map only its completion
+    # suffix onto the prefix Switchify owns.
+    return [prefix + p.replacement.text for p in result.top(CASED_CANDIDATES if cased else SUGGESTIONS)]
 
 
 def suggestions(model, before, prefix, positions=None, cased=False):
@@ -211,21 +229,17 @@ def suggestions(model, before, prefix, positions=None, cased=False):
     if at_word_start and (nearby or case_only):
         words = channel_words(model, before, prefix, positions if nearby else None, cased)
         if words is not None:
-            return words
-    context = ((before or MID_SENTENCE) + prefix) if cased else (before + prefix).lower()
-    result = model.predict_words(
-        left_context=context,
-        word_spelling_characters=spelling,
-        word_ending_characters=(" ",),
-        predict_lower=not cased,
-        nbest=CASED_CANDIDATES if cased else SUGGESTIONS,
-    )
-    # TextSlinger splits words on spaces; Switchify uses Unicode word
-    # boundaries. Keep the model's full context, but map only its completion
-    # suffix onto the prefix Switchify owns.
-    if cased:
-        return merged(prefix + p.replacement.text for p in result.top(CASED_CANDIDATES))
-    return [prefix + p.replacement.text for p in result.top(SUGGESTIONS)]
+            if not nearby:
+                # Only a change of case is allowed here, and Switchify shows
+                # only words that continue the prefix, but the channel may
+                # also add or drop a letter. Keep the continuations, and top
+                # up from plain completion when they leave slots empty.
+                words = [w for w in words if w.lower().startswith(prefix.lower())]
+                if len(merged(words)) < SUGGESTIONS:
+                    words += completions(model, before, prefix, cased)
+            return merged(words) if cased else words
+    words = completions(model, before, prefix, cased)
+    return merged(words) if cased else words
 
 
 def serve(model, source, target, cased=False):

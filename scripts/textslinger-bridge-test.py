@@ -227,7 +227,10 @@ class Serving(unittest.TestCase):
                 {"id": 2, "before": "", "prefix": "i"}], cased=True)
         # Case variants of one word share a slot, the first one kept.
         self.assertEqual(replies[1], {"id": 1, "words": ["money", "month", "Monday", "monkey", "mon"]})
-        first, second = calls
+        # The second channel search leaves no word that continues "i", so
+        # plain completion tops it up.
+        first, second, top_up = calls
+        self.assertNotIn("input_sequence", top_up)
         self.assertEqual(first["left_context"], "See you on ")
         self.assertFalse(first["predict_lower"])
         self.assertEqual(first["word_spelling_characters"], bridge.CASED_SPELLING)
@@ -237,6 +240,18 @@ class Serving(unittest.TestCase):
         # Nothing before the word is the middle of a sentence, never a start.
         self.assertEqual(second["left_context"], bridge.MID_SENTENCE)
         self.assertEqual(dict(second["input_sequence"][0].alternatives), {"i": 0.0, "I": bridge.OTHER_CASE})
+
+    def test_a_case_only_search_keeps_continuations_and_tops_them_up(self):
+        calls = []
+        model = self.cased_model(calls, channel=("can't", "cant", "can", "Can't", "cat"),
+                                 completion="t")
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(model, [{"id": 1, "before": "I ", "prefix": "can'"}], cased=True)
+        # The channel's "cant", "can" and "cat" do not continue "can'", and
+        # "Can't" is "can't" again. Completion's "can't" and "can'ey" are
+        # repeats too, so it adds only "can'EY".
+        self.assertEqual(replies[1], {"id": 1, "words": ["can't", "can'EY"]})
+        self.assertEqual(["input_sequence" in call for call in calls], [True, False])
 
     def test_a_cased_model_with_nearby_keys_offers_both_cases_of_each_key(self):
         calls = []

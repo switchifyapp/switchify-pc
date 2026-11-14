@@ -278,12 +278,14 @@ fn the_bundled_runtime_suggests_capitals_and_restores_them() {
         );
     }
     // The model never capitalises a word for a sentence start itself: with
-    // nothing before the word, it suggests as if mid-sentence, and the
-    // keyboard alone decides sentence starts.
-    let revision = e.revision + 1;
-    let batch = response_batch(e.respond(layout_request("Done. ", revision, layout)));
-    let first = batch.words[0].as_deref().unwrap();
-    assert_eq!(first, first.to_lowercase(), "{:?}", batch.words);
+    // nothing before the word, as here after a reset, it suggests as if
+    // mid-sentence, and the keyboard alone decides sentence starts.
+    for text in ["w", "Done. w"] {
+        let revision = e.revision + 1;
+        let batch = response_batch(e.respond(layout_request(text, revision, layout)));
+        let first = batch.words[0].as_deref().unwrap();
+        assert_eq!(first, first.to_lowercase(), "{text}: {:?}", batch.words);
+    }
 }
 
 #[test]
