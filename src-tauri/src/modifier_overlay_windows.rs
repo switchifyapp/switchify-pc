@@ -998,8 +998,8 @@ mod tests {
             keyboard.set_panel_theme(theme);
             keyboard.enable_predictions(true);
             let keyboard_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
-            // Some slots filled, some empty placeholders, and words long
-            // enough to need shrinking in a word slot and a phrase slot.
+            // Some slots filled, an empty placeholder, and words long
+            // enough to need shrinking.
             keyboard.predictions(
                 Some(crate::prediction::worker::Batch {
                     token: 1,
@@ -1009,10 +1009,7 @@ mod tests {
                         Some("the"),
                         Some("extraordinarily"),
                         None,
-                        Some("congratulations"),
-                        Some("thank you"),
-                        None,
-                        Some("misunderstanding everything"),
+                        Some("misunderstanding"),
                     ]
                     .map(|word| word.map(str::to_owned)),
                 }),

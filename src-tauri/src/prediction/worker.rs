@@ -366,16 +366,12 @@ impl Engine {
         self.token = self.token.wrapping_add(1);
         self.inserts = Default::default();
         let mut labels = std::array::from_fn(|_| None);
-        // Each shown word takes the next free word slot, so none leaves a gap.
-        // Phrases do the same within the phrase slots, whose tiles are wider.
-        let mut next_word = 0;
-        let mut next_phrase = super::PHRASE_SLOTS.start;
+        // Each shown word takes the next free slot, so none leaves a gap.
+        let mut index = 0;
         for (slot, word) in prediction.words.into_iter().enumerate() {
             let Some(word) = word else {
                 continue;
             };
-            let phrase = super::PHRASE_SLOTS.contains(&slot);
-            let index = if phrase { next_phrase } else { next_word };
             let (label, insert) = if prediction.abbreviated[slot] {
                 if slot >= 3
                     || !self.abbreviations
@@ -439,11 +435,7 @@ impl Engine {
             }
             labels[index] = Some(label);
             self.inserts[index] = Some(insert);
-            if phrase {
-                next_phrase += 1;
-            } else {
-                next_word += 1;
-            }
+            index += 1;
         }
         if !self.stable(target, epoch) {
             self.clear();
@@ -818,7 +810,7 @@ mod tests {
             ("cfé", "café", 0, true),
             ("a", "about", 0, true),
             ("abt", "about", 3, true),
-            ("abt", "about", 5, true),
+            ("abt", "about", 4, true),
         ] {
             let mut e = abbreviation_engine(slot, word);
             let b = response_batch(e.respond(abbreviation_request(vec![append(prefix)], enabled)));
@@ -881,7 +873,7 @@ mod tests {
             let b = response_batch(e.respond(nearby_request(vec![append("hrl")], 1, None, mode)));
             assert!(b.words.iter().all(Option::is_none));
         }
-        for slot in [3, 5] {
+        for slot in [3, 4] {
             let mut e = correction_engine(slot, "hello", Some(correction()));
             let b = response_batch(e.respond(nearby_request(
                 vec![append("hrl")],
@@ -1074,14 +1066,10 @@ mod tests {
             })
         }
         fn poll(&mut self) -> Option<super::super::model::Prediction> {
-            std::mem::take(&mut self.pending).then(|| {
-                let mut words = crate::prediction::slots(["water", "walk", "waffle", "walnut"]);
-                words[crate::prediction::PHRASE_SLOTS.start] = Some("wavy hair".into());
-                super::super::model::Prediction {
-                    words,
-                    corrections: Default::default(),
-                    abbreviated: Default::default(),
-                }
+            std::mem::take(&mut self.pending).then(|| super::super::model::Prediction {
+                words: crate::prediction::slots(["water", "walk", "waffle", "walnut", "wavy"]),
+                corrections: Default::default(),
+                abbreviated: Default::default(),
             })
         }
         fn pending(&self) -> bool {
@@ -1122,10 +1110,8 @@ mod tests {
             });
         let mut immediate = Vec::new();
         let mut refined = Vec::new();
-        let mut phrases = Vec::new();
         let mut failures = 0;
         let mut generated_words = 0;
-        let mut generated_phrases = 0;
         let mut session_reports = Vec::new();
         // A timeout deliberately disables refinement for the keyboard session.
         // Simulate at most five explicit reopenings to collect 1,000 successes,
@@ -1162,9 +1148,6 @@ mod tests {
                 let first_ms = start.elapsed().as_secs_f64() * 1000.;
                 let mut success = false;
                 let mut words_ms = None;
-                let mut phrase_ms = None;
-                // Words refine the row first; the phrases, requested once they
-                // arrive, refine it again.
                 while e.database.pending() {
                     assert!(start.elapsed() < Duration::from_secs(35));
                     std::thread::sleep(Duration::from_millis(20));
@@ -1176,29 +1159,14 @@ mod tests {
                         if words_ms.is_none() {
                             words_ms = Some(elapsed);
                             if i >= 20 {
-                                generated_words += next.words
-                                    [..crate::prediction::PHRASE_SLOTS.start]
-                                    .iter()
-                                    .flatten()
-                                    .count()
-                                    - instant;
-                            }
-                        }
-                        let shown = next.words[crate::prediction::PHRASE_SLOTS]
-                            .iter()
-                            .flatten()
-                            .count();
-                        if shown > 0 && phrase_ms.is_none() {
-                            phrase_ms = Some(elapsed);
-                            if i >= 20 {
-                                generated_phrases += shown;
+                                generated_words += next.words.iter().flatten().count() - instant;
                             }
                         }
                         success = true;
                     }
                 }
-                // A phrase request that failed fails this query, not the next.
-                if phrase_ms.is_none()
+                // A word request that failed fails this query, not the next.
+                if words_ms.is_none()
                     && matches!(
                         e.database.neural_status(),
                         Some(switchify_prediction_neural::Status::Unavailable(_))
@@ -1210,9 +1178,6 @@ mod tests {
                     immediate.push(first_ms);
                     if let (true, Some(ms)) = (success, words_ms) {
                         refined.push(ms);
-                    }
-                    if let Some(ms) = phrase_ms {
-                        phrases.push(ms);
                     }
                 } else if success {
                     warmup_completed += 1;
@@ -1240,7 +1205,6 @@ mod tests {
         }
         immediate.sort_by(f64::total_cmp);
         refined.sort_by(f64::total_cmp);
-        phrases.sort_by(f64::total_cmp);
         let stats = |values: &[f64]| {
             serde_json::json!({
                 "samples":values.len(), "median_ms":values.get(values.len()/2),
@@ -1249,16 +1213,13 @@ mod tests {
             })
         };
         let report = serde_json::json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
-            "queries":immediate.len(),"failures_including_warmup":failures,"immediate":stats(&immediate),"refinement":stats(&refined),"phrase":stats(&phrases),
+            "queries":immediate.len(),"failures_including_warmup":failures,"immediate":stats(&immediate),"refinement":stats(&refined),
             "sessions":session_reports,"maximum_sessions":5,
             "retry_policy":"Benchmark simulates explicit keyboard reopenings after failure; production never retries automatically",
             "scope":"Production Engine and model adapter, real neural child IPC, 20ms polling, fake input/activity; excludes outer desktop pipe and rendering",
-            "policy":"up to three instant words first, then up to two generated words in the next free slots, then up to three generated phrases in slots 6 to 8",
+            "policy":"up to three instant words first, then up to two generated words in the next free slots",
             "generated_words":generated_words,
             "neural_slot_fill_rate":generated_words as f64 / (refined.len().max(1) * 2) as f64,
-            "phrase_fill_rate":phrases.len() as f64 / refined.len().max(1) as f64,
-            "generated_phrases":generated_phrases,
-            "phrase_slot_fill_rate":generated_phrases as f64 / (refined.len().max(1) * crate::prediction::PHRASE_SLOTS.len()) as f64,
             "production_qualified":false});
         println!("{report}");
         if let Some(path) = std::env::var_os("SWITCHIFY_NEURAL_REPORT") {
@@ -1284,9 +1245,6 @@ mod tests {
                         Some("tree".into()),
                         Some("walk".into()),
                         Some("wavy".into()),
-                        Some("tree house".into()),
-                        Some("waffle iron".into()),
-                        Some("water bottle".into()),
                     ],
                 })
             }
@@ -1294,24 +1252,14 @@ mod tests {
         let mut e = engine();
         e.database = Database::with_predictor(Box::new(Gappy));
         let b = response_batch(e.respond(request(vec![append("wa")], 1, None)));
-        let mut expected = crate::prediction::slots(["water", "walk", "wavy"]);
-        let phrases = crate::prediction::PHRASE_SLOTS.start;
-        expected[phrases] = Some("waffle iron".into());
-        expected[phrases + 1] = Some("water bottle".into());
-        assert_eq!(b.words, expected);
+        assert_eq!(b.words, crate::prediction::slots(["water", "walk", "wavy"]));
         assert_eq!(e.accept(b.token, 1), Some((0, "lk ".into())));
         let mut e = engine();
         e.database = Database::with_predictor(Box::new(Gappy));
         let b = response_batch(e.respond(request(vec![append("wa")], 1, None)));
-        assert_eq!(e.accept(b.token, phrases), Some((0, "ffle iron ".into())));
-        let mut e = engine();
-        e.database = Database::with_predictor(Box::new(Gappy));
-        let b = response_batch(e.respond(request(vec![append("wa")], 1, None)));
-        assert!(e.accept(b.token, phrases + 2).is_none());
-        assert_eq!(
-            e.accept(b.token, phrases + 1),
-            Some((0, "ter bottle ".into()))
-        );
+        // The slots after the shown words stay empty.
+        assert!(e.accept(b.token, 3).is_none());
+        assert_eq!(e.accept(b.token, 2), Some((0, "vy ".into())));
     }
     #[test]
     fn generated_words_fill_slots_the_instant_words_left() {
@@ -1362,17 +1310,14 @@ mod tests {
             assert!(refined.refined);
             assert_eq!(&refined.words[..3], &immediate.words[..3]);
             assert_eq!(refined.words[3].as_deref(), Some("walnut"));
-            // The phrase keeps the first phrase slot, leaving the gap before it.
-            assert_eq!(refined.words[4], None);
-            assert_eq!(refined.words[5].as_deref(), Some("wavy hair"));
-            assert!(e.accept(refined.token, 4).is_none());
+            assert_eq!(refined.words[4].as_deref(), Some("wavy"));
             if accept_old {
                 assert_eq!(e.accept(immediate.token, 0), Some((0, "ter ".into())));
                 assert!(e.accept(refined.token, 0).is_none());
             } else {
                 e.respond(request(vec![], 1, Some(refined.token)));
                 assert!(e.accept(immediate.token, 0).is_none());
-                assert_eq!(e.accept(refined.token, 5), Some((0, "vy hair ".into())));
+                assert_eq!(e.accept(refined.token, 4), Some((0, "vy ".into())));
             }
         }
     }
@@ -1856,162 +1801,34 @@ mod tests {
             }
         }
     }
-    struct Phrasal(&'static str);
-    impl super::super::model::Predict for Phrasal {
+    /// Suggests "water", then the given word.
+    struct Second(&'static str);
+    impl super::super::model::Predict for Second {
         fn predict(&mut self, _: &str, _: &str) -> Result<super::super::model::Prediction, ()> {
-            let mut words = crate::prediction::slots(["water"]);
-            words[crate::prediction::PHRASE_SLOTS.start] = Some(self.0.into());
             Ok(super::super::model::Prediction {
-                words,
+                words: crate::prediction::slots(["water", self.0]),
                 corrections: Default::default(),
                 abbreviated: Default::default(),
             })
         }
     }
     #[test]
-    fn phrases_keep_their_slot_and_are_cased_like_words() {
-        use Shift::{Locked, Off, Once};
-        // (phrase, typed, shift, caps, sentence start, label, deleted, typed text)
-        type Row = (
-            &'static str,
-            &'static str,
-            Shift,
-            bool,
-            bool,
-            &'static str,
-            usize,
-            &'static str,
-        );
-        let rows: &[Row] = &[
-            // Only the first word takes a sentence start or Shift once.
-            (
-                "water bottle",
-                "",
-                Off,
-                false,
-                false,
-                "water bottle",
-                0,
-                "water bottle ",
-            ),
-            (
-                "water bottle",
-                "",
-                Off,
-                false,
-                true,
-                "Water bottle",
-                0,
-                "Water bottle ",
-            ),
-            (
-                "water bottle",
-                "",
-                Once,
-                false,
-                false,
-                "Water bottle",
-                0,
-                "Water bottle ",
-            ),
-            // Caps or Shift locked capitalise the whole phrase.
-            (
-                "water bottle",
-                "",
-                Locked,
-                false,
-                false,
-                "WATER BOTTLE",
-                0,
-                "WATER BOTTLE ",
-            ),
-            (
-                "water bottle",
-                "wa",
-                Off,
-                true,
-                false,
-                "waTER BOTTLE",
-                0,
-                "TER BOTTLE ",
-            ),
-            (
-                "water bottle",
-                "wa",
-                Off,
-                false,
-                true,
-                "water bottle",
-                0,
-                "ter bottle ",
-            ),
-            // A phrase begun in capitals continues in capitals.
-            (
-                "water bottle",
-                "WA",
-                Off,
-                false,
-                false,
-                "WATER BOTTLE",
-                0,
-                "TER BOTTLE ",
-            ),
-            // A model capital in either word stays; a lowercase typed prefix
-            // of a name is retyped.
-            ("I am", "", Off, false, false, "I am", 0, "I am "),
-            (
-                "WhatsApp me",
-                "wh",
-                Off,
-                false,
-                false,
-                "WhatsApp me",
-                2,
-                "WhatsApp me ",
-            ),
-        ];
-        for &(phrase, prefix, shift, caps, start, label, deleted, text) in rows {
-            let case = format!("{phrase:?} {prefix:?} {shift:?} caps={caps} start={start}");
-            let mut e = engine();
-            e.database = Database::with_predictor(Box::new(Phrasal(phrase)));
-            let row = e
-                .query(
-                    vec![append(&format!("Send {prefix}"))],
-                    1,
-                    shift,
-                    caps,
-                    start,
-                )
-                .unwrap_or_else(|| panic!("no suggestions for {case}"));
-            assert_eq!(
-                row.words[crate::prediction::PHRASE_SLOTS.start].as_deref(),
-                Some(label),
-                "label for {case}"
-            );
-            assert_eq!(
-                e.accept(row.token, crate::prediction::PHRASE_SLOTS.start),
-                Some((deleted, text.to_owned())),
-                "insert for {case}"
-            );
-        }
-    }
-    #[test]
     fn suggestions_longer_than_input_allows_are_not_offered() {
-        let fits = "a".repeat(crate::scan_executor::PREDICTION_TEXT - 6);
-        let long = "a".repeat(crate::scan_executor::PREDICTION_TEXT - 5);
+        let fits = "a".repeat(crate::scan_executor::PREDICTION_TEXT - 1);
+        let long = "a".repeat(crate::scan_executor::PREDICTION_TEXT);
         for (second, shown) in [(fits, true), (long, false)] {
-            let phrase: &'static str = format!("water {second}").leak();
+            let word: &'static str = format!("w{second}").leak();
             let mut e = engine();
-            e.database = Database::with_predictor(Box::new(Phrasal(phrase)));
-            // "Send w" leaves "ater ", the second word and a space to type:
+            e.database = Database::with_predictor(Box::new(Second(word)));
+            // "Send w" leaves the rest of the word and a space to type:
             // exactly the limit, then one more.
             let row = response_batch(e.respond(request(vec![append("Send w")], 1, None)));
             assert_eq!(row.words[0].as_deref(), Some("water"));
             assert_eq!(
-                row.words[crate::prediction::PHRASE_SLOTS.start].is_some(),
+                row.words[1].is_some(),
                 shown,
                 "{} characters to type",
-                phrase.len()
+                word.len()
             );
         }
     }
