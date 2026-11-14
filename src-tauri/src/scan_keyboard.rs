@@ -440,10 +440,13 @@ impl Keyboard {
     }
     /// The widest row of keys, in key widths, with the gaps between them.
     /// The user's tiles are left out: they take their width from the keys.
+    /// The widest row of keys, in key widths. The suggestion row fits itself
+    /// to this width, so it is not counted.
     fn widest_keys(&self) -> f64 {
         let gap = crate::scan_panel::KEY_GAP;
         self.rows
             .iter()
+            .filter(|keys| !keys.iter().any(|key| matches!(key, Key::Prediction(_))))
             .map(|keys| {
                 let fixed: Vec<Key> = keys
                     .iter()
@@ -1188,8 +1191,21 @@ impl Keyboard {
             Key::Close | Key::Dock | Key::Layout | Key::RetryPrediction => 1.5,
             // Room for "Navigation" on the narrow Numbers page.
             Key::Page(_) => 1.3,
+            Key::Prediction(_) => self.prediction_weight(),
             _ => 1.0,
         }
+    }
+    /// Without columns every row stretches across the keyboard, so slots
+    /// share it equally. With columns, rows keep their natural widths, so
+    /// the slots widen to span the widest row of keys instead of leaving a
+    /// blank beside them.
+    fn prediction_weight(&self) -> f64 {
+        if self.drawn_columns() == 0 {
+            return 1.0;
+        }
+        let slots = crate::prediction::SLOTS as f64;
+        let gaps = (slots - 1.0) * crate::scan_panel::KEY_GAP / 68.0;
+        ((self.widest_keys() - gaps) / slots).max(1.0)
     }
     fn style(&self, key: Key, row_scan: bool) -> TileStyle {
         TileStyle {
@@ -3056,6 +3072,46 @@ mod tests {
     }
 
     #[test]
+    fn suggestions_span_the_keys_when_columns_are_drawn() {
+        let tile = Cell {
+            label: "Hi".into(),
+            action: PanelAction::Text { text: "Hi".into() },
+            span: 1,
+        };
+        let mut k = Keyboard::new(false);
+        k.enable_predictions(true);
+        k.restart();
+        // Without columns, rows stretch on their own; slots are one key wide.
+        assert_eq!(k.weight(Key::Prediction(0)), 1.0);
+        k.set_extras(PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![tile]],
+        });
+        k.restart();
+        assert!(k.drawn_columns() > 0);
+        let slots: Vec<Key> = k.rows[0]
+            .iter()
+            .copied()
+            .filter(|key| matches!(key, Key::Prediction(_)))
+            .collect();
+        assert_eq!(slots.len(), crate::prediction::SLOTS);
+        // The five slots and the gaps between them are exactly as wide as the
+        // widest row of keys, so no blank is drawn beside them.
+        let gap = crate::scan_panel::KEY_GAP / 68.0;
+        let width =
+            slots.iter().map(|&key| k.weight(key)).sum::<f64>() + (slots.len() - 1) as f64 * gap;
+        assert!(
+            (width - k.widest_keys()).abs() < 1e-9,
+            "{width} vs {}",
+            k.widest_keys()
+        );
+        assert!(k.weight(Key::Prediction(0)) > 1.0);
+        assert!(k.row_filler(&k.rows[0]).is_none());
+        // Other rows still get a blank where they are narrower than the widest.
+        assert!(k.rows[1..].iter().any(|row| k.row_filler(row).is_some()));
+    }
+
+    #[test]
     fn a_tile_beside_the_suggestions_is_reached_under_row_groups() {
         use crate::scan_preferences::Resolved;
         let tile = Cell {
@@ -3070,11 +3126,13 @@ mod tests {
                 ..Default::default()
             },
         )
+        // Two columns, so the top row has seven items and is split into groups.
         .with_extras(PanelExtras {
             rows: Vec::new(),
-            columns: vec![vec![tile]],
+            columns: vec![vec![tile.clone()], vec![tile]],
         });
         k.enable_predictions(true);
+        assert!(crate::scan_items::row_groups(crate::prediction::SLOTS + 2).len() > 1);
         let instant = crate::prediction::worker::Batch {
             token: 1,
             refined: true,

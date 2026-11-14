@@ -1016,6 +1016,19 @@ mod tests {
                 false,
             );
             let predictions_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            // A tile beside the keys: the suggestions still span the key area.
+            keyboard.set_extras(crate::panel_extras::PanelExtras {
+                rows: Vec::new(),
+                columns: vec![vec![crate::custom_panels::Cell {
+                    label: "Hello".into(),
+                    action: crate::panel_actions::PanelAction::Text {
+                        text: "Hello".into(),
+                    },
+                    span: 1,
+                }]],
+            });
+            let columns_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.set_extras(crate::panel_extras::PanelExtras::default());
             keyboard.predictions(None, false);
             let mut page = |page| {
                 keyboard.fixture_page(crate::scan_keyboard::Key::Page(page));
@@ -1031,6 +1044,7 @@ mod tests {
                 ),
                 ("keyboard", keyboard_frame),
                 ("keyboard-predictions", predictions_frame),
+                ("keyboard-predictions-columns", columns_frame),
                 ("keyboard-numbers", numbers_frame),
                 ("keyboard-symbols", symbols_frame),
                 (
