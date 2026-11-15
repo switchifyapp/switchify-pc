@@ -289,6 +289,46 @@ fn the_bundled_runtime_suggests_capitals_and_restores_them() {
 }
 
 #[test]
+fn the_bundled_runtime_suggests_first_words_when_the_keyboard_opens() {
+    let Some(runtime) = runtime() else { return };
+    let mut e = engine();
+    e.database = Database::open(&runtime);
+    // Nothing typed yet: the keyboard has just opened.
+    let batch = ready(&mut e);
+    let shown: Vec<_> = batch.words.iter().flatten().cloned().collect();
+    // Words that begin sentences, in the case they take mid-sentence: the
+    // keyboard has not said a capital is due.
+    assert_eq!(shown.len(), 5, "{shown:?}");
+    assert!(shown.contains(&"I".to_owned()), "{shown:?}");
+    assert!(shown.contains(&"the".to_owned()), "{shown:?}");
+    let insert = e.respond(Request::Accept {
+        generation: 0,
+        token: batch.token,
+        revision: e.revision,
+        index: 0,
+    });
+    assert!(
+        matches!(insert, Response::Insert { backspaces: 0, text: Some(ref t), .. } if *t == format!("{} ", shown[0])),
+        "{shown:?}"
+    );
+    // After a full stop the keyboard says a sentence starts, so they take a
+    // capital.
+    let revision = e.revision + 1;
+    let batch = response_batch(e.respond(Request::Query {
+        generation: 0,
+        edits: vec![edit(Edit::Reset), append("Done. ")],
+        revision,
+        displayed: None,
+        shift: Shift::Off,
+        caps: false,
+        sentence_start: true,
+        layout: None,
+    }));
+    let shown: Vec<_> = batch.words.iter().flatten().cloned().collect();
+    assert!(shown.contains(&"The".to_owned()), "{shown:?}");
+}
+
+#[test]
 fn unsupported_text_leaves_the_model_ready_for_the_next_word() {
     let Some(runtime) = runtime() else { return };
     let mut e = engine();

@@ -3,7 +3,7 @@ title: Word prediction
 description: Five word suggestions above the keyboard, from a word model that runs on the computer. Nothing you type is sent anywhere.
 ---
 
-While you type on the scanning [keyboard](/using/keyboard/), a row of up to five word suggestions appears above it. Select one to insert it and a space.
+When you open the scanning [keyboard](/using/keyboard/), and while you type on it, a row of up to five word suggestions appears above it. Select one to insert it and a space.
 
 Suggestions come from the [TextSlinger](https://github.com/kdv123/textslinger) word model, which is included with Switchify PC and runs on your computer. It starts loading when scanning starts, so it is usually ready by the time you open the keyboard. If it is still loading, the row stays empty for a moment; you can type as normal.
 
@@ -11,7 +11,7 @@ The suggestion is typed one character at a time, with a very short gap between c
 
 ## The suggestion row
 
-Suggestions begin with the first letter you type, and continue after a space as suggestions for the next word. Most complete the word you are typing, so they start with the letters you have typed so far.
+Before you type anything, the row offers words that often begin a sentence, such as *I*, *the* and *you*, so you can start with one. They come back after a full stop, with a capital. Once you type a letter, suggestions follow what you type, and continue after a space as suggestions for the next word. Most complete the word you are typing, so they start with the letters you have typed so far.
 
 A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 

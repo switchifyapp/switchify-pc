@@ -249,10 +249,8 @@ impl Engine {
             self.clear();
             return None;
         }
-        if self.buffer.is_empty() {
-            self.clear();
-            return None;
-        }
+        // An empty buffer still predicts: the keyboard has just opened, or
+        // the text before the caret is unknown, so first words are offered.
         self.status = self.database.status();
         let same = self.snapshot.as_ref() == Some(&self.buffer)
             && self.case == (shift, caps, sentence_start)
@@ -573,7 +571,9 @@ fn cased(suffix: &str, whole_word: bool, sentence_start: bool, shift: Shift, cap
 /// request, which means a keyboard is open: a spare worker waiting for one
 /// loads the model and observes nothing. Starting can take up to 500 ms of
 /// the parent's two-second reply deadline, which holds because the first
-/// request is sent before anything is typed and so runs no inference.
+/// request is sent before anything is typed: it runs no inference while the
+/// model loads, and a loaded model's first words take well under the 1.2 s
+/// the bridge is allowed.
 fn serve(
     engine: &mut Engine,
     input: &mut impl Read,
@@ -804,6 +804,43 @@ mod tests {
         let batch = response_batch(e.respond(layout_request("hrl", 6, None)));
         assert_eq!(batch.words, crate::prediction::slots(["hrly"]));
         assert_eq!(calls.lock().unwrap().last(), Some(&0));
+    }
+    #[test]
+    fn an_open_keyboard_suggests_first_words_before_anything_is_typed() {
+        struct FirstWords;
+        impl super::super::model::Predict for FirstWords {
+            fn predict(
+                &mut self,
+                before: &str,
+                prefix: &str,
+            ) -> Result<super::super::model::Prediction, ()> {
+                assert_eq!((before, prefix), ("", ""));
+                Ok(super::super::model::Prediction {
+                    words: crate::prediction::slots(["the", "I"]),
+                })
+            }
+        }
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        // The keyboard has just opened: no edits, and a capital is due.
+        let batch = e.query(vec![], 1, Shift::Off, false, true).unwrap();
+        assert_eq!(batch.words, crate::prediction::slots(["The", "I"]));
+        // Choosing one deletes nothing and types the word and a space.
+        assert_eq!(e.accept(batch.token, 0), Some((0, "The ".to_owned())));
+
+        // After Enter the buffer is empty again, and first words come back.
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        e.query(
+            vec![append("hi"), edit(Edit::End)],
+            1,
+            Shift::Off,
+            false,
+            false,
+        )
+        .unwrap();
+        let again = e.query(vec![], 1, Shift::Off, false, false).unwrap();
+        assert_eq!(again.words, crate::prediction::slots(["the", "I"]));
     }
     #[test]
     fn words_that_read_the_same_once_cased_take_one_slot() {
@@ -1055,7 +1092,7 @@ mod tests {
             assert_eq!(e.accept(b.token, 0), Some((deletion, insertion.to_owned())));
         }
         let mut e = engine();
-        assert!(e.query(vec![], 1, Shift::Off, false, false).is_none());
+        assert!(e.query(vec![], 1, Shift::Off, false, false).is_some());
         assert!(!e
             .query(vec![append("I need ")], 2, Shift::Off, false, false)
             .unwrap()
