@@ -29,6 +29,15 @@ pub struct Environment {
     /// The open keyboard has been placed on `display`. Until then it goes to
     /// the display under the pointer, wherever the session began.
     keyboard_placed: bool,
+    /// The keyboard was open on the last tick.
+    keyboard_open: bool,
+}
+impl Environment {
+    /// Whether the keyboard opened since the last tick, which it then counts
+    /// as open.
+    fn keyboard_opening(&mut self) -> bool {
+        !std::mem::replace(&mut self.keyboard_open, true)
+    }
 }
 /// A point is chosen over one window and must not be used on another.
 fn window_changed(environment: &Environment, foreground: Option<usize>) -> bool {
@@ -346,6 +355,7 @@ impl Adapter for PointScan {
                 environment.foreground = crate::scan_host::foreground().ok();
                 environment.panel = true;
                 environment.keyboard_placed = false;
+                environment.keyboard_open = false;
                 // While the displays cannot be read the panel stays where it is.
                 let placed =
                     display_navigation::displays(app)
@@ -397,6 +407,7 @@ impl Adapter for PointScan {
                 environment.panel = false;
                 environment.following = true;
                 environment.keyboard_placed = false;
+                environment.keyboard_open = false;
                 // The Home menu follows the pointer from display to display, as
                 // the mouse panel does, so whatever it opens is on the display
                 // the pointer is on. A point scan under way keeps its display.
@@ -442,9 +453,15 @@ impl Adapter for PointScan {
                 // The keyboard stays as it is whatever is in front. Only what
                 // was typed, suggested or held down belongs to one window.
                 let foreground = crate::scan_host::foreground().ok();
+                let opening = environment.keyboard_opening();
                 if environment.foreground != foreground {
                     crate::scan_executor::cleanup()?;
-                    crate::prediction::reset();
+                    // Nothing has been typed for a keyboard that has just
+                    // opened, wherever focus was while a menu or panel was
+                    // open, so its first words stay.
+                    if !opening {
+                        crate::prediction::reset();
+                    }
                     technique.typing_moved();
                     environment.foreground = foreground;
                 }
@@ -511,6 +528,7 @@ impl Adapter for PointScan {
                     environment.foreground = crate::scan_host::foreground().ok();
                 }
                 environment.keyboard_placed = false;
+                environment.keyboard_open = false;
                 technique.set_pointer(menu_pointer(technique));
             }
             // Point scanning ignores the work area, but a keyboard or menu it
@@ -587,6 +605,7 @@ fn new_engine(app: &AppHandle, config: Config) -> Result<(Workflow, Environment)
             keyboard_area,
             space: space().changes,
             keyboard_placed: false,
+            keyboard_open: false,
         },
     ))
 }
@@ -718,6 +737,7 @@ mod tests {
             keyboard_area: bounds(&display("one", 0, 1920)),
             space: 0,
             keyboard_placed: false,
+            keyboard_open: false,
         };
         for now in [None, Some(1), Some(2)] {
             for held in [None, Some(1)] {
@@ -731,6 +751,23 @@ mod tests {
         }
     }
     #[test]
+    fn only_the_first_keyboard_tick_counts_as_opening() {
+        let mut environment = Environment {
+            display: display("one", 0, 1920),
+            foreground: None,
+            panel: false,
+            following: false,
+            keyboard_area: bounds(&display("one", 0, 1920)),
+            space: 0,
+            keyboard_placed: false,
+            keyboard_open: false,
+        };
+        assert!(environment.keyboard_opening());
+        assert!(!environment.keyboard_opening());
+        environment.keyboard_open = false;
+        assert!(environment.keyboard_opening());
+    }
+    #[test]
     fn panels_keep_their_area_while_auto_hidden_bars_show_and_hide() {
         let one = display("one", 0, 1920);
         // Opened in a full-screen app, with the menu bar and Dock hidden.
@@ -742,6 +779,7 @@ mod tests {
             keyboard_area: bounds(&one),
             space: 4,
             keyboard_placed: true,
+            keyboard_open: true,
         };
         let menu_bar_showing = Rect {
             y: 24.0,
