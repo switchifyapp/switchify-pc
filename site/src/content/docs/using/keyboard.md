@@ -34,6 +34,8 @@ Choose under **Keyboard** on the Scanning page (open it from the Menus and keybo
 
 Shift, Ctrl, Alt (Option on a Mac) and Windows (Command on a Mac) each cycle through *off*, *once* and *locked*. **Caps** locks capitals.
 
+On a Mac, the modifier keys show the symbols Mac keyboards and menus use: **⇧** for Shift, **⌃ Ctrl** for Control, **⌥ Opt** for Option and **⌘ Cmd** for Command.
+
 ## Automatic spacing and capitals
 
 After a full stop, comma, question mark or exclamation mark on the Letters or Symbols page, Switchify PC adds a space for you and removes a space it typed just before the mark. It also capitalises the next letter after a full stop, question mark or exclamation mark. Other symbols, including the colon and semicolon, type exactly as shown. If you need a full stop with no space after it, as in a web or email address, use Backspace after it, or the full stop on the Numbers page.
