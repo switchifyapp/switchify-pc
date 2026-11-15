@@ -1063,6 +1063,13 @@ impl Keyboard {
             Key::Named("Delete") => "\u{2326}".into(),
             // The suffix is shared with `label`, so tile and status agree.
             Key::Modifier(0) => format!("{}{}", self.shift_glyph(), self.modifiers[0].suffix()),
+            // Mac keyboards and menus mark these keys with symbols. The short
+            // word keeps the symbol and its name on one line of the key.
+            Key::Modifier(i @ 1..=3) if self.mac => format!(
+                "{}{}",
+                ["\u{2303} Ctrl", "\u{2325} Opt", "\u{2318} Cmd"][i - 1],
+                self.modifiers[i].suffix()
+            ),
             _ => self.label(key),
         }
     }
@@ -1527,6 +1534,25 @@ mod tests {
         assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}");
         mac.modifiers[0] = Modifier::Locked;
         assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}\nLocked");
+        // macOS marks Control, Option and Command with their symbols and a
+        // short word; `label` keeps the full name.
+        for (index, text, name) in [
+            (1, "\u{2303} Ctrl", "Ctrl"),
+            (2, "\u{2325} Opt", "Option"),
+            (3, "\u{2318} Cmd", "Command"),
+        ] {
+            let key = Key::Modifier(index);
+            assert_eq!(mac.display(key), text);
+            assert_eq!(mac.label(key), name);
+            assert!(!Keyboard::LARGE_GLYPHS.contains(&text));
+            mac.modifiers[index] = Modifier::Once;
+            assert_eq!(mac.display(key), format!("{text}\nNext key"));
+            assert_eq!(mac.label(key), format!("{name}\nNext key"));
+        }
+        // Windows keeps the words on its modifier keys.
+        for (index, name) in [(1, "Ctrl"), (2, "Alt"), (3, "Windows")] {
+            assert_eq!(keyboard.display(Key::Modifier(index)), name);
+        }
         // Keys without a standard symbol keep their words on both platforms.
         for platform in [&keyboard, &mac] {
             for key in [
@@ -1534,9 +1560,6 @@ mod tests {
                 Key::Named("Escape"),
                 Key::Named("Home"),
                 Key::Named("PageUp"),
-                Key::Modifier(1),
-                Key::Modifier(2),
-                Key::Modifier(3),
                 Key::Character(' ', ' '),
             ] {
                 let text = platform.display(key);
