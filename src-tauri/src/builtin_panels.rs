@@ -148,8 +148,53 @@ pub fn validate_overrides(overrides: &BTreeMap<String, CustomPanel>) -> Result<(
 pub fn document(kind: Kind, overrides: &BTreeMap<Kind, CustomPanel>) -> CustomPanel {
     overrides
         .get(&kind)
-        .cloned()
+        .map(|panel| upgraded(kind, panel))
         .unwrap_or_else(|| default_document(kind))
+}
+
+/// Whether a tile on the panel opens this menu.
+fn opens(panel: &CustomPanel, kind: Kind) -> bool {
+    panel.rows.iter().flatten().any(|cell| {
+        cell.action
+            == PanelAction::OpenPanel {
+                panel: BuiltInPanel::Menu(kind),
+            }
+    })
+}
+
+/// A Home rearranged before it became the only hub has no Scanning tile,
+/// and Displays and Scanning were reached through More actions. Such a
+/// Home gains a row with them just above its last row. Home saved since
+/// then keeps Scanning (see `validate_edit`), so it is left as it is.
+pub fn upgraded(kind: Kind, panel: &CustomPanel) -> CustomPanel {
+    let mut panel = panel.clone();
+    if kind != Kind::Home || opens(&panel, Kind::Scanning) {
+        return panel;
+    }
+    let mut row = Vec::new();
+    if !opens(&panel, Kind::Displays) {
+        row.extend(cell(Item::Group(Kind::Displays)));
+    }
+    row.extend(cell(Item::Group(Kind::Scanning)));
+    if panel.rows.len() < crate::custom_panels::MAX_ROWS {
+        let at = panel.rows.len().saturating_sub(1);
+        panel.rows.insert(at, row);
+    } else if let Some(last) = panel.rows.last_mut() {
+        if last.len() + row.len() <= crate::custom_panels::MAX_CELLS_PER_ROW {
+            last.splice(0..0, row);
+        }
+    }
+    panel
+}
+
+/// Checks a menu the user saves in the editor. Beyond `validate_override`,
+/// Home keeps Scanning, which holds Pause and Open Switchify.
+pub fn validate_edit(kind: Kind, panel: &CustomPanel) -> Result<(), String> {
+    validate_override(kind, panel)?;
+    if kind == Kind::Home && !opens(panel, Kind::Scanning) {
+        return Err("Home keeps Scanning, which holds Pause and Open Switchify.".into());
+    }
+    Ok(())
 }
 
 /// Overrides keyed by menu rather than by name, for the runtime.
@@ -206,6 +251,44 @@ mod tests {
         wrong_id.id = "editing".into();
         assert!(validate_override(Kind::Editing, &wrong_id).is_err());
         assert!(validate_override(Kind::ShutDown, &default_document(Kind::ShutDown)).is_err());
+    }
+
+    #[test]
+    fn a_home_rearranged_before_it_held_scanning_gains_displays_and_scanning() {
+        // As Home was shipped before: no Displays or Scanning, Close last.
+        let mut old = default_document(Kind::Home);
+        for row in &mut old.rows {
+            row.retain(|cell| {
+                !matches!(
+                    cell.action,
+                    PanelAction::OpenPanel {
+                        panel: BuiltInPanel::Menu(Kind::Displays | Kind::Scanning)
+                    }
+                )
+            });
+        }
+        old.rows.reverse();
+        old.rows.retain(|row| !row.is_empty());
+        let close_row = old.rows.len() - 1;
+        old.rows.swap(0, close_row);
+        assert!(validate_override(Kind::Home, &old).is_ok());
+        assert!(validate_edit(Kind::Home, &old).is_err());
+        let new = upgraded(Kind::Home, &old);
+        assert_eq!(new.rows.len(), old.rows.len() + 1);
+        let added: Vec<_> = new.rows[old.rows.len() - 1]
+            .iter()
+            .map(|cell| cell.label.as_str())
+            .collect();
+        assert_eq!(added, ["Displays", "Scanning"]);
+        assert_eq!(new.rows.last(), old.rows.last());
+        assert_eq!(validate_edit(Kind::Home, &new), Ok(()));
+        // The runtime scans the upgraded Home.
+        let by_kind = BTreeMap::from([(Kind::Home, old.clone())]);
+        assert_eq!(document(Kind::Home, &by_kind), new);
+        // A Home that already has Scanning, and every other menu, stay as saved.
+        assert_eq!(upgraded(Kind::Home, &new), new);
+        let editing = default_document(Kind::Editing);
+        assert_eq!(upgraded(Kind::Editing, &editing), editing);
     }
 
     #[test]

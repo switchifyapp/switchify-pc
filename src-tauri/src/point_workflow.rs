@@ -1648,6 +1648,11 @@ impl Technique for Workflow {
         let returning = self.stage == Stage::KeyboardOpening && self.return_to_mouse;
         self.return_to_mouse &= !returning;
         if self.mouse_open() || returning {
+            // A page opened from the panel, such as More clicks, gives way to
+            // the Movement page; a failure on the panel's own pages stays put.
+            if self.mouse_actions_open {
+                self.mouse.show_movement();
+            }
             self.stage = Stage::Mouse;
             self.mouse_actions_open = false;
             self.parent_menu.clear();
@@ -1655,7 +1660,6 @@ impl Technique for Workflow {
             self.scroll_repeat = None;
             self.radar = None;
             self.mouse.dragging = false;
-            self.mouse.show_movement();
             self.mouse.failed();
             self.error = None;
             let _ = message;
@@ -3380,6 +3384,16 @@ mod tests {
         );
         // The panel comes back on its Movement page, not on More controls.
         assert!(!workflow.mouse.more);
+        // A failure on More controls itself, such as no display to the left,
+        // keeps that page.
+        workflow.handle(Action::OpenMouse);
+        assert_eq!(workflow.mouse_key(Key::More), None);
+        assert_eq!(
+            workflow.mouse_key(Key::Monitor(-1, 0)),
+            Some(Request::MouseMonitor(-1, 0))
+        );
+        workflow.execution_failed("No display there.".into());
+        assert!(workflow.mouse.more);
         assert!(!workflow.mouse_actions_open);
         assert_eq!(workflow.mouse_feedback(), None);
     }

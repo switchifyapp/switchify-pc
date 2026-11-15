@@ -382,7 +382,7 @@ pub fn save_override(
         .overrides
         .get(&key)
         .map_or(1, |saved| saved.version.saturating_add(1));
-    crate::builtin_panels::validate_override(kind, &panel)?;
+    crate::builtin_panels::validate_edit(kind, &panel)?;
     let mut next = current.clone();
     next.overrides.insert(key, panel);
     write(app, &next)?;

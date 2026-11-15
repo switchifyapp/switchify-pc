@@ -302,7 +302,6 @@ impl MousePanel {
         self.notice = None;
         self.scan.restart();
     }
-    /// The panel has opened, or been returned to, by a selection.
     /// Back on the first page, where the pointer is moved.
     pub fn show_movement(&mut self) {
         if self.more || self.positioning {
@@ -311,6 +310,7 @@ impl MousePanel {
             self.rebuild_rows();
         }
     }
+    /// The panel has opened, or been returned to, by a selection.
     pub fn opened(&mut self) {
         self.notice = None;
         self.scan.open();

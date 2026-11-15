@@ -58,7 +58,9 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
 
-Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
+Three rules keep a menu usable: it must keep a tile that goes **Back** or closes it; Home must keep a tile that closes it, which ends scanning; and Home must keep **Scanning**, which holds Pause and Open Switchify. The editor says so and keeps Save off until the rule is met.
+
+If you rearranged Home in an earlier version, it gains a row with **Displays** and **Scanning** just above its last row, because those menus are now reached from Home. Move them where you like and save.
 
 **Reset to default** puts a menu back the way it came. Switchify PC asks first.
 
