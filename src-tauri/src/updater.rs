@@ -10,7 +10,7 @@ use std::{
 
 use serde::Serialize;
 use tauri_plugin_updater::Update;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 
 type DownloadFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send + 'a>>;
 
@@ -334,16 +334,20 @@ struct RuntimeData<U> {
     cancel_download: Option<watch::Sender<bool>>,
 }
 
-pub struct UpdateManager<U = Update>(Mutex<RuntimeData<U>>);
+/// The second field wakes callers waiting for an operation to finish.
+pub struct UpdateManager<U = Update>(Mutex<RuntimeData<U>>, Notify);
 
 impl<U> Default for UpdateManager<U> {
     fn default() -> Self {
-        Self(Mutex::new(RuntimeData {
-            active: None,
-            available: None,
-            downloaded: None,
-            cancel_download: None,
-        }))
+        Self(
+            Mutex::new(RuntimeData {
+                active: None,
+                available: None,
+                downloaded: None,
+                cancel_download: None,
+            }),
+            Notify::new(),
+        )
     }
 }
 
@@ -370,6 +374,35 @@ impl<U: Clone> UpdateManager<U> {
         }
         if operation == Operation::Download {
             data.cancel_download = None;
+        }
+        drop(data);
+        self.1.notify_waiters();
+    }
+
+    /// Begins `operation`, first waiting out a check in progress. A check can
+    /// run unannounced over a download waiting to install, so a press of
+    /// Install or Check during it is carried out once it ends, not dropped.
+    /// Returns false if another kind of operation is active.
+    pub async fn begin_after_check(&self, operation: Operation) -> bool {
+        loop {
+            let finished = self.1.notified();
+            tokio::pin!(finished);
+            finished.as_mut().enable();
+            {
+                let mut data = self
+                    .0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                match data.active {
+                    None => {
+                        data.active = Some(operation);
+                        return true;
+                    }
+                    Some(Operation::Check) => {}
+                    Some(_) => return false,
+                }
+            }
+            finished.await;
         }
     }
 
@@ -727,6 +760,30 @@ mod tests {
         assert!(!manager.offer(Some(versioned("2.0.0"))));
         assert_eq!(manager.available().unwrap().version(), "2.0.0");
         assert_eq!(manager.download_len(), None);
+    }
+
+    #[tokio::test]
+    async fn an_install_waits_out_a_check_instead_of_being_dropped() {
+        let manager = Arc::new(UpdateManager::<FakeUpdate>::default());
+        assert!(manager.begin(Operation::Check));
+        let waiting = tokio::spawn({
+            let manager = manager.clone();
+            async move { manager.begin_after_check(Operation::Install).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        manager.finish(Operation::Check);
+        assert!(waiting.await.unwrap());
+        assert!(!manager.begin(Operation::Check));
+    }
+
+    #[tokio::test]
+    async fn waiting_to_begin_gives_way_to_a_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        assert!(manager.begin(Operation::Download));
+        assert!(!manager.begin_after_check(Operation::Install).await);
+        manager.finish(Operation::Download);
+        assert!(manager.begin_after_check(Operation::Install).await);
     }
 
     #[tokio::test]

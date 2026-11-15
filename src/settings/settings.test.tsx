@@ -178,6 +178,17 @@ describe("Switchify PC settings", () => {
     expect(region.getByRole("button", { name: "Install and restart" })).toBeInTheDocument();
   });
 
+  it("keeps an available update downloadable when a re-check fails", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Update check failed: offline", retryAction: null };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSection("Updates");
+    const region = within(screen.getByRole("region", { name: "Updates" }));
+    expect(region.getByRole("status")).toHaveTextContent("Couldn't check for a newer version. Switchify PC 1.0.0-beta.2 is still available.");
+    expect(region.getByRole("button", { name: "Download" })).toBeInTheDocument();
+  });
+
   it.each([
     ["available", null],
     ["readyToInstall", null],

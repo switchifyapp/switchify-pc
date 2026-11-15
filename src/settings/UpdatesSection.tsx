@@ -49,7 +49,9 @@ export function updateDescription(update: UpdateState) {
     case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
     case "idle": return "Automatic update checks are enabled.";
     case "checking": return "Checking for updates…";
-    case "available": return `Switchify PC ${update.version} is available.`;
+    case "available": return update.error
+      ? `Couldn't check for a newer version. Switchify PC ${update.version} is still available.`
+      : `Switchify PC ${update.version} is available.`;
     case "downloading": return `Downloading Switchify PC ${update.version}…`;
     // A failed re-check keeps the waiting download, and says so politely.
     case "readyToInstall": return update.error

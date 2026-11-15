@@ -1358,7 +1358,14 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
     }
     // A download waiting to install does not stop the check: a newer release
     // may have shipped since, and the waiting one would then be outdated.
-    if !manager.begin(UpdateOperation::Check) {
+    // A check the user asks for waits out a scheduled one rather than being
+    // dropped while the panel, kept quiet, still offers it.
+    let began = if asked {
+        manager.begin_after_check(UpdateOperation::Check).await
+    } else {
+        manager.begin(UpdateOperation::Check)
+    };
+    if !began {
         return model.snapshot();
     }
     // The download waiting to install, if any, and the version it belongs to.
@@ -1429,26 +1436,25 @@ fn check_outcome(
             model.record_updater("current", None);
             publish_update(app, model, UpdateView::current())
         }
-        // A failed check leaves a waiting download installable, and says so.
-        Err(error) => match ready {
-            Some((downloaded, version)) => {
-                let message = format!("Update check failed: {error}");
-                state::set_activity(&model.shared, ActivityKind::Error, &message);
-                model.record_updater("failed", Some(error.as_str()));
-                let mut view = UpdateView::ready(version, downloaded, Some(downloaded));
-                view.error = Some(message);
-                publish_update(app, model, view)
-            }
-            // An update already found can still be downloaded.
-            None => match manager.available() {
-                Some(update) => update_failure(
-                    app,
-                    model,
-                    Some(update.version().to_owned()),
-                    RetryAction::Download,
-                    "Update check failed",
-                    &error,
-                ),
+        // A failed check leaves an update already found where it was, ready
+        // or available, and says the check failed.
+        Err(error) => {
+            let kept = match ready {
+                Some((downloaded, version)) => {
+                    Some(UpdateView::ready(version, downloaded, Some(downloaded)))
+                }
+                None => manager
+                    .available()
+                    .map(|update| UpdateView::available(update.version().to_owned())),
+            };
+            match kept {
+                Some(mut view) => {
+                    let message = format!("Update check failed: {error}");
+                    state::set_activity(&model.shared, ActivityKind::Error, &message);
+                    model.record_updater("failed", Some(error.as_str()));
+                    view.error = Some(message);
+                    publish_update(app, model, view)
+                }
                 None => update_failure(
                     app,
                     model,
@@ -1457,8 +1463,8 @@ fn check_outcome(
                     "Update check failed",
                     &error,
                 ),
-            },
-        },
+            }
+        }
     }
 }
 
@@ -1573,7 +1579,8 @@ fn cancel_update_download(
 async fn install_update(app: AppHandle) -> Result<AppState, String> {
     let model = app.state::<AppModel>();
     let manager = app.state::<UpdateManager>();
-    if !manager.begin(UpdateOperation::Install) {
+    // A scheduled check may be running unannounced; install once it ends.
+    if !manager.begin_after_check(UpdateOperation::Install).await {
         return Ok(model.snapshot());
     }
     let Some(update) = manager.available() else {
