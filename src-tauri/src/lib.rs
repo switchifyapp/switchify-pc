@@ -1417,15 +1417,20 @@ fn check_outcome(
             let version = update.version().to_owned();
             if manager.offer(Some(update)) {
                 model.record_updater("ready", None);
-                if quiet {
+                // A quiet check still clears an earlier "couldn't check" note.
+                if quiet && model.snapshot().updater.error.is_none() {
                     return model.snapshot();
                 }
                 let downloaded = ready.map_or(0, |(bytes, _)| bytes);
-                state::set_activity(
-                    &model.shared,
-                    ActivityKind::Success,
-                    format!("Switchify PC {version} is still the latest and is ready to install."),
-                );
+                if !quiet {
+                    state::set_activity(
+                        &model.shared,
+                        ActivityKind::Success,
+                        format!(
+                            "Switchify PC {version} is still the latest and is ready to install."
+                        ),
+                    );
+                }
                 return publish_update(
                     app,
                     model,
@@ -1603,6 +1608,11 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
     }
     let Some(update) = manager.available() else {
         manager.finish(UpdateOperation::Install);
+        // The check this install waited out found the release withdrawn; it
+        // already shows Switchify PC as up to date.
+        if model.snapshot().updater.status == updater::UpdateStatus::Current {
+            return Ok(model.snapshot());
+        }
         return Ok(update_failure(
             &app,
             &model,
