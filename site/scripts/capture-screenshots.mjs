@@ -107,7 +107,7 @@ const bridge = (platform) => {
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
-      ["Home", "Adjust settings", "Keyboard", "Close"].map((label) => key(label)),
+      ["Home", "Speed and more", "Keyboard", "Close"].map((label) => key(label)),
     ] },
     { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],

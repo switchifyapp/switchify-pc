@@ -3338,7 +3338,7 @@ mod tests {
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
     }
 
-    /// Opens More clicks from the mouse panel's Adjust settings page.
+    /// Opens More clicks from the mouse panel's Speed and more page.
     fn open_more_clicks(workflow: &mut Workflow) {
         use crate::scan_mouse::Key;
         assert_eq!(workflow.mouse_key(Key::More), None);
@@ -3382,9 +3382,9 @@ mod tests {
             workflow.phase(),
             Phase::Workflow(WorkflowPhase::MouseSuspended)
         );
-        // The panel comes back on its Movement page, not on Adjust settings.
+        // The panel comes back on its Movement page, not on Speed and more.
         assert!(!workflow.mouse.more);
-        // A failure on Adjust settings itself, such as no display to the left,
+        // A failure on Speed and more itself, such as no display to the left,
         // keeps that page.
         workflow.handle(Action::OpenMouse);
         assert_eq!(workflow.mouse_key(Key::More), None);
@@ -4533,7 +4533,7 @@ mod tests {
             Some(Request::Close)
         );
         assert!(workflow.stage == Stage::Idle);
-        // The Adjust settings page and the Position page keep their rows.
+        // The Speed and more page and the Position page keep their rows.
         workflow.open_mouse(true);
         workflow.choose_mouse_key(Key::More);
         assert!(workflow
