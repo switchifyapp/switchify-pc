@@ -1317,7 +1317,10 @@ impl Workflow {
                 None
             }
             PanelAction::Back | PanelAction::Close => match origin {
-                ExtraTarget::Mouse => self.open_point(),
+                ExtraTarget::Mouse => {
+                    self.reset();
+                    Some(Request::Close)
+                }
                 ExtraTarget::Keyboard => {
                     self.keyboard_closed();
                     None
@@ -4535,7 +4538,8 @@ mod tests {
             Some(Request::MouseDrag)
         );
         assert!(!workflow.mouse.dragging);
-        // Close switches to Point, as the panel's own key does.
+        // Close stops scanning and keeps Mouse mode, as the panel's own key does,
+        // letting go of a held drag.
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
             crate::panel_extras::PanelExtras::rows(vec![vec![extra(
@@ -4545,11 +4549,17 @@ mod tests {
             )]]),
         )]));
         workflow.open_mouse(true);
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
         assert_eq!(
             workflow.choose_mouse_key(Key::Extra(0, 0)),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
-        assert!(matches!(workflow.phase(), Phase::Point(_)));
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse.dragging);
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
         // The More controls page and the Position page keep their rows.
         workflow.open_mouse(true);
         workflow.choose_mouse_key(Key::More);
@@ -4727,7 +4737,7 @@ mod tests {
         );
         assert_eq!(
             workflow.choose_mouse_key(crate::scan_mouse::Key::Column(1, 5)),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
         // Keyboard: the column lines up down rows of different widths, and
         // a tile beside the suggestions can be chosen.
