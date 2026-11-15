@@ -574,7 +574,7 @@ impl Kind {
             Self::More => "More actions",
             Self::MouseActions => "Actions",
             Self::MouseScanning => "Scanning",
-            Self::Mouse => "Mouse",
+            Self::Mouse => "More clicks",
             Self::Editing => "Editing",
             Self::Windows => "Apps and windows",
             Self::Browser => "Browser",

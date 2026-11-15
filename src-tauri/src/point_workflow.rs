@@ -29,6 +29,8 @@ pub enum Request {
     OpenKeyboard,
     /// Shows the Switchify window. Scanning has ended.
     OpenSwitchify,
+    /// Scanning has ended from a panel that may hold input, such as a drag.
+    Close,
     OpenMouse,
     OpenPoint,
     Keyboard(crate::scan_keyboard::Stroke),
@@ -1196,7 +1198,10 @@ impl Workflow {
                 self.keyboard = self.new_keyboard();
                 Some(Request::OpenKeyboard)
             }
-            Key::Close => self.open_point(),
+            Key::Close => {
+                self.reset();
+                Some(Request::Close)
+            }
             Key::Actions => {
                 self.mouse_actions_open = true;
                 self.parent_menu.clear();
@@ -1557,7 +1562,6 @@ impl Workflow {
                 }
             }
             Item::NewPoint => self.new_point(),
-            Item::Cancel if self.mouse_actions_open => self.return_to_mouse_panel(),
             Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.continue_after_selection();
@@ -2471,6 +2475,36 @@ mod tests {
         assert_eq!(workflow.selected(Item::Back), None);
         assert!(workflow.mouse_open());
         assert!(workflow.stage == Stage::Mouse);
+    }
+
+    #[test]
+    fn close_ends_scanning_on_every_mouse_page_and_releases_a_drag() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((321.4, 246.6)));
+        // Close menu on the mouse panel's Actions page ends scanning, as on every menu.
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(workflow.selected(Item::Cancel), None);
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse_open());
+        // The panel's own Close ends scanning too, asking for held input to be let go.
+        workflow.handle(Action::OpenMouse);
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+        assert_eq!(workflow.mouse_key(Key::Close), Some(Request::Close));
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse.dragging);
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
     }
 
     #[test]
@@ -3466,17 +3500,22 @@ mod tests {
         );
         assert!(matches!(session.technique.phase(), Phase::Point(_)));
         assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
+        // Close ends scanning and keeps the mode, so Select brings Mouse back.
         assert_eq!(
             session.technique.mouse_key(crate::scan_mouse::Key::Close),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
+        assert_eq!(session.technique.phase(), Phase::default());
         assert_eq!(
             session.technique.control_mode(),
-            crate::point_scan::ControlMode::Point
+            crate::point_scan::ControlMode::Mouse
         );
         assert_eq!(session.action(Action::Stop), None);
         assert_eq!(session.action(Action::Select), None);
-        assert!(matches!(session.technique.phase(), Phase::Point(_)));
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Mouse)
+        );
     }
 
     #[test]

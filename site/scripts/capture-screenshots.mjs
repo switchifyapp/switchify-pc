@@ -89,7 +89,7 @@ const bridge = (platform) => {
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
     { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
-      [tile("Mouse", { type: "openPanel", panel: { menu: "mouse" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
+      [tile("More clicks", { type: "openPanel", panel: { menu: "mouse" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
       [tile("Browser", { type: "openPanel", panel: { menu: "browser" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), tile("Media", { type: "openPanel", panel: { menu: "media" } })],
       [tile("Displays", { type: "openPanel", panel: { menu: "displays" } }), tile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
@@ -108,7 +108,7 @@ const bridge = (platform) => {
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
-      ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => key(label)),
+      ["Actions", "Pointer settings", "Keyboard", "Close"].map((label) => key(label)),
     ] },
     { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],
