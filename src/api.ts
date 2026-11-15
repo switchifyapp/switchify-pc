@@ -94,7 +94,7 @@ const browserExtrasDefaults: PanelExtrasView[] = [
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
-    ["Actions", "Pointer settings", "Keyboard", "Close"].map((label) => browserKey(label)),
+    ["Actions", "More controls", "Keyboard", "Close"].map((label) => browserKey(label)),
   ] },
   { target: "keyboard", name: "Keyboard", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],
