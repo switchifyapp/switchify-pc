@@ -469,7 +469,9 @@ impl Workflow {
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
             .set_period(self.point.config.menu_scan.interval_ms);
-        if restart {
+        // Line or Grid chosen from Home is saved for the next point scan;
+        // Home stays open rather than starting one.
+        if restart && !self.home_open() {
             self.keyboard = self.new_keyboard();
             self.keyboard_layout_pending = false;
             self.mouse = self.new_mouse();
@@ -1653,6 +1655,7 @@ impl Technique for Workflow {
             self.scroll_repeat = None;
             self.radar = None;
             self.mouse.dragging = false;
+            self.mouse.show_movement();
             self.mouse.failed();
             self.error = None;
             let _ = message;
@@ -3375,6 +3378,8 @@ mod tests {
             workflow.phase(),
             Phase::Workflow(WorkflowPhase::MouseSuspended)
         );
+        // The panel comes back on its Movement page, not on More controls.
+        assert!(!workflow.mouse.more);
         assert!(!workflow.mouse_actions_open);
         assert_eq!(workflow.mouse_feedback(), None);
     }
@@ -4577,6 +4582,22 @@ mod tests {
             Some("That panel no longer exists.")
         );
         assert!(session.technique.home_open());
+    }
+
+    #[test]
+    fn line_or_grid_chosen_from_home_keeps_home_open() {
+        let mut s = home_session();
+        s.action(Action::Select);
+        assert!(s.technique.home_open());
+        let config = s.technique.point.config.clone();
+        s.technique.apply_config(config.clone(), true);
+        assert!(s.technique.home_open());
+        assert_eq!(s.technique.menu.kind, Kind::Home);
+        // After a point, the same change restarts the point scan as before.
+        choose_in(&mut s, 0, 0);
+        s.technique.execution_succeeded();
+        s.technique.apply_config(config, true);
+        assert!(matches!(s.technique.phase(), Phase::Point(_)));
     }
 
     #[test]

@@ -23,6 +23,10 @@ pub const EDITABLE: [Kind; 10] = [
     Kind::Scanning,
 ];
 
+/// Keys of menus that were retired. A rearrangement saved for one stays in
+/// the file, so an older build still reads it, and is never used.
+pub const RETIRED: [&str; 1] = ["more"];
+
 pub fn editable(kind: Kind) -> bool {
     EDITABLE.contains(&kind)
 }
@@ -130,6 +134,10 @@ pub fn validate_override(kind: Kind, panel: &CustomPanel) -> Result<(), String> 
 /// Checks a whole set of overrides, as saved or synced.
 pub fn validate_overrides(overrides: &BTreeMap<String, CustomPanel>) -> Result<(), String> {
     for (key, panel) in overrides {
+        if RETIRED.contains(&key.as_str()) {
+            panel.validate()?;
+            continue;
+        }
         let kind = kind_from_key(key).ok_or("That menu cannot be changed.")?;
         validate_override(kind, panel)?;
     }
@@ -213,6 +221,13 @@ mod tests {
             document(Kind::Editing, &by_kind),
             default_document(Kind::Editing)
         );
+        // A rearrangement of the retired More actions page is kept, unused.
+        let mut more = default_document(Kind::Home);
+        more.id = "builtin-more".into();
+        more.name = "More actions".into();
+        overrides.insert("more".into(), more);
+        assert_eq!(validate_overrides(&overrides), Ok(()));
+        assert!(!super::by_kind(&overrides).contains_key(&Kind::More));
         overrides.insert("shutDown".into(), default_document(Kind::ShutDown));
         assert!(validate_overrides(&overrides).is_err());
     }
