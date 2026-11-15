@@ -526,7 +526,10 @@ impl Service {
             self.edit.clear();
             self.known = 0;
         }
+        // While held the worker's buffer is empty, and it would offer the
+        // first words of a sentence inside a word.
         let visible = keyboard.page == Page::Letters
+            && !self.held
             && !keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off);
         keyboard.predictions(
             if visible { batch } else { None },
@@ -1442,6 +1445,27 @@ mod tests {
         s.typed(Edit::Append("b".into()), InputScope::capture());
         assert!(s.beyond);
     }
+    #[test]
+    fn held_suggestions_stay_hidden_until_the_next_word() {
+        let batch = || worker::Batch {
+            token: 1,
+            refined: false,
+            words: slots(["the", "I"]),
+        };
+        let mut keyboard = Keyboard::new(false);
+        let mut s = service("hel");
+        s.interrupt();
+        assert!(s.held);
+        // The worker's buffer is empty while held, so it offers first words;
+        // they would land inside the word, so none is shown.
+        s.suggestions(&mut keyboard, Some(batch()), true, database::Status::Ready);
+        assert_eq!(keyboard.displayed_prediction(), None);
+        s.stroke(key(' '), true, true, InputScope::capture());
+        assert!(!s.held);
+        s.suggestions(&mut keyboard, Some(batch()), true, database::Status::Ready);
+        assert_eq!(keyboard.displayed_prediction(), Some(1));
+    }
+
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {
         let mut service = Service {
