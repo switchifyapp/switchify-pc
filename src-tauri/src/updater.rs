@@ -373,15 +373,6 @@ impl<U: Clone> UpdateManager<U> {
         }
     }
 
-    pub fn replace_available(&self, update: Option<U>) {
-        let mut data = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        data.available = update;
-        data.downloaded = None;
-    }
-
     pub fn available(&self) -> Option<U> {
         self.0
             .lock()
@@ -405,12 +396,14 @@ impl<U: Clone> UpdateManager<U> {
             .take()
     }
 
-    pub fn has_download(&self) -> bool {
+    /// The size of the stored download, if one is waiting to install.
+    pub fn download_len(&self) -> Option<u64> {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .downloaded
-            .is_some()
+            .as_ref()
+            .map(|bytes| bytes.len() as u64)
     }
 
     pub fn set_download_cancel(&self, sender: watch::Sender<bool>) {
@@ -427,6 +420,29 @@ impl<U: Clone> UpdateManager<U> {
             .cancel_download
             .as_ref()
             .is_some_and(|sender| sender.send(true).is_ok())
+    }
+}
+
+impl<U: UpdateArtifact> UpdateManager<U> {
+    /// Records what a check found. A download of the same version stays, with
+    /// the update it was verified against, so it can still be installed. A
+    /// different version, or none, discards it so an outdated download is
+    /// never installed. Returns whether a stored download was kept.
+    pub fn offer(&self, update: Option<U>) -> bool {
+        let mut data = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let same_version = match (&data.available, &update) {
+            (Some(current), Some(offered)) => current.version() == offered.version(),
+            _ => false,
+        };
+        if same_version && data.downloaded.is_some() {
+            return true;
+        }
+        data.available = update;
+        data.downloaded = None;
+        false
     }
 }
 
@@ -664,7 +680,53 @@ mod tests {
         manager.finish(Operation::Check);
         assert!(manager.begin(Operation::Install));
         manager.store_download(vec![1, 2, 3]);
-        assert!(manager.has_download());
+        assert_eq!(manager.download_len(), Some(3));
+    }
+
+    fn versioned(version: &str) -> FakeUpdate {
+        FakeUpdate {
+            version: version.into(),
+            ..FakeUpdate::successful(Vec::new())
+        }
+    }
+
+    #[test]
+    fn a_check_keeps_a_download_of_the_same_version() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(manager.offer(Some(versioned("2.0.0"))));
+        assert_eq!(manager.download_len(), Some(3));
+        assert_eq!(manager.available().unwrap().version(), "2.0.0");
+    }
+
+    #[test]
+    fn a_newer_release_discards_an_outdated_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(!manager.offer(Some(versioned("2.0.1"))));
+        assert_eq!(manager.download_len(), None);
+        assert_eq!(manager.available().unwrap().version(), "2.0.1");
+    }
+
+    #[test]
+    fn a_withdrawn_release_discards_its_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(!manager.offer(None));
+        assert_eq!(manager.download_len(), None);
+        assert!(manager.available().is_none());
+    }
+
+    #[test]
+    fn an_offer_without_a_download_replaces_the_available_update() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        assert!(!manager.offer(Some(versioned("2.0.0"))));
+        assert_eq!(manager.available().unwrap().version(), "2.0.0");
+        assert_eq!(manager.download_len(), None);
     }
 
     #[tokio::test]

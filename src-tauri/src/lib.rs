@@ -1353,9 +1353,8 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
         );
         return publish_update(app, &model, UpdateView::unconfigured());
     }
-    if manager.has_download() {
-        return model.snapshot();
-    }
+    // A download waiting to install does not stop the check: a newer release
+    // may have shipped since, and the waiting one would then be outdated.
     if !manager.begin(UpdateOperation::Check) {
         return model.snapshot();
     }
@@ -1370,10 +1369,29 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
         Err(error) => Err(error.to_string()),
     };
     manager.finish(UpdateOperation::Check);
+    // The download waiting to install, if any, and the version it belongs to.
+    let ready = manager.download_len().zip(
+        manager
+            .available()
+            .map(|update| update.version().to_owned()),
+    );
     match result {
         Ok(Some(update)) => {
             let version = update.version().to_owned();
-            manager.replace_available(Some(update));
+            if manager.offer(Some(update)) {
+                let downloaded = ready.map_or(0, |(bytes, _)| bytes);
+                state::set_activity(
+                    &model.shared,
+                    ActivityKind::Success,
+                    format!("Switchify PC {version} is still the latest and is ready to install."),
+                );
+                model.record_updater("ready", None);
+                return publish_update(
+                    app,
+                    &model,
+                    UpdateView::ready(version, downloaded, Some(downloaded)),
+                );
+            }
             state::set_activity(
                 &model.shared,
                 ActivityKind::Info,
@@ -1383,7 +1401,7 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
             publish_update(app, &model, UpdateView::available(version))
         }
         Ok(None) => {
-            manager.replace_available(None);
+            manager.offer(None);
             state::set_activity(
                 &model.shared,
                 ActivityKind::Success,
@@ -1392,14 +1410,30 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
             model.record_updater("current", None);
             publish_update(app, &model, UpdateView::current())
         }
-        Err(error) => update_failure(
-            app,
-            &model,
-            None,
-            RetryAction::Check,
-            "Update check failed",
-            &error,
-        ),
+        // A failed check leaves a waiting download installable.
+        Err(error) => match ready {
+            Some((downloaded, version)) => {
+                state::set_activity(
+                    &model.shared,
+                    ActivityKind::Error,
+                    format!("Update check failed: {error}"),
+                );
+                model.record_updater("failed", Some(error.as_str()));
+                publish_update(
+                    app,
+                    &model,
+                    UpdateView::ready(version, downloaded, Some(downloaded)),
+                )
+            }
+            None => update_failure(
+                app,
+                &model,
+                None,
+                RetryAction::Check,
+                "Update check failed",
+                &error,
+            ),
+        },
     }
 }
 

@@ -84,7 +84,7 @@ Find also understands what you mean: *my scan is too quick* finds Auto scan rate
 
 ## Keeping it up to date
 
-Switchify PC checks for an update shortly after it starts, every six hours, and whenever you ask. Settings shows what is available, downloads it, and offers *Install and restart*.
+Switchify PC checks for an update shortly after it starts, every six hours, and whenever you ask. Settings shows what is available, downloads it, and offers *Install and restart*. You can still check again while an update is waiting, and if a newer one has come out, Switchify PC offers that instead.
 
 ## Practise safely
 

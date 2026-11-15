@@ -167,6 +167,22 @@ describe("Switchify PC settings", () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["available", null],
+    ["readyToInstall", null],
+    ["cancelled", "download"],
+  ] as const)("still checks for a newer update while one is %s", async (status, retryAction) => {
+    browserState.updater = { status, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction };
+    const check = vi.spyOn(api, "checkForUpdates").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSection("Updates");
+    fireEvent.click(within(screen.getByRole("region", { name: "Updates" })).getByRole("button", { name: "Check for updates" }));
+    expect(check).toHaveBeenCalledOnce();
+    check.mockRestore();
+  });
+
   it("retries a cancelled download from the beginning", async () => {
     browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
     const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));
