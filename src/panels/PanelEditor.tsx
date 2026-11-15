@@ -67,7 +67,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     if (line) {
       const place = `${line[1] === "row" ? "Row" : "Column"} ${Number(line[2]) + 1}`;
       const first: Selection = { row: Number(line[2]), cell: 0, ...(line[1] === "column" ? { column: true as const } : {}) };
-      return { label: `${place}: ${message}`, go: () => reveal(document.getElementById(tileId(first)) ?? rowsRef.current) };
+      return { label: `${place}: ${message}`, go: () => reveal(document.getElementById(tileId(first)) ?? document.getElementById(addId(line[1] === "column", first.row)) ?? rowsRef.current) };
     }
     const section = key === "name" ? nameRef : rowsRef;
     return { label: `To save: ${message}`, go: () => reveal(section.current) };
@@ -206,7 +206,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
       busy={busy} error={error} onCancel={keepEditing} onConfirm={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}
     />}
     <div inert={confirmation !== null || undefined}>
-      <PageHeader title={panel.name} before={<Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button>} description={<>{extras ? "Add rows of your own below the keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</>} action={
+      <PageHeader title={panel.name} before={<Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button>} description={<>{extras ? "Add rows of your own above the last row of keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</>} action={
         <div className="panel-header-actions">{onTry && <Button className="secondary" disabled={busy || dirty} title={dirty ? "Save first, then try" : "Open this panel in the scanner"} onClick={() => { onClearError?.(); void onTry(); }}><Play size={16} aria-hidden="true" />Try it</Button>}{extras
           ? <Button ref={deleteRef} className="secondary danger" disabled={busy || !extras.hasTiles} title={extras.hasTiles ? undefined : "No tiles added yet"} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Remove tiles</Button>
           : builtin

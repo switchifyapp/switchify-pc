@@ -136,6 +136,12 @@ describe("PanelEditor", () => {
     expect(screen.queryByRole("button", { name: "Add row" })).not.toBeInTheDocument();
   });
 
+  it("takes a note about an empty row to that row's +", async () => {
+    mount({ ...starter(), rows: [...starter().rows, []] });
+    fireEvent.click(within(screen.getByRole("status")).getByRole("button", { name: /^Row 3:/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add tile to row 3" })).toHaveFocus());
+  });
+
   it("keeps focus and the user's labels when tiles and rows move", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /Row 1, tile 1: Keyboard/ }));
