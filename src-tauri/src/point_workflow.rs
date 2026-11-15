@@ -29,6 +29,8 @@ pub enum Request {
     OpenKeyboard,
     /// Shows the Switchify window. Scanning has ended.
     OpenSwitchify,
+    /// Scanning has ended from a panel that may hold input, such as a drag.
+    Close,
     OpenMouse,
     OpenPoint,
     Keyboard(crate::scan_keyboard::Stroke),
@@ -1196,7 +1198,10 @@ impl Workflow {
                 self.keyboard = self.new_keyboard();
                 Some(Request::OpenKeyboard)
             }
-            Key::Close => self.open_point(),
+            Key::Close => {
+                self.reset();
+                Some(Request::Close)
+            }
             Key::Actions => {
                 self.mouse_actions_open = true;
                 self.parent_menu.clear();
@@ -1312,7 +1317,10 @@ impl Workflow {
                 None
             }
             PanelAction::Back | PanelAction::Close => match origin {
-                ExtraTarget::Mouse => self.open_point(),
+                ExtraTarget::Mouse => {
+                    self.reset();
+                    Some(Request::Close)
+                }
                 ExtraTarget::Keyboard => {
                     self.keyboard_closed();
                     None
@@ -1557,7 +1565,6 @@ impl Workflow {
                 }
             }
             Item::NewPoint => self.new_point(),
-            Item::Cancel if self.mouse_actions_open => self.return_to_mouse_panel(),
             Item::Cancel => self.reset(),
             Item::Up | Item::Down | Item::Left | Item::Right => {
                 self.menu.continue_after_selection();
@@ -2471,6 +2478,36 @@ mod tests {
         assert_eq!(workflow.selected(Item::Back), None);
         assert!(workflow.mouse_open());
         assert!(workflow.stage == Stage::Mouse);
+    }
+
+    #[test]
+    fn close_ends_scanning_on_every_mouse_page_and_releases_a_drag() {
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((321.4, 246.6)));
+        // Close menu on the mouse panel's Actions page ends scanning, as on every menu.
+        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        assert_eq!(workflow.selected(Item::Cancel), None);
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse_open());
+        // The panel's own Close ends scanning too, asking for held input to be let go.
+        workflow.handle(Action::OpenMouse);
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+        assert_eq!(workflow.mouse_key(Key::Close), Some(Request::Close));
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse.dragging);
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
     }
 
     #[test]
@@ -3466,17 +3503,22 @@ mod tests {
         );
         assert!(matches!(session.technique.phase(), Phase::Point(_)));
         assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
+        // Close ends scanning and keeps the mode, so Select brings Mouse back.
         assert_eq!(
             session.technique.mouse_key(crate::scan_mouse::Key::Close),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
+        assert_eq!(session.technique.phase(), Phase::default());
         assert_eq!(
             session.technique.control_mode(),
-            crate::point_scan::ControlMode::Point
+            crate::point_scan::ControlMode::Mouse
         );
         assert_eq!(session.action(Action::Stop), None);
         assert_eq!(session.action(Action::Select), None);
-        assert!(matches!(session.technique.phase(), Phase::Point(_)));
+        assert_eq!(
+            session.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Mouse)
+        );
     }
 
     #[test]
@@ -4496,7 +4538,8 @@ mod tests {
             Some(Request::MouseDrag)
         );
         assert!(!workflow.mouse.dragging);
-        // Close switches to Point, as the panel's own key does.
+        // Close stops scanning and keeps Mouse mode, as the panel's own key does,
+        // letting go of a held drag.
         workflow.set_panel_extras(std::collections::BTreeMap::from([(
             ExtraTarget::Mouse,
             crate::panel_extras::PanelExtras::rows(vec![vec![extra(
@@ -4506,11 +4549,28 @@ mod tests {
             )]]),
         )]));
         workflow.open_mouse(true);
+        assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
         assert_eq!(
             workflow.choose_mouse_key(Key::Extra(0, 0)),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
-        assert!(matches!(workflow.phase(), Phase::Point(_)));
+        assert!(workflow.stage == Stage::Idle);
+        assert!(!workflow.mouse.dragging);
+        assert_eq!(
+            workflow.control_mode(),
+            crate::point_scan::ControlMode::Mouse
+        );
+        // An added Back tile leaves the same way.
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            crate::panel_extras::PanelExtras::rows(vec![vec![extra("Done", PanelAction::Back, 1)]]),
+        )]));
+        workflow.open_mouse(true);
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Extra(0, 0)),
+            Some(Request::Close)
+        );
+        assert!(workflow.stage == Stage::Idle);
         // The More controls page and the Position page keep their rows.
         workflow.open_mouse(true);
         workflow.choose_mouse_key(Key::More);
@@ -4688,7 +4748,7 @@ mod tests {
         );
         assert_eq!(
             workflow.choose_mouse_key(crate::scan_mouse::Key::Column(1, 5)),
-            Some(Request::OpenPoint)
+            Some(Request::Close)
         );
         // Keyboard: the column lines up down rows of different widths, and
         // a tile beside the suggestions can be chosen.

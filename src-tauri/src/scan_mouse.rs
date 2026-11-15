@@ -370,7 +370,7 @@ impl MousePanel {
             Dock => crate::scan_panel::POSITION_PAGE.into(),
             Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Back => "Back".into(),
-            Close => "Switch to Point".into(),
+            Close => "Close".into(),
             Extra(..) | Column(..) => self
                 .cell(key)
                 .map(|cell| cell.label.clone())
@@ -797,7 +797,7 @@ mod tests {
             "nothing to say while scanning normally"
         );
         let close = frame.tiles.last().unwrap();
-        assert_eq!(close.text, "Switch to Point");
+        assert_eq!(close.text, "Close");
         assert_eq!(close.style.unwrap().role, TileRole::Toolbar);
 
         // The highlight alone shows what Select will choose.

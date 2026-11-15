@@ -342,7 +342,7 @@ mod tests {
         let mouse = fixed_picture(Target::Mouse);
         assert_eq!(mouse.len(), 5);
         assert_eq!(mouse[0][0].label, "Left click");
-        assert_eq!(mouse[4].last().unwrap().label, "Switch to Point");
+        assert_eq!(mouse[4].last().unwrap().label, "Close");
         let keyboard = fixed_picture(Target::Keyboard);
         assert!(keyboard.len() >= 5);
         assert!(keyboard

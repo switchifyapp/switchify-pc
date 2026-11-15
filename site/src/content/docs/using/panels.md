@@ -45,7 +45,7 @@ If something stops the panel saving, such as a tile with no label or a link to a
 - **Apps and windows**: switch app forward or backward, app overview, show desktop, minimise, maximise or restore, close window.
 - **Browser**: back, forward, reload, tabs, address bar, zoom.
 - **Media**: play or pause, next and previous track, volume, mute.
-- **Mouse**: left, double and right click, or scroll, where the pointer is. Modified clicks such as Shift-click act there too. A panel opened from the page after you choose a point acts at that point instead.
+- **Mouse**: left, double and right click, or scroll, where the pointer is. Shift-click and the other More clicks act there too. A panel opened from the page after you choose a point acts at that point instead.
 - **Panels and menus**: open the keyboard, the mouse panel, point scanning, the Switchify window, a built-in menu such as Editing, the list of your panels, or another panel of yours; Back; Close.
 - **Scanning**: pause, reverse direction, faster or slower scanning, point scanning mode, keyboard layout, next or previous display.
 - **Power**: shut down or restart the computer. A power tile acts as soon as it is chosen, so give it a row of its own or put it behind a link; open apps may still ask you to save.
@@ -74,7 +74,7 @@ Rearranged menus are saved on this computer and, if you sign in to your account,
 
 Up to four rows fit below the keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 
-The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row; the columns appear on the same pages, to the right. All of them scan like the rest: a column's tiles are the last in their rows. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel: from the keyboard they close it, and from the mouse panel they switch to point scanning, as its own Switch to Point key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
+The rows appear on the mouse panel's Movement page and on every keyboard page, just above the bottom row; the columns appear on the same pages, to the right. All of them scan like the rest: a column's tiles are the last in their rows. A tile acts as it does on your panels. On the keyboard, a tile that types waits for the text to land before scanning on, like a key. **Back** and **Close** leave the panel: from the keyboard they close it, and from the mouse panel they stop scanning, as its own Close key does. A tile that opens a menu or one of your panels from the mouse panel comes back to it with Back; from the keyboard, Back goes to Home.
 
 **Remove tiles** takes the panel back to its keys alone. Switchify PC asks first.
 

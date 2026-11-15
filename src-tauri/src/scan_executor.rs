@@ -22,7 +22,8 @@ pub fn execute<I: InputInjector>(
         Request::OpenKeyboard
         | Request::OpenMouse
         | Request::OpenPoint
-        | Request::OpenSwitchify => input.release_all(),
+        | Request::OpenSwitchify
+        | Request::Close => input.release_all(),
         Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
         Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),
         Request::MouseClick { right, count } => {
@@ -712,6 +713,9 @@ mod tests {
         execute(&mut input, Request::MouseScroll { dy: 5 }, true).unwrap();
         execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
         execute(&mut input, Request::OpenPoint, true).unwrap();
+        assert!(!input.has_active_drag());
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        execute(&mut input, Request::Close, true).unwrap();
         assert!(!input.has_active_drag());
         assert!(input.injector.events.contains(&"relative 4 -2".into()));
         assert!(input.injector.events.contains(&"move 40 50".into()));

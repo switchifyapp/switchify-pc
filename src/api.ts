@@ -74,7 +74,7 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
   ] } },
   { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
-    [browserTile("Mouse", { type: "openPanel", panel: { menu: "mouse" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
+    [browserTile("More clicks", { type: "openPanel", panel: { menu: "mouse" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
     [browserTile("Browser", { type: "openPanel", panel: { menu: "browser" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), browserTile("Media", { type: "openPanel", panel: { menu: "media" } })],
     [browserTile("Displays", { type: "openPanel", panel: { menu: "displays" } }), browserTile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
@@ -94,7 +94,7 @@ const browserExtrasDefaults: PanelExtrasView[] = [
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
-    ["Actions", "More controls", "Keyboard", "Switch to Point"].map((label) => browserKey(label)),
+    ["Actions", "More controls", "Keyboard", "Close"].map((label) => browserKey(label)),
   ] },
   { target: "keyboard", name: "Keyboard", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],

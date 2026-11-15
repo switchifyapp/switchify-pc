@@ -14,7 +14,7 @@ export const actions = {
 } as const;
 export type SwitchAction = keyof typeof actions | { openMenu: import("../types").MenuKind } | { openCustomPanel: string };
 export const panelMenus = {
-  home: "Home", more: "More", mouse: "Mouse menu", editing: "Editing", windows: "Apps and windows",
+  home: "Home", more: "More", mouse: "More clicks", editing: "Editing", windows: "Apps and windows",
   browser: "Browser", tabs: "Tabs", zoom: "Zoom", media: "Media", displays: "Displays", scanning: "Scanning",
 } as const;
 export function actionLabel(action: SwitchAction, panels?: { id: string; name: string }[]): string {
