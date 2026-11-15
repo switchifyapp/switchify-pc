@@ -51,7 +51,10 @@ export function updateDescription(update: UpdateState) {
     case "checking": return "Checking for updates…";
     case "available": return `Switchify PC ${update.version} is available.`;
     case "downloading": return `Downloading Switchify PC ${update.version}…`;
-    case "readyToInstall": return `Switchify PC ${update.version} is ready to install.`;
+    // A failed re-check keeps the waiting download, and says so politely.
+    case "readyToInstall": return update.error
+      ? `Couldn't check for a newer version. Switchify PC ${update.version} is still ready to install.`
+      : `Switchify PC ${update.version} is ready to install.`;
     case "applying": return `Installing Switchify PC ${update.version}…`;
     case "current": return "Switchify PC is up to date.";
     case "failed": return sentence(update.error ?? "The update operation failed.");

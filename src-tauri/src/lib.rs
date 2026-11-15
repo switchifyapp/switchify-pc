@@ -1338,7 +1338,10 @@ fn update_failure(
     publish_update(app, model, UpdateView::failed(version, message, retry))
 }
 
-async fn check_for_updates_inner(app: &AppHandle) -> AppState {
+/// `asked` is true when the user asked for the check. A scheduled check over a
+/// download waiting to install stays quiet, so the Install button does not
+/// vanish and come back under someone using it.
+async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
     let model = app.state::<AppModel>();
     let manager = app.state::<UpdateManager>();
     if !updater_is_configured(app.config().plugins.0.get("updater")) {
@@ -1358,7 +1361,16 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
     if !manager.begin(UpdateOperation::Check) {
         return model.snapshot();
     }
-    publish_update(app, &model, UpdateView::checking());
+    // The download waiting to install, if any, and the version it belongs to.
+    // The gate is held, so no download can store or replace it meanwhile.
+    let ready = manager.download_len().zip(
+        manager
+            .available()
+            .map(|update| update.version().to_owned()),
+    );
+    if asked || ready.is_none() {
+        publish_update(app, &model, UpdateView::checking());
+    }
     // A stable build never installs a pre-release, whatever the feed offers.
     let updater = app
         .updater_builder()
@@ -1368,13 +1380,20 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
         Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     };
+    // The gate stays held until the outcome is recorded, so a download cannot
+    // start against the update this check is about to replace.
+    let outcome = check_outcome(app, &model, &manager, ready, result);
     manager.finish(UpdateOperation::Check);
-    // The download waiting to install, if any, and the version it belongs to.
-    let ready = manager.download_len().zip(
-        manager
-            .available()
-            .map(|update| update.version().to_owned()),
-    );
+    outcome
+}
+
+fn check_outcome(
+    app: &AppHandle,
+    model: &AppModel,
+    manager: &UpdateManager,
+    ready: Option<(u64, String)>,
+    result: Result<Option<tauri_plugin_updater::Update>, String>,
+) -> AppState {
     match result {
         Ok(Some(update)) => {
             let version = update.version().to_owned();
@@ -1388,7 +1407,7 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
                 model.record_updater("ready", None);
                 return publish_update(
                     app,
-                    &model,
+                    model,
                     UpdateView::ready(version, downloaded, Some(downloaded)),
                 );
             }
@@ -1398,7 +1417,7 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
                 format!("Switchify PC {version} is available."),
             );
             model.record_updater("available", None);
-            publish_update(app, &model, UpdateView::available(version))
+            publish_update(app, model, UpdateView::available(version))
         }
         Ok(None) => {
             manager.offer(None);
@@ -1408,38 +1427,44 @@ async fn check_for_updates_inner(app: &AppHandle) -> AppState {
                 "Switchify PC is up to date.",
             );
             model.record_updater("current", None);
-            publish_update(app, &model, UpdateView::current())
+            publish_update(app, model, UpdateView::current())
         }
-        // A failed check leaves a waiting download installable.
+        // A failed check leaves a waiting download installable, and says so.
         Err(error) => match ready {
             Some((downloaded, version)) => {
-                state::set_activity(
-                    &model.shared,
-                    ActivityKind::Error,
-                    format!("Update check failed: {error}"),
-                );
+                let message = format!("Update check failed: {error}");
+                state::set_activity(&model.shared, ActivityKind::Error, &message);
                 model.record_updater("failed", Some(error.as_str()));
-                publish_update(
-                    app,
-                    &model,
-                    UpdateView::ready(version, downloaded, Some(downloaded)),
-                )
+                let mut view = UpdateView::ready(version, downloaded, Some(downloaded));
+                view.error = Some(message);
+                publish_update(app, model, view)
             }
-            None => update_failure(
-                app,
-                &model,
-                None,
-                RetryAction::Check,
-                "Update check failed",
-                &error,
-            ),
+            // An update already found can still be downloaded.
+            None => match manager.available() {
+                Some(update) => update_failure(
+                    app,
+                    model,
+                    Some(update.version().to_owned()),
+                    RetryAction::Download,
+                    "Update check failed",
+                    &error,
+                ),
+                None => update_failure(
+                    app,
+                    model,
+                    None,
+                    RetryAction::Check,
+                    "Update check failed",
+                    &error,
+                ),
+            },
         },
     }
 }
 
 #[tauri::command]
 async fn check_for_updates(app: AppHandle) -> Result<AppState, String> {
-    Ok(check_for_updates_inner(&app).await)
+    Ok(check_for_updates_inner(&app, true).await)
 }
 
 #[tauri::command]
@@ -1485,8 +1510,10 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
         }
     });
     let result = result.await;
-    manager.finish(UpdateOperation::Download);
-    match result {
+    // The gate stays held until the bytes are stored and the outcome is
+    // published, so a check cannot slip in between and pair these bytes with
+    // a different update, or be overwritten by this "ready".
+    let outcome = match result {
         DownloadResult::Complete(Ok(bytes)) => {
             let downloaded_bytes = bytes.len() as u64;
             let total_bytes = counter.current().total_bytes;
@@ -1497,20 +1524,20 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
                 format!("Switchify PC {version} is ready to install."),
             );
             model.record_updater("ready", None);
-            Ok(publish_update(
+            publish_update(
                 &app,
                 &model,
                 UpdateView::ready(version, downloaded_bytes, total_bytes),
-            ))
+            )
         }
-        DownloadResult::Complete(Err(error)) => Ok(update_failure(
+        DownloadResult::Complete(Err(error)) => update_failure(
             &app,
             &model,
             Some(version),
             RetryAction::Download,
             "Update download failed",
             &error,
-        )),
+        ),
         DownloadResult::Cancelled => {
             state::set_activity(
                 &model.shared,
@@ -1518,9 +1545,11 @@ async fn download_update(app: AppHandle) -> Result<AppState, String> {
                 "Update download cancelled.",
             );
             model.record_updater("cancelled", None);
-            Ok(publish_update(&app, &model, UpdateView::cancelled(version)))
+            publish_update(&app, &model, UpdateView::cancelled(version))
         }
-    }
+    };
+    manager.finish(UpdateOperation::Download);
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -1654,7 +1683,7 @@ fn start_update_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
         loop {
-            let _ = check_for_updates_inner(&app).await;
+            let _ = check_for_updates_inner(&app, false).await;
             tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
         }
     });

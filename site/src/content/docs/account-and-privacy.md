@@ -27,7 +27,7 @@ Open **Settings**, then **Account and licence** for signing in and settings sync
 
 Switchify PC checks for an update shortly after it starts, every six hours, and on demand. Open **Settings**, then **Updates** to check what is available, download it with progress you can cancel, and choose *Install and restart*. An update notice opens Updates directly. Download progress continues when you open another category.
 
-*Check for updates* stays available while an update is waiting to download or install. If a newer version has come out since, Switchify PC drops the older download and offers the newer one. If the version you downloaded is still the latest, it stays ready to install.
+*Check for updates* stays available while an update is waiting to download or install. If a newer version has come out since, Switchify PC drops the older download and offers the newer one. If the version you downloaded is still the latest, or the check cannot reach the update server, it stays ready to install.
 
 A release candidate, such as 1.0.0-rc.32, is offered only to people already running a release candidate. A stable release, such as 1.0.0, is offered to everyone, so a release candidate moves to the next stable release when it comes out. A stable install never installs a release candidate, even if one is offered to it.
 
