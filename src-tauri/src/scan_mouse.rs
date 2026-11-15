@@ -374,7 +374,7 @@ impl MousePanel {
             Monitor(0, 1) => "Monitor down".into(),
             Monitor(1, 0) => "Monitor right".into(),
             Monitor(..) => "Monitor".into(),
-            More => "More controls".into(),
+            More => "Adjust settings".into(),
             Movement => "Movement".into(),
             Home => "Home".into(),
             MoreClicks => "More clicks".into(),

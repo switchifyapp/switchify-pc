@@ -92,7 +92,7 @@ pub enum Kind {
     /// and saved tiles that still name it open Home, which lists its menus.
     More,
     /// The page of other clicks (middle, triple and modifier clicks), called
-    /// More clicks. It follows a point, or the mouse panel's More controls.
+    /// More clicks. It follows a point, or the mouse panel's Adjust settings page.
     Mouse,
     Editing,
     Windows,

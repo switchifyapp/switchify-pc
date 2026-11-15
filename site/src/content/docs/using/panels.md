@@ -10,7 +10,7 @@ Choose the **Panels** tile at the top of the Switchify PC window to see your pan
 Below them, **Built-in menus and panels** lists everything else that scans, one row each, under the menu that opens it, so you can see what belongs to what:
 
 - **On Home**: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs under it, Media, Zoom, Displays and Scanning.
-- **After choosing a point**: **More clicks**, the middle, triple and modified clicks offered on the page that opens after you choose a point. The mouse panel's More controls page opens it too, and the row says so.
+- **After choosing a point**: **More clicks**, the middle, triple and modified clicks offered on the page that opens after you choose a point. The mouse panel's Adjust settings page opens it too, and the row says so.
 
 ![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs, then Displays; After choosing a point lists More clicks, also on the mouse panel. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
 
