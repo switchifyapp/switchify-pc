@@ -248,6 +248,9 @@ struct Service {
     /// is empty, and the first words of a sentence it offers could land in
     /// that word, so none is shown until something is typed.
     blind: bool,
+    /// The worker's buffer began where `blind` was set, so deleting back to
+    /// its start makes the parent blind again.
+    unseen_start: bool,
     /// The last character typed was whitespace, so a new word starts at the
     /// caret. After a Backspace this is not known.
     spaced: bool,
@@ -387,6 +390,7 @@ impl Service {
             self.beyond = false;
             self.held = false;
             self.blind = true;
+            self.unseen_start = true;
             self.spaced = false;
             // The worker saw it too and cleared its own context.
             self.known = 0;
@@ -399,6 +403,7 @@ impl Service {
         self.beyond = false;
         self.held = false;
         self.blind = false;
+        self.unseen_start = false;
         self.forget();
     }
     /// Enter or Tab: the text so far is finished, so its last word is
@@ -408,6 +413,7 @@ impl Service {
         self.beyond = false;
         self.held = false;
         self.blind = false;
+        self.unseen_start = false;
         self.known = 0;
         self.queue_edit(Edit::End, scope);
     }
@@ -416,6 +422,7 @@ impl Service {
     fn interrupt(&mut self) {
         self.held |= self.in_word();
         self.blind |= !self.word_start();
+        self.unseen_start = self.blind;
         self.forget();
     }
     /// An accepted suggestion was not fully typed. Focus went elsewhere:
@@ -434,6 +441,7 @@ impl Service {
     fn displaced(&mut self, navigated: bool) {
         self.held |= navigated || self.in_word();
         self.blind = true;
+        self.unseen_start = true;
         self.spaced = false;
         self.shape.clear();
         self.beyond = self.held;
@@ -451,15 +459,18 @@ impl Service {
             self.held = self.in_word();
             // Only whitespace leaves the caret where a new word starts.
             self.blind = self.held || !self.word_start();
+            self.unseen_start = self.blind;
             self.forget();
             return;
         }
-        self.blind = false;
         match &edit {
             Edit::Append(text) => self.known = (self.known + text.chars().count()).min(512),
             Edit::Backspace => self.known -= 1,
             Edit::Reset | Edit::End => {}
         }
+        // Deleting everything the worker has returns the caret to where it
+        // started, which may be an unseen spot.
+        self.blind = self.known == 0 && self.unseen_start;
         self.queue_edit(edit, scope);
     }
     fn response_timed_out(&self, now: Instant) -> bool {
@@ -721,13 +732,14 @@ pub fn retry() {
             s.beyond,
             s.held,
             s.blind,
+            s.unseen_start,
             s.epoch,
         )
     });
     stop();
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
-        (s.shape, s.beyond, s.held, s.blind, s.epoch) = kept;
+        (s.shape, s.beyond, s.held, s.blind, s.unseen_start, s.epoch) = kept;
     });
 }
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
@@ -827,7 +839,15 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     };
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
+        let was_blind = s.blind;
         s.observe(activity::snapshot());
+        // Outside input may have moved the caret: suggestions shown for where
+        // it was are withdrawn at once, and a choice of one goes stale.
+        if s.blind && !was_blind {
+            s.generation = s.generation.wrapping_add(1);
+            s.last = None;
+            keyboard.predictions(None, s.failed);
+        }
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -1557,6 +1577,20 @@ mod tests {
         s.stroke(key('-'), true, true, scope);
         assert!(!s.held && !shown(&mut s));
         s.stroke(key('x'), true, true, scope);
+        assert!(shown(&mut s));
+        // Deleting back to an unseen spot is blind again; at a known word
+        // start it is not.
+        let mut s = service("");
+        s.observe((4, true));
+        s.observe((5, true));
+        s.stroke(key('w'), true, true, scope);
+        assert!(shown(&mut s));
+        s.stroke(named("Backspace"), true, true, scope);
+        assert!(s.blind && !shown(&mut s));
+        let mut s = service("hello ");
+        s.interrupt();
+        s.stroke(key('w'), true, true, scope);
+        s.stroke(named("Backspace"), true, true, scope);
         assert!(shown(&mut s));
 
         // Enter and a change of window each start somewhere fresh.
