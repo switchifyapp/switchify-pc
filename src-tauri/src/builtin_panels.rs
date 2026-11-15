@@ -180,9 +180,11 @@ pub fn upgraded(kind: Kind, panel: &CustomPanel) -> CustomPanel {
         let at = panel.rows.len().saturating_sub(1);
         panel.rows.insert(at, row);
     } else if let Some(last) = panel.rows.last_mut() {
-        if last.len() + row.len() <= crate::custom_panels::MAX_CELLS_PER_ROW {
-            last.splice(0..0, row);
-        }
+        // A Home with every row in use takes what fits in its last row,
+        // Scanning first, since it holds Pause and Open Switchify.
+        let room = crate::custom_panels::MAX_CELLS_PER_ROW.saturating_sub(last.len());
+        let keep = row.len().min(room);
+        last.splice(0..0, row.split_off(row.len() - keep));
     }
     panel
 }
@@ -289,6 +291,20 @@ mod tests {
         assert_eq!(upgraded(Kind::Home, &new), new);
         let editing = default_document(Kind::Editing);
         assert_eq!(upgraded(Kind::Editing, &editing), editing);
+        // A Home with every row in use takes Scanning in its last row.
+        let mut full = old.clone();
+        let filler = full.rows[0].clone();
+        while full.rows.len() < crate::custom_panels::MAX_ROWS {
+            full.rows.insert(0, filler.clone());
+        }
+        let last = full.rows.last_mut().unwrap();
+        while last.len() < crate::custom_panels::MAX_CELLS_PER_ROW - 1 {
+            last.push(last[0].clone());
+        }
+        let new = upgraded(Kind::Home, &full);
+        assert_eq!(new.rows.len(), crate::custom_panels::MAX_ROWS);
+        assert_eq!(new.rows.last().unwrap()[0].label, "Scanning");
+        assert_eq!(validate_edit(Kind::Home, &new), Ok(()));
     }
 
     #[test]
