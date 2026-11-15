@@ -27,6 +27,8 @@ export type AppSettings = {
   mouseRepeatEnabled: boolean;
   moveRepeatIntervalMs: number;
   scrollRepeatIntervalMs: number;
+  mouseMovement: "smooth" | "blocks";
+  mouseBlockSize: "small" | "medium" | "large";
   mouseRepeatAccelerationDurationMs: number;
   keyRepeatEnabled: boolean;
   keyRepeatIntervalMs: number;

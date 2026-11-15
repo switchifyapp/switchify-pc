@@ -19,6 +19,8 @@ pub enum Key {
     Drag,
     Scroll(i8),
     Speed(i8),
+    /// Flips arrows between smooth movement and jumps of a block.
+    Blocks,
     Monitor(i8, i8),
     More,
     Movement,
@@ -42,6 +44,8 @@ pub struct MousePanel {
     pub dock: Dock,
     pub dragging: bool,
     pub speed_percent: u16,
+    /// Arrows jump a block, as the Blocks tile shows.
+    pub blocks: bool,
     pub error: bool,
     notice: Option<&'static str>,
     positioning: bool,
@@ -69,6 +73,7 @@ impl MousePanel {
             dock: Dock::default(),
             dragging: false,
             speed_percent,
+            blocks: false,
             error: false,
             notice: None,
             positioning: false,
@@ -230,7 +235,7 @@ impl MousePanel {
             }
             rows
         } else {
-            let mut rows = vec![vec![Speed(-1), Speed(1), MoreClicks]];
+            let mut rows = vec![vec![Speed(-1), Speed(1), Blocks, MoreClicks]];
             if displays > 1 {
                 rows.push(vec![
                     Monitor(-1, 0),
@@ -337,6 +342,14 @@ impl MousePanel {
             }
         }
     }
+    #[cfg(test)]
+    pub fn rows_for_test(&self) -> &[Vec<Key>] {
+        &self.rows
+    }
+    #[cfg(test)]
+    pub fn label_for_test(&self, key: Key) -> String {
+        self.label(key)
+    }
     fn label(&self, key: Key) -> String {
         use Key::*;
         match key {
@@ -374,6 +387,7 @@ impl MousePanel {
             Monitor(0, 1) => "Monitor down".into(),
             Monitor(1, 0) => "Monitor right".into(),
             Monitor(..) => "Monitor".into(),
+            Blocks => format!("Blocks\n{}", if self.blocks { "On" } else { "Off" }),
             More => "Speed and more".into(),
             Movement => "Movement".into(),
             Home => "Home".into(),
@@ -567,7 +581,7 @@ mod tests {
         panel.choose(Key::More);
         assert!(panel.rows.iter().flatten().any(|key| *key == Key::Dock));
         assert!(!panel.rows.iter().flatten().any(|key| *key == Key::Home));
-        assert_eq!(panel.rows[0], [Speed(-1), Speed(1), MoreClicks]);
+        assert_eq!(panel.rows[0], [Speed(-1), Speed(1), Blocks, MoreClicks]);
         assert!(!panel
             .rows
             .iter()

@@ -625,6 +625,26 @@ describe("Switchify PC settings", () => {
     await waitFor(() => expect(screen.getByRole("region", { name: "Updates" })).toHaveFocus());
   });
 
+  it("turns on Move in blocks and only then offers a block size", async () => {
+    const saveSettings = vi.spyOn(api, "saveSettings");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
+
+    expect(screen.queryByRole("group", { name: "Block size" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Move in blocks" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ mouseMovement: "blocks", mouseBlockSize: "medium" })));
+
+    const size = await screen.findByRole("group", { name: "Block size" });
+    expect(within(size).getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(size).getByRole("button", { name: "Large" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseMovement: "blocks", mouseBlockSize: "large" })));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Move in blocks" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseMovement: "smooth" })));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Block size" })).not.toBeInTheDocument());
+  });
+
   it("keeps a pending Mouse edit across pages and saves it", async () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
     render(<App />);

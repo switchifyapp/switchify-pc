@@ -52,6 +52,8 @@ pub enum Request {
     },
     MouseDrag,
     MouseSpeed(i8),
+    /// The Blocks tile flips the saved mouse movement.
+    MouseMovementToggle,
     MouseMonitor(i8, i8),
     MouseCycleDisplay(bool),
     Click {
@@ -190,6 +192,9 @@ pub struct Workflow {
     resume: bool,
     mouse_actions_open: bool,
     move_repeat: Option<crate::mouse_repeat::ScanMoveRepeat>,
+    /// A direction hopping a block at a time until a switch stops it.
+    block_hop: Option<crate::mouse_repeat::ScanBlockHop>,
+    mouse_block_size: crate::mouse_repeat::BlockSize,
     scroll_repeat: Option<crate::mouse_repeat::ScanScrollRepeat>,
     /// Chooses a pointer target for the mouse panel, which it hides meanwhile.
     radar: Option<crate::scan_radar::Radar>,
@@ -252,6 +257,8 @@ impl Workflow {
             resume: false,
             mouse_actions_open: false,
             move_repeat: None,
+            block_hop: None,
+            mouse_block_size: Default::default(),
             scroll_repeat: None,
             radar: None,
             cursor_color: None,
@@ -415,6 +422,7 @@ impl Workflow {
         )
         .with_extras(self.extras_for(ExtraTarget::Mouse));
         mouse.dock = self.dock;
+        mouse.blocks = self.mouse.blocks;
         mouse
     }
     /// Starts with the panels at a previously saved dock.
@@ -478,6 +486,7 @@ impl Workflow {
             self.return_to_mouse = false;
             self.mouse_actions_open = false;
             self.move_repeat = None;
+            self.block_hop = None;
             self.scroll_repeat = None;
             self.radar = None;
             self.key_repeat = None;
@@ -554,6 +563,7 @@ impl Workflow {
         {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
+            self.block_hop = None;
             self.scroll_repeat = None;
             self.radar = None;
             self.pending = None;
@@ -585,10 +595,40 @@ impl Workflow {
         if changed && matches!(self.stage, Stage::MouseMoving | Stage::MouseScrolling) {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
+            self.block_hop = None;
             self.scroll_repeat = None;
             self.pending = None;
             self.mouse.restart();
         }
+    }
+    /// Whether the arrows glide or jump a block, and how big a block is.
+    /// A change ends a move in flight, as other mouse settings do; a scroll
+    /// carries on.
+    pub fn set_mouse_movement(
+        &mut self,
+        movement: crate::mouse_repeat::MouseMovement,
+        block_size: crate::mouse_repeat::BlockSize,
+    ) {
+        let blocks = movement == crate::mouse_repeat::MouseMovement::Blocks;
+        let changed = self.mouse.blocks != blocks || self.mouse_block_size != block_size;
+        self.mouse.blocks = blocks;
+        self.mouse_block_size = block_size;
+        if changed && self.stage == Stage::MouseMoving {
+            self.stage = Stage::Mouse;
+            self.move_repeat = None;
+            self.block_hop = None;
+            self.pending = None;
+            self.mouse.restart();
+        }
+    }
+    /// One block in a direction on the display under the pointer.
+    fn block_delta(&self, dx: i8, dy: i8) -> (i32, i32) {
+        let step = crate::mouse_repeat::block_distance(
+            self.point.screen.width,
+            self.point.screen.height,
+            self.mouse_block_size,
+        );
+        (i32::from(dx) * step, i32::from(dy) * step)
     }
     pub fn set_cursor_color(&mut self, color: crate::scanning::ScannerColor) {
         self.cursor_color = Some(color);
@@ -1068,6 +1108,7 @@ impl Workflow {
         self.mouse_actions_open = false;
         self.return_to_home = false;
         self.move_repeat = None;
+        self.block_hop = None;
         self.scroll_repeat = None;
         self.radar = None;
         self.mouse = self.new_mouse();
@@ -1144,6 +1185,14 @@ impl Workflow {
         self.mouse.choose(key);
         self.set_dock(self.mouse.dock);
         match key {
+            Key::Move(dx, dy) if self.mouse.blocks => {
+                let (dx, dy) = self.block_delta(dx, dy);
+                if self.mouse_repeat_enabled {
+                    self.block_hop = Some(crate::mouse_repeat::ScanBlockHop::new(dx, dy));
+                    self.stage = Stage::MouseMoving;
+                }
+                Some(Request::MouseMove { dx, dy })
+            }
             Key::Move(dx, dy) => {
                 let step = crate::mouse_repeat::DIRECTION_MOVE_DELTA;
                 let delta = (i32::from(dx) * step, i32::from(dy) * step);
@@ -1198,6 +1247,7 @@ impl Workflow {
                 }
             }
             Key::Speed(direction) => Some(Request::MouseSpeed(direction)),
+            Key::Blocks => Some(Request::MouseMovementToggle),
             Key::Monitor(dx, dy) => Some(Request::MouseMonitor(dx, dy)),
             Key::Keyboard => {
                 self.return_to_mouse = true;
@@ -1350,6 +1400,7 @@ impl Workflow {
         self.error = None;
         self.elapsed = 0;
         self.move_repeat = None;
+        self.block_hop = None;
         self.scroll_repeat = None;
         self.radar = None;
         match origin {
@@ -1657,6 +1708,7 @@ impl Technique for Workflow {
             self.mouse_actions_open = false;
             self.parent_menu.clear();
             self.move_repeat = None;
+            self.block_hop = None;
             self.scroll_repeat = None;
             self.radar = None;
             self.mouse.dragging = false;
@@ -1728,6 +1780,7 @@ impl Technique for Workflow {
         self.resume = false;
         self.mouse_actions_open = false;
         self.move_repeat = None;
+        self.block_hop = None;
         self.scroll_repeat = None;
         self.radar = None;
         self.key_repeat = None;
@@ -1765,6 +1818,7 @@ impl Technique for Workflow {
         }
         self.stage = Stage::Mouse;
         self.move_repeat = None;
+        self.block_hop = None;
         self.scroll_repeat = None;
         self.pending = None;
         self.mouse.repeat_stopped();
@@ -1935,7 +1989,17 @@ impl Technique for Workflow {
             }
             return;
         }
-        if self.stage == Stage::MouseMoving {
+        if self.stage == Stage::MouseMoving && self.block_hop.is_some() {
+            // Blocks hop at the pace the panel scans, so a switch user has
+            // as long to stop the pointer as to choose a tile.
+            let interval = self.point.config.mouse_scan.interval_ms;
+            if let Some(hop) = self.block_hop.as_mut() {
+                if hop.advance(ms, interval) {
+                    let (dx, dy) = hop.delta();
+                    self.pending = Some(Request::MouseMove { dx, dy });
+                }
+            }
+        } else if self.stage == Stage::MouseMoving {
             let (dx, dy) = self.move_repeat.as_mut().map_or((0, 0), |repeat| {
                 repeat.advance(
                     ms,
@@ -3929,6 +3993,185 @@ mod tests {
         );
         assert!(workflow.take_selection().is_none());
         assert!(!workflow.stop_mouse_repeat());
+    }
+
+    #[test]
+    fn blocks_without_repeat_jump_one_block_per_press_at_each_size() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        use crate::scan_mouse::Key;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.open_mouse(true);
+        // Speed has no say in a block.
+        workflow.set_mouse_settings(50, 1000, 250, 250, false);
+        for (size, block) in [
+            (BlockSize::Small, 36),
+            (BlockSize::Medium, 72),
+            (BlockSize::Large, 144),
+        ] {
+            workflow.set_mouse_movement(MouseMovement::Blocks, size);
+            assert_eq!(
+                workflow.mouse_key(Key::Move(-1, 1)),
+                Some(Request::MouseMove {
+                    dx: -block,
+                    dy: block
+                })
+            );
+            assert_eq!(
+                workflow.mouse_key(Key::Move(1, 0)),
+                Some(Request::MouseMove { dx: block, dy: 0 })
+            );
+            assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            assert!(!workflow.mouse_repeating());
+        }
+        workflow.update(
+            5000,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: false,
+            },
+        );
+        assert!(workflow.take_selection().is_none());
+
+        // A tall display measures a block on its width, and smooth is as before.
+        let tall = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 1280.0,
+        };
+        workflow.set_mouse_area(tall, tall, 1.0, 1);
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        assert_eq!(
+            workflow.mouse_key(Key::Move(0, -1)),
+            Some(Request::MouseMove { dx: 0, dy: -80 })
+        );
+        workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Medium);
+        assert_eq!(
+            workflow.mouse_key(Key::Move(0, -1)),
+            Some(Request::MouseMove { dx: 0, dy: -6 })
+        );
+    }
+
+    #[test]
+    fn blocks_with_repeat_hop_at_the_scan_rate_until_a_switch_stops_them() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        use crate::scan_mouse::Key;
+        let mut workflow = session(false).technique;
+        workflow.open_mouse(true);
+        workflow.set_mouse_settings(100, 1000, 250, 250, true);
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Large);
+        let block = crate::mouse_repeat::block_distance(
+            workflow.point.screen.width,
+            workflow.point.screen.height,
+            BlockSize::Large,
+        );
+        let interval = workflow.point.config.mouse_scan.interval_ms;
+        let context = UpdateContext {
+            movement_enabled: true,
+            paused: false,
+            switch_held: false,
+        };
+        // The first block moves at once.
+        assert_eq!(
+            workflow.mouse_key(Key::Move(0, 1)),
+            Some(Request::MouseMove { dx: 0, dy: block })
+        );
+        assert!(workflow.mouse_repeating());
+        assert!(workflow.move_repeat.is_none());
+        workflow.update(interval - 1, context);
+        assert!(workflow.take_selection().is_none());
+        workflow.update(1, context);
+        assert_eq!(
+            workflow.take_selection(),
+            Some(Request::MouseMove { dx: 0, dy: block })
+        );
+        // A stalled tick hops once.
+        workflow.update(interval * 4, context);
+        assert_eq!(
+            workflow.take_selection(),
+            Some(Request::MouseMove { dx: 0, dy: block })
+        );
+        workflow.update(0, context);
+        assert!(workflow.take_selection().is_none());
+
+        assert!(workflow.stop_mouse_repeat());
+        assert!(workflow.block_hop.is_none());
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        workflow.update(interval * 2, context);
+        assert!(!matches!(
+            workflow.take_selection(),
+            Some(Request::MouseMove { .. })
+        ));
+    }
+
+    #[test]
+    fn changing_movement_or_display_ends_a_block_hop() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        use crate::scan_mouse::Key;
+        let mut workflow = session(false).technique;
+        workflow.open_mouse(true);
+        workflow.set_mouse_settings(100, 1000, 250, 250, true);
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        workflow.mouse_key(Key::Move(1, 0));
+        assert!(workflow.mouse_repeating());
+        // Saving the same choice again leaves the hop alone.
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        assert!(workflow.mouse_repeating());
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Small);
+        assert!(!workflow.mouse_repeating());
+        assert!(workflow.block_hop.is_none());
+
+        workflow.mouse_key(Key::Move(1, 0));
+        workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Small);
+        assert!(!workflow.mouse_repeating());
+
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Small);
+        workflow.mouse_key(Key::Move(1, 0));
+        let next_screen = Rect {
+            x: 1000.0,
+            y: 20.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+        assert!(!workflow.mouse_repeating());
+        assert!(workflow.block_hop.is_none());
+
+        // A scroll carries on through a movement change.
+        workflow.mouse_key(Key::Scroll(1));
+        workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Small);
+        assert!(workflow.mouse_repeating());
+    }
+
+    #[test]
+    fn the_blocks_tile_asks_to_flip_the_setting_and_shows_it() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        use crate::scan_mouse::Key;
+        let mut workflow = session(false).technique;
+        workflow.open_mouse(true);
+        workflow.mouse_key(Key::More);
+        assert_eq!(
+            workflow.mouse.rows_for_test()[0],
+            [Key::Speed(-1), Key::Speed(1), Key::Blocks, Key::MoreClicks]
+        );
+        assert_eq!(workflow.mouse.label_for_test(Key::Blocks), "Blocks\nOff");
+        assert_eq!(
+            workflow.mouse_key(Key::Blocks),
+            Some(Request::MouseMovementToggle)
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        assert_eq!(workflow.mouse.label_for_test(Key::Blocks), "Blocks\nOn");
+        // The choice outlives the panel being rebuilt.
+        workflow.open_mouse(true);
+        assert!(workflow.mouse.blocks);
     }
 
     #[test]

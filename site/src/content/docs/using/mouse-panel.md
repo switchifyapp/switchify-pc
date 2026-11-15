@@ -11,7 +11,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 - **Left click**, **Right click**, **Double click**.
 - **Start drag** and **End drag**.
 - **Scroll up** and **Scroll down**.
-- **Speed and more**, a second page with **Slower** and **Faster** pointer speed, **More clicks** (middle, triple, Shift, Ctrl, Alt and Windows or Command click at the pointer), **Monitor left, right, up, down** to jump the pointer to another display, and a choice of where the panel sits. Speed shows the current level, from 1 to 10, and a press moves it half a level. **Movement** returns to the first page. After a click from More clicks, or **Back**, the panel comes back on its first page.
+- **Speed and more**, a second page with **Slower** and **Faster** pointer speed, **Blocks** to switch between gliding and moving in blocks, **More clicks** (middle, triple, Shift, Ctrl, Alt and Windows or Command click at the pointer), **Monitor left, right, up, down** to jump the pointer to another display, and a choice of where the panel sits. Speed shows the current level, from 1 to 10, and a press moves it half a level. **Movement** returns to the first page. After a click from More clicks, or **Back**, the panel comes back on its first page.
 - **Home** to open [Home](/using/home-menu/), for editing, windows, browser, media, zoom and the rest, and **My panels** once you have made [panels](/using/panels/) of your own. Choose **Mouse** on Home to bring the panel back.
 - **Keyboard** to open the scanning [keyboard](/using/keyboard/).
 - **Close** to stop scanning. To change to [point scanning](/using/point-scanning/) instead, choose **Home**, then **Point**.
@@ -22,6 +22,15 @@ The panel has a slim bar along its top with the Switchify PC name and a **Settin
 ## Speed and repeat
 
 Pointer speed has ten levels plus fine tuning. The panel, the **Mouse pointer** section at the end of the Scanning page, and the Android app all show the same level. Hold a switch on a movement or scroll button and it repeats, with a repeat interval and gradual acceleration you can set. Repeat stops when you release the switch, or on the next press, whichever you choose under Stop repeating in the Mouse pointer section.
+
+## Move in blocks
+
+With **Move in blocks** on, the arrows jump the pointer a set distance instead of gliding. Turn it on or off with the **Blocks** tile on the Speed and more page, or with the switch of the same name in the **Mouse pointer** section. The tile shows On or Off.
+
+- With repeat off, each press moves the pointer one block.
+- With repeat on, the pointer hops one block at a time, at the mouse panel's scan speed, until you stop it the same way you stop a glide.
+
+Choose **Small**, **Medium** or **Large** blocks in the Mouse pointer section. A block is a twentieth, a tenth or a fifth of the shorter side of the display the pointer is on. Pointer speed doesn't change the size of a block.
 
 The panel can move itself out of the way when the pointer approaches it.
 

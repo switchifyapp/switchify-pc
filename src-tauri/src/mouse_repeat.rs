@@ -157,6 +157,82 @@ pub struct ScanMoveRepeat {
     movement: MoveRepeatState,
 }
 
+/// How a direction chosen on the scanned mouse panel moves the pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MouseMovement {
+    /// A glide with repeat on, or a small step per press with it off.
+    #[default]
+    Smooth,
+    /// A jump of one block per press, or one block per hop while repeating.
+    Blocks,
+}
+
+/// The size of one block, as a share of the display's shorter side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl BlockSize {
+    fn parts(self) -> f64 {
+        match self {
+            Self::Small => 20.0,
+            Self::Medium => 10.0,
+            Self::Large => 5.0,
+        }
+    }
+}
+
+/// One block on a display of this size, in the display's own units, which
+/// are the units a relative pointer move uses. Blocks are square, so a
+/// diagonal moves as far along each axis.
+pub fn block_distance(width: f64, height: f64, size: BlockSize) -> i32 {
+    if !width.is_finite() || !height.is_finite() {
+        return 1;
+    }
+    let side = width.min(height);
+    if side <= 0.0 {
+        return 1;
+    }
+    (side / size.parts()).round().max(1.0) as i32
+}
+
+/// Hops a block at a time while a scanned direction repeats: the first hop
+/// is the choice itself, then one per interval. A delayed scanner tick never
+/// bursts several hops into the foreground app.
+pub struct ScanBlockHop {
+    delta: (i32, i32),
+    elapsed_ms: u64,
+}
+
+impl ScanBlockHop {
+    pub fn new(dx: i32, dy: i32) -> Self {
+        Self {
+            delta: (dx, dy),
+            elapsed_ms: 0,
+        }
+    }
+
+    pub fn delta(&self) -> (i32, i32) {
+        self.delta
+    }
+
+    pub fn advance(&mut self, elapsed_ms: u64, interval_ms: u64) -> bool {
+        let interval = interval_ms.max(1);
+        self.elapsed_ms = self.elapsed_ms.saturating_add(elapsed_ms);
+        if self.elapsed_ms < interval {
+            return false;
+        }
+        self.elapsed_ms %= interval;
+        true
+    }
+}
+
 /// The scanned scroll control uses Remote's immediate first step followed by
 /// one step per configured interval. A delayed scanner tick never bursts
 /// multiple scroll events into the foreground app.
@@ -547,6 +623,30 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::time::Duration;
+
+    #[test]
+    fn blocks_are_a_share_of_the_shorter_display_side() {
+        assert_eq!(block_distance(1920.0, 1080.0, BlockSize::Small), 54);
+        assert_eq!(block_distance(1920.0, 1080.0, BlockSize::Medium), 108);
+        assert_eq!(block_distance(1920.0, 1080.0, BlockSize::Large), 216);
+        assert_eq!(block_distance(1080.0, 1920.0, BlockSize::Medium), 108);
+        assert_eq!(block_distance(3.0, 3.0, BlockSize::Small), 1);
+        assert_eq!(block_distance(0.0, 1080.0, BlockSize::Large), 1);
+        assert_eq!(block_distance(f64::NAN, 1080.0, BlockSize::Large), 1);
+    }
+
+    #[test]
+    fn block_hops_follow_the_interval_without_bursting() {
+        let mut hop = ScanBlockHop::new(108, 0);
+        assert_eq!(hop.delta(), (108, 0));
+        assert!(!hop.advance(400, 1000));
+        assert!(!hop.advance(500, 1000));
+        assert!(hop.advance(100, 1000));
+        assert!(!hop.advance(999, 1000));
+        // A stalled tick hops once, not three times.
+        assert!(hop.advance(3000, 1000));
+        assert!(!hop.advance(0, 1000));
+    }
 
     #[test]
     fn parses_repeatable_keys_and_rejects_everything_else() {
