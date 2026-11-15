@@ -22,7 +22,10 @@ pub enum Key {
     Monitor(i8, i8),
     More,
     Movement,
-    Actions,
+    /// Opens Home, the one menu of app actions, leaving the panel.
+    Home,
+    /// Opens More clicks: middle, triple and modifier clicks at the pointer.
+    MoreClicks,
     Keyboard,
     Dock,
     Position(Dock),
@@ -214,7 +217,7 @@ impl MousePanel {
                     (0..cells.len()).map(|column| Extra(row, column)).collect()
                 }),
             );
-            rows.push(vec![Actions, More, Keyboard, Close]);
+            rows.push(vec![Home, More, Keyboard, Close]);
             // Columns run down the right from the top row; a column longer
             // than the panel adds rows of its own below.
             for (column, cells) in extras.columns.iter().enumerate() {
@@ -227,7 +230,7 @@ impl MousePanel {
             }
             rows
         } else {
-            let mut rows = vec![vec![Speed(-1), Speed(1)]];
+            let mut rows = vec![vec![Speed(-1), Speed(1), MoreClicks]];
             if displays > 1 {
                 rows.push(vec![
                     Monitor(-1, 0),
@@ -257,7 +260,7 @@ impl MousePanel {
                 self.rebuild_rows();
             }
             // The panel is left behind.
-            Key::Actions | Key::Keyboard | Key::Close => self.scan.restart(),
+            Key::Home | Key::MoreClicks | Key::Keyboard | Key::Close => self.scan.restart(),
             Key::Extra(..) | Key::Column(..)
                 if self
                     .cell(key)
@@ -300,6 +303,14 @@ impl MousePanel {
         self.scan.restart();
     }
     /// The panel has opened, or been returned to, by a selection.
+    /// Back on the first page, where the pointer is moved.
+    pub fn show_movement(&mut self) {
+        if self.more || self.positioning {
+            self.more = false;
+            self.positioning = false;
+            self.rebuild_rows();
+        }
+    }
     pub fn opened(&mut self) {
         self.notice = None;
         self.scan.open();
@@ -365,7 +376,8 @@ impl MousePanel {
             Monitor(..) => "Monitor".into(),
             More => "More controls".into(),
             Movement => "Movement".into(),
-            Actions => "Actions".into(),
+            Home => "Home".into(),
+            MoreClicks => "More clicks".into(),
             Keyboard => "Keyboard".into(),
             Dock => crate::scan_panel::POSITION_PAGE.into(),
             Position(dock) => crate::scan_panel::position_label(dock, self.dock),
@@ -385,7 +397,7 @@ impl MousePanel {
             Key::Move(..) => TileRole::Character,
             Key::More
             | Key::Movement
-            | Key::Actions
+            | Key::Home
             | Key::Keyboard
             | Key::Dock
             | Key::Back
@@ -549,12 +561,13 @@ mod tests {
                 vec![Move(-1, -1), Move(0, -1), Move(1, -1), Scroll(1)],
                 vec![Move(-1, 0), Radar, Move(1, 0)],
                 vec![Move(-1, 1), Move(0, 1), Move(1, 1), Scroll(-1)],
-                vec![Actions, More, Keyboard, Close],
+                vec![Home, More, Keyboard, Close],
             ]
         );
         panel.choose(Key::More);
         assert!(panel.rows.iter().flatten().any(|key| *key == Key::Dock));
-        assert!(!panel.rows.iter().flatten().any(|key| *key == Key::Actions));
+        assert!(!panel.rows.iter().flatten().any(|key| *key == Key::Home));
+        assert_eq!(panel.rows[0], [Speed(-1), Speed(1), MoreClicks]);
         assert!(!panel
             .rows
             .iter()

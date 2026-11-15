@@ -14,7 +14,6 @@ pub enum Item {
     Switchify,
     Keyboard,
     MousePanel,
-    More,
     Group(Kind),
     Command(Command),
     Setting(Setting),
@@ -48,10 +47,9 @@ impl Item {
         match self {
             Self::Home => "Home",
             Self::PointScan => "Point",
-            Self::Switchify => "Switchify",
+            Self::Switchify => "Open Switchify",
             Self::Keyboard => "Keyboard",
             Self::MousePanel => "Mouse",
-            Self::More => "More",
             Self::Group(kind) => kind.label(),
             Self::Command(command) => command.label(),
             Self::Setting(setting) => setting.label(),
@@ -90,9 +88,11 @@ impl Item {
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
     Home,
+    /// Retired: the More actions page that once followed a point. Switches
+    /// and saved tiles that still name it open Home, which lists its menus.
     More,
-    MouseActions,
-    MouseScanning,
+    /// The page of other clicks (middle, triple and modifier clicks), called
+    /// More clicks. It follows a point, or the mouse panel's More controls.
     Mouse,
     Editing,
     Windows,
@@ -114,12 +114,9 @@ pub enum Kind {
 }
 /// The pages with fixed rows. `Panels` and `Custom` are built from data.
 #[cfg(test)]
-pub(crate) const ALL_MENU_KINDS: [Kind; 18] = [
+pub(crate) const ALL_MENU_KINDS: [Kind; 15] = [
     Kind::Home,
     Kind::Actions,
-    Kind::More,
-    Kind::MouseActions,
-    Kind::MouseScanning,
     Kind::Mouse,
     Kind::Editing,
     Kind::Windows,
@@ -565,15 +562,20 @@ impl Setting {
     }
 }
 impl Kind {
+    /// The page a kind opens: the retired More actions page opens Home.
+    pub fn resolved(self) -> Self {
+        match self {
+            Self::More => Self::Home,
+            kind => kind,
+        }
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Home => "Home",
             Self::Actions => "Actions",
             Self::Scroll => "Scroll",
             Self::ConfirmDrag => "Confirm drag",
-            Self::More => "More actions",
-            Self::MouseActions => "Actions",
-            Self::MouseScanning => "Scanning",
+            Self::More => "Home",
             Self::Mouse => "More clicks",
             Self::Editing => "Editing",
             Self::Windows => "Apps and windows",
@@ -593,8 +595,10 @@ impl Kind {
         use self::Command as C;
         use Item::*;
         let items = match self {
-            // Only actions that need no point, so nothing depends on which window is in front.
-            Self::Home => {
+            // The one hub: the modes, then every menu that needs no point, so
+            // nothing depends on which window is in front. The other panels
+            // reach these menus through their Home key.
+            Self::Home | Self::More => {
                 return vec![
                     vec![PointScan, MousePanel, Keyboard],
                     vec![
@@ -602,16 +606,16 @@ impl Kind {
                         Group(Self::Editing),
                         Group(Self::Browser),
                     ],
-                    vec![Group(Self::Media), Group(Self::Zoom)],
-                    vec![Switchify, Cancel],
+                    vec![Group(Self::Media), Group(Self::Zoom), Group(Self::Displays)],
+                    vec![Group(Self::Scanning), Cancel],
                 ]
             }
-            // The user's panels sit in the navigation row of both action pages,
-            // so they are one choice away from any point and from the mouse panel.
+            // Only what acts at the chosen point, then the ways on. The app
+            // menus are on Home, one choice away.
             Self::Actions => {
                 return vec![
                     vec![LeftClick, RightClick, DoubleClick],
-                    vec![Scroll, Drag, More],
+                    vec![Scroll, Drag, Group(Self::Mouse)],
                     vec![Keyboard, MousePanel, Home],
                     vec![NewPoint, Panels, Cancel],
                 ]
@@ -620,42 +624,6 @@ impl Kind {
             Self::ConfirmDrag => {
                 return vec![vec![DragHere, DestinationAgain], vec![CancelDrag, Cancel]]
             }
-            // Keyboard and the mouse panel sit one level up on the Actions page, which
-            // keeps this page within four rows with Zoom beside the other app menus.
-            Self::More => vec![
-                Group(Self::Mouse),
-                Group(Self::Editing),
-                Group(Self::Windows),
-                Group(Self::Browser),
-                Group(Self::Zoom),
-                Group(Self::Media),
-                Group(Self::Displays),
-                Group(Self::Scanning),
-                Back,
-            ],
-            Self::MouseActions => {
-                return vec![
-                    vec![
-                        Group(Self::Mouse),
-                        Group(Self::Editing),
-                        Group(Self::Windows),
-                    ],
-                    vec![
-                        Group(Self::Browser),
-                        Group(Self::Media),
-                        Group(Self::Displays),
-                    ],
-                    vec![Group(Self::MouseScanning), Keyboard, Home],
-                    vec![Back, Panels, Cancel],
-                ]
-            }
-            Self::MouseScanning => vec![
-                Pause,
-                Reverse,
-                Setting(self::Setting::FasterScan),
-                Setting(self::Setting::SlowerScan),
-                Back,
-            ],
             Self::Mouse => vec![
                 Command(C::MiddleClick),
                 Command(C::TripleClick),
@@ -729,6 +697,7 @@ impl Kind {
             Self::ShutDown => return vec![vec![Back, Command(C::ShutDown), Cancel]],
             Self::Restart => return vec![vec![Back, Command(C::Restart), Cancel]],
             Self::Scanning => vec![
+                Switchify,
                 Pause,
                 Reverse,
                 Setting(self::Setting::FasterScan),
@@ -806,41 +775,42 @@ mod tests {
     }
 
     #[test]
-    fn mouse_actions_expose_app_commands_without_point_only_controls() {
-        let root = Kind::MouseActions
-            .rows()
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        for kind in [
-            Kind::Mouse,
+    fn home_is_the_only_page_that_lists_the_app_menus() {
+        let app_menus = [
             Kind::Editing,
             Kind::Windows,
             Kind::Browser,
             Kind::Media,
+            Kind::Zoom,
             Kind::Displays,
-            Kind::MouseScanning,
-        ] {
-            assert!(root.contains(&Item::Group(kind)));
+            Kind::Scanning,
+        ];
+        for kind in ALL_MENU_KINDS {
+            let items = kind.rows().into_iter().flatten().collect::<Vec<_>>();
+            for menu in app_menus {
+                assert_eq!(
+                    items.contains(&Item::Group(menu)),
+                    kind == Kind::Home,
+                    "{kind:?} {menu:?}"
+                );
+            }
         }
-        assert!(!root.contains(&Item::NewPoint));
-        assert!(!root.contains(&Item::MousePanel));
-        assert!(root.contains(&Item::Keyboard));
-        let mut menu = Menu::new(Kind::MouseActions, 250);
-        menu.advance(250);
-        menu.advance(250);
-        assert_eq!(menu.handle(Action::Select), None);
-        menu.advance(250);
-        assert_eq!(menu.handle(Action::Select), Some(Item::Keyboard));
-        let scanning = Kind::MouseScanning
+        // The page after a point holds what acts there, More clicks included.
+        let actions = Kind::Actions
             .rows()
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
-        assert!(scanning.contains(&Item::Pause));
-        assert!(scanning.contains(&Item::Reverse));
-        assert!(!scanning.contains(&Item::Setting(Setting::LineMode)));
-        assert!(!scanning.contains(&Item::Setting(Setting::GridMode)));
+        assert!(actions.contains(&Item::Group(Kind::Mouse)));
+        assert!(actions.contains(&Item::Home));
+        assert_eq!(Kind::Mouse.label(), "More clicks");
+        // Switches and tiles saved for the retired More actions page open Home.
+        assert_eq!(Kind::More.resolved(), Kind::Home);
+        assert_eq!(Kind::More.rows(), Kind::Home.rows());
+        assert_eq!(
+            serde_json::from_str::<Kind>("\"more\"").unwrap(),
+            Kind::More
+        );
     }
     #[test]
     fn every_page_has_one_close_tile_in_its_final_navigation_row() {
@@ -860,7 +830,7 @@ mod tests {
                 assert_eq!(rows[0][2], Item::Cancel);
             } else if let Some(back) = back {
                 // The action pages keep My panels between the way back and Close menu.
-                let expected = if matches!(kind, Kind::Actions | Kind::MouseActions) {
+                let expected = if kind == Kind::Actions {
                     vec![back, Item::Panels, Item::Cancel]
                 } else {
                     vec![back, Item::Cancel]
@@ -909,7 +879,6 @@ mod tests {
             let rows = kind.rows();
             for item in rows.into_iter().flatten() {
                 match item {
-                    Item::More => pending.push(Kind::More),
                     Item::Group(k) => pending.push(k),
                     Item::Command(c) => commands.push(c),
                     _ => {}
@@ -998,28 +967,18 @@ mod tests {
     #[test]
     fn zoom_sits_beside_the_other_app_menus_not_inside_browser() {
         let items = |kind: Kind| kind.rows().into_iter().flatten().collect::<Vec<_>>();
-        // Zoom works in most apps, so it is offered wherever Editing and Media are
-        // offered from a point-free page, and only there.
-        for kind in [Kind::Home, Kind::More] {
-            let page = items(kind);
-            assert!(page.contains(&Item::Group(Kind::Zoom)), "{kind:?}");
-            assert!(page.contains(&Item::Group(Kind::Editing)), "{kind:?}");
-            assert!(page.contains(&Item::Group(Kind::Media)), "{kind:?}");
-        }
+        // Zoom works in most apps, so it sits on Home beside Editing and Media.
+        let home = items(Kind::Home);
+        assert!(home.contains(&Item::Group(Kind::Zoom)));
+        assert!(home.contains(&Item::Group(Kind::Editing)));
+        assert!(home.contains(&Item::Group(Kind::Media)));
         for kind in ALL_MENU_KINDS {
             assert_eq!(
                 items(kind).contains(&Item::Group(Kind::Zoom)),
-                matches!(kind, Kind::Home | Kind::More),
+                kind == Kind::Home,
                 "{kind:?}"
             );
         }
-        // The Actions page already offers Keyboard and the mouse panel, so More does not.
-        let actions = items(Kind::Actions);
-        assert!(actions.contains(&Item::Keyboard));
-        assert!(actions.contains(&Item::MousePanel));
-        let more = items(Kind::More);
-        assert!(!more.contains(&Item::Keyboard));
-        assert!(!more.contains(&Item::MousePanel));
         assert_eq!(
             Kind::Zoom.rows(),
             [
@@ -1047,29 +1006,31 @@ mod tests {
                 Item::Group(Kind::Browser),
                 Item::Group(Kind::Media),
                 Item::Group(Kind::Zoom),
-                Item::Switchify,
+                Item::Group(Kind::Displays),
+                Item::Group(Kind::Scanning),
                 Item::Cancel,
             ]
         );
-        // Mouse and Displays act at a point or move it; Scanning settings restart the point scan.
+        // More clicks and Scroll act at a chosen point, so Home never reaches them.
+        // Displays and Scanning act on the scan itself, not on a point.
         let mut pending = home.clone();
         while let Some(item) = pending.pop() {
             if let Item::Group(kind) = item {
-                assert!(!matches!(
-                    kind,
-                    Kind::Mouse | Kind::Displays | Kind::Scanning | Kind::Scroll
-                ));
+                assert!(!matches!(kind, Kind::Mouse | Kind::Scroll));
                 pending.extend(kind.rows().into_iter().flatten());
             }
         }
-        for kind in [Kind::Actions, Kind::MouseActions] {
-            assert!(kind.rows().iter().flatten().any(|item| *item == Item::Home));
-        }
+        assert!(Kind::Actions
+            .rows()
+            .iter()
+            .flatten()
+            .any(|item| *item == Item::Home));
     }
     #[test]
-    fn the_action_pages_offer_my_panels_only_once_there_are_panels() {
+    fn the_action_page_offers_my_panels_only_once_there_are_panels() {
         let options = crate::scan_preferences::Resolved::default();
-        for kind in [Kind::Actions, Kind::MouseActions] {
+        {
+            let kind = Kind::Actions;
             let with = Menu::configured_for(kind, options, true);
             let without = Menu::configured_for(kind, options, false);
             assert_eq!(with.rows, kind.rows(), "{kind:?}");

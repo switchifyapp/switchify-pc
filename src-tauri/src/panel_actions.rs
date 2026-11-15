@@ -163,7 +163,8 @@ impl PanelAction {
             Self::OpenPanel {
                 panel: BuiltInPanel::Menu(kind),
             } => {
-                if !openable_menus().contains(kind) {
+                // A tile saved when More actions was a page opens Home now.
+                if !openable_menus().contains(&kind.resolved()) {
                     return Err("That menu can only be reached from its own panel.".into());
                 }
                 Ok(())
@@ -254,7 +255,6 @@ pub fn validate_panel_id(id: &str) -> Result<(), String> {
 pub fn openable_menus() -> &'static [Kind] {
     &[
         Kind::Home,
-        Kind::More,
         Kind::Mouse,
         Kind::Editing,
         Kind::Windows,

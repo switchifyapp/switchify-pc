@@ -54,8 +54,8 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
   { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
     [browserTile("Point", { type: "openPanel", panel: "point" }), browserTile("Mouse", { type: "openPanel", panel: "mouse" }), browserTile("Keyboard", { type: "openPanel", panel: "keyboard" })],
     [browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Browser", { type: "openPanel", panel: { menu: "browser" } })],
-    [browserTile("Media", { type: "openPanel", panel: { menu: "media" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } })],
-    [browserTile("Switchify", { type: "openPanel", panel: "switchify" }), browserTile("My panels", { type: "myPanels" }), browserTile("Close menu", { type: "close" })],
+    [browserTile("Media", { type: "openPanel", panel: { menu: "media" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), browserTile("Displays", { type: "openPanel", panel: { menu: "displays" } })],
+    [browserTile("Scanning", { type: "openPanel", panel: { menu: "scanning" } }), browserTile("My panels", { type: "myPanels" }), browserTile("Close menu", { type: "close" })],
   ] } },
   { kind: "editing", name: "Editing", override: null, default: { id: "builtin-editing", version: 1, name: "Editing", description: "", rows: [
     [browserTile("Copy", { type: "command", command: "copy" }), browserTile("Cut", { type: "command", command: "cut" }), browserTile("Paste", { type: "command", command: "paste" })],
@@ -73,10 +73,9 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
     [browserTile("Next tab", { type: "command", command: "nextTab" }), browserTile("Previous tab", { type: "command", command: "previousTab" })],
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
   ] } },
-  { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
-    [browserTile("More clicks", { type: "openPanel", panel: { menu: "mouse" } }), browserTile("Editing", { type: "openPanel", panel: { menu: "editing" } }), browserTile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
-    [browserTile("Browser", { type: "openPanel", panel: { menu: "browser" } }), browserTile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), browserTile("Media", { type: "openPanel", panel: { menu: "media" } })],
-    [browserTile("Displays", { type: "openPanel", panel: { menu: "displays" } }), browserTile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
+  { kind: "mouse", name: "More clicks", override: null, default: { id: "builtin-mouse", version: 1, name: "More clicks", description: "", rows: [
+    [browserTile("Middle click", { type: "command", command: "middleClick" }), browserTile("Triple click", { type: "command", command: "tripleClick" }), browserTile("Shift-click", { type: "command", command: "shiftClick" })],
+    [browserTile("Ctrl-click", { type: "command", command: "ctrlClick" }), browserTile("Alt-click", { type: "command", command: "altClick" }), browserTile("Windows-click", { type: "command", command: "metaClick" })],
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
   ] } },
   { kind: "displays", name: "Displays", override: null, default: { id: "builtin-displays", version: 1, name: "Displays", description: "", rows: [
@@ -94,7 +93,7 @@ const browserExtrasDefaults: PanelExtrasView[] = [
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
-    ["Actions", "More controls", "Keyboard", "Close"].map((label) => browserKey(label)),
+    ["Home", "More controls", "Keyboard", "Close"].map((label) => browserKey(label)),
   ] },
   { target: "keyboard", name: "Keyboard", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],

@@ -10,9 +10,8 @@ use crate::{
 use std::collections::BTreeMap;
 
 /// The menus a user may rearrange, in the order the Panels page lists them.
-pub const EDITABLE: [Kind; 11] = [
+pub const EDITABLE: [Kind; 10] = [
     Kind::Home,
-    Kind::More,
     Kind::Mouse,
     Kind::Editing,
     Kind::Windows,
@@ -64,9 +63,6 @@ fn cell(item: Item) -> Option<Cell> {
         },
         Item::MousePanel => PanelAction::OpenPanel {
             panel: BuiltInPanel::Mouse,
-        },
-        Item::More => PanelAction::OpenPanel {
-            panel: BuiltInPanel::Menu(Kind::More),
         },
         Item::Group(kind) => PanelAction::OpenPanel {
             panel: BuiltInPanel::Menu(kind),
@@ -177,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn home_ships_with_my_panels_beside_switchify_and_keeps_close() {
+    fn home_ships_with_my_panels_beside_scanning_and_keeps_close() {
         let home = default_document(Kind::Home);
         let last: Vec<_> = home
             .rows
@@ -186,7 +182,7 @@ mod tests {
             .iter()
             .map(|c| c.label.as_str())
             .collect();
-        assert_eq!(last, ["Switchify", "My panels", "Close menu"]);
+        assert_eq!(last, ["Scanning", "My panels", "Close menu"]);
         let mut rearranged = home.clone();
         rearranged
             .rows

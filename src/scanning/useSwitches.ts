@@ -14,12 +14,17 @@ export const actions = {
 } as const;
 export type SwitchAction = keyof typeof actions | { openMenu: import("../types").MenuKind } | { openCustomPanel: string };
 export const panelMenus = {
-  home: "Home", more: "More", mouse: "More clicks", editing: "Editing", windows: "Apps and windows",
+  home: "Home", mouse: "More clicks", editing: "Editing", windows: "Apps and windows",
   browser: "Browser", tabs: "Tabs", zoom: "Zoom", media: "Media", displays: "Displays", scanning: "Scanning",
 } as const;
+/** Menus a switch may still be assigned from before they were retired, and what they open now. */
+export const retiredMenus: Record<string, keyof typeof panelMenus> = { more: "home" };
+export function menuName(menu: string): string {
+  return panelMenus[(retiredMenus[menu] ?? menu) as keyof typeof panelMenus] ?? menu;
+}
 export function actionLabel(action: SwitchAction, panels?: { id: string; name: string }[]): string {
   if (typeof action === "string") return actions[action];
-  if ("openMenu" in action) return `Open ${panelMenus[action.openMenu as keyof typeof panelMenus] ?? action.openMenu}`;
+  if ("openMenu" in action) return `Open ${menuName(action.openMenu)}`;
   return `Open ${panels?.find((p) => p.id === action.openCustomPanel)?.name ?? (panels ? "custom panel (unavailable)" : "custom panel")}`;
 }
 export type Binding = {

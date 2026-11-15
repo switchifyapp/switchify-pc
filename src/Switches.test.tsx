@@ -695,6 +695,18 @@ it("keeps a deleted panel assignment visible for replacement", async () => {
   await waitFor(() => expect(current.settings.bindings[0].pressAction).toBe("select"));
 });
 
+it("keeps a switch assigned to the retired More menu, which opens Home", async () => {
+  current.settings.bindings[0].pressAction = { openMenu: "more" };
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  const press = screen.getByLabelText("Normal action for Head switch");
+  const kept = within(press).getAllByRole("option", { name: "Open Home" });
+  expect(kept).toHaveLength(2);
+  expect((kept[1] as HTMLOptionElement).selected).toBe(true);
+  expect(within(press).queryByRole("option", { name: "Open More" })).not.toBeInTheDocument();
+  expect(within(press).getByRole("option", { name: "Open More clicks" })).toBeInTheDocument();
+});
+
 it("assigns panel actions to forwarded switch presses and holds", async () => {
   render(<Shell />);
   await revealMobile();

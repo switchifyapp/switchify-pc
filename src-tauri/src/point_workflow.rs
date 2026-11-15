@@ -331,8 +331,7 @@ impl Workflow {
                     // The menus and the action pages list the panels, so they follow both.
                     PageRef::Kind(kind)
                         if kind == Kind::Panels
-                            || (matches!(kind, Kind::Actions | Kind::MouseActions)
-                                && saved == Saved::Panels)
+                            || (kind == Kind::Actions && saved == Saved::Panels)
                             || crate::builtin_panels::editable(kind) =>
                     {
                         self.menu = self.build(kind);
@@ -373,7 +372,9 @@ impl Workflow {
                 self.push_menu(next);
                 Ok(None)
             }
-            TrialTarget::Menu { menu: Kind::Home } => Ok(None),
+            TrialTarget::Menu {
+                menu: Kind::Home | Kind::More,
+            } => Ok(None),
             TrialTarget::Menu { menu } => {
                 if !crate::builtin_panels::editable(*menu) {
                     return Err("That menu cannot be tried on its own.".into());
@@ -1014,7 +1015,7 @@ impl Workflow {
                 BuiltInPanel::Mouse => self.selected(Item::MousePanel),
                 BuiltInPanel::Point => self.selected(Item::PointScan),
                 BuiltInPanel::Switchify => self.selected(Item::Switchify),
-                BuiltInPanel::Menu(Kind::Home) => {
+                BuiltInPanel::Menu(Kind::Home | Kind::More) => {
                     self.open_home();
                     None
                 }
@@ -1107,9 +1108,14 @@ impl Workflow {
             self.mouse.choose(key);
             return self.extra_action(action, ExtraTarget::Mouse);
         }
-        if key == Key::Actions {
+        if key == Key::Home && self.mouse.dragging {
+            self.mouse.block_actions("End drag before opening Home");
+            return None;
+        }
+        if key == Key::MoreClicks {
             if self.mouse.dragging {
-                self.mouse.block_actions("End drag before opening Actions");
+                self.mouse
+                    .block_actions("End drag before opening More clicks");
                 return None;
             }
             if self.pointer.is_none() {
@@ -1202,13 +1208,18 @@ impl Workflow {
                 self.reset();
                 Some(Request::Close)
             }
-            Key::Actions => {
+            Key::Home => {
+                self.open_home();
+                None
+            }
+            // Back and each click return to the panel; the clicks land at the pointer.
+            Key::MoreClicks => {
                 self.mouse_actions_open = true;
                 self.parent_menu.clear();
                 self.source = self
                     .pointer
                     .map_or((0, 0), |(x, y)| (x.round() as i32, y.round() as i32));
-                self.open(Kind::MouseActions);
+                self.open(Kind::Mouse);
                 None
             }
             Key::Radar
@@ -1273,7 +1284,7 @@ impl Workflow {
                 BuiltInPanel::Mouse => self.open_mouse(true),
                 BuiltInPanel::Point => self.open_point(),
                 BuiltInPanel::Switchify => self.selected(Item::Switchify),
-                BuiltInPanel::Menu(Kind::Home) => {
+                BuiltInPanel::Menu(Kind::Home | Kind::More) => {
                     self.open_home();
                     None
                 }
@@ -1436,6 +1447,7 @@ impl Workflow {
     }
     fn return_to_mouse_panel(&mut self) {
         self.radar = None;
+        self.mouse.show_movement();
         self.parent_menu.clear();
         self.mouse_actions_open = false;
         self.stage = Stage::Mouse;
@@ -1492,12 +1504,9 @@ impl Workflow {
                 return Some(Request::OpenKeyboard);
             }
             Item::MousePanel => return self.open_mouse(true),
-            Item::More | Item::Group(_) => {
-                let kind = if let Item::Group(kind) = item {
-                    kind
-                } else {
-                    Kind::More
-                };
+            // Switches and tiles saved before More actions was retired open Home.
+            Item::Group(Kind::More) => self.open_home(),
+            Item::Group(kind) => {
                 let next = self.build(kind);
                 self.push_menu(next);
             }
@@ -2277,13 +2286,16 @@ mod tests {
         assert!(s.technique.parent_menu.is_empty());
         assert!(s.active());
 
-        // Close menu and Switchify share Home's last row.
+        // Close menu shares Home's last row with Scanning.
         assert_eq!(choose_in(&mut s, 3, 1), None);
         assert!(!s.active());
 
+        // Open Switchify is the first item in Scanning.
         let mut s = next_session(&s);
         s.action(Action::Select);
-        assert_eq!(choose_in(&mut s, 3, 0), Some(Request::OpenSwitchify));
+        assert_eq!(choose_in(&mut s, 3, 0), None);
+        assert_eq!(s.technique.menu.kind, Kind::Scanning);
+        assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenSwitchify));
         assert!(!s.active());
 
         let mut s = next_session(&s);
@@ -2378,13 +2390,13 @@ mod tests {
         let mut s = home_session();
         s.action(Action::Select);
         let last = s.technique.menu.frame_labels().pop().unwrap();
-        assert_eq!(last, ["Switchify", "Close menu"]);
+        assert_eq!(last, ["Scanning", "Close menu"]);
         s.technique
             .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
         // The open Home gains the item there and then.
         assert_eq!(
             s.technique.menu.frame_labels().pop().unwrap(),
-            ["Switchify", "My panels", "Close menu"]
+            ["Scanning", "My panels", "Close menu"]
         );
         s.action(Action::Stop);
         let mut s = next_session(&s);
@@ -2393,7 +2405,7 @@ mod tests {
         s.action(Action::Select);
         assert_eq!(
             s.technique.menu.frame_labels().pop().unwrap(),
-            ["Switchify", "My panels", "Close menu"]
+            ["Scanning", "My panels", "Close menu"]
         );
     }
 
@@ -2452,32 +2464,6 @@ mod tests {
         assert_eq!(choose_in(&mut s, 1, 0), None);
         assert_eq!(s.technique.menu.kind, Kind::Actions);
         assert!(!s.technique.home_open());
-        // The mouse panel's Actions page has it in the same place.
-        use crate::scan_mouse::Key;
-        let screen = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 1280.0,
-            height: 720.0,
-        };
-        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
-        workflow.handle(Action::OpenMouse);
-        workflow.set_pointer(Some((321.4, 246.6)));
-        assert_eq!(workflow.mouse_key(Key::Actions), None);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
-        assert_eq!(
-            workflow.menu.frame_labels().pop().unwrap(),
-            ["Back", "My panels", "Close menu"]
-        );
-        assert_eq!(workflow.selected(Item::Panels), None);
-        assert_eq!(workflow.menu.kind, Kind::Panels);
-        // Back goes to the Actions page, then to the mouse panel itself.
-        assert_eq!(workflow.selected(Item::Back), None);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
-        assert_eq!(workflow.selected(Item::Back), None);
-        assert!(workflow.mouse_open());
-        assert!(workflow.stage == Stage::Mouse);
     }
 
     #[test]
@@ -2492,9 +2478,10 @@ mod tests {
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.handle(Action::OpenMouse);
         workflow.set_pointer(Some((321.4, 246.6)));
-        // Close menu on the mouse panel's Actions page ends scanning, as on every menu.
-        assert_eq!(workflow.mouse_key(Key::Actions), None);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        // Close menu on More clicks ends scanning, as on every menu.
+        assert_eq!(workflow.mouse_key(Key::More), None);
+        assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
+        assert_eq!(workflow.menu.kind, Kind::Mouse);
         assert_eq!(workflow.selected(Item::Cancel), None);
         assert!(workflow.stage == Stage::Idle);
         assert!(!workflow.mouse_open());
@@ -2614,7 +2601,7 @@ mod tests {
         )]));
         assert!(workflow.mouse_open());
         let frame = workflow.frame();
-        assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Actions").y);
+        assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Home").y);
         // Removing the tiles takes them off the open panel too.
         workflow.set_panel_extras(Default::default());
         assert!(!workflow
@@ -2892,7 +2879,7 @@ mod tests {
         let labels = s.technique.menu.frame_labels();
         assert_eq!(labels[0], ["Apps and windows", "Editing", "Browser"]);
         // Without panels, My panels is left out of the rearranged row too.
-        assert_eq!(labels.last().unwrap(), &["Close menu", "Switchify"]);
+        assert_eq!(labels.last().unwrap(), &["Close menu", "Scanning"]);
         // A command from a rearranged menu under Home still returns to Home.
         assert_eq!(choose_in(&mut s, 0, 1), None);
         assert_eq!(s.technique.menu.kind, Kind::Editing);
@@ -2939,10 +2926,13 @@ mod tests {
 
     #[test]
     fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
-        for (row, request) in [(0, Request::OpenPoint), (3, Request::OpenSwitchify)] {
+        for (scanning, request) in [(false, Request::OpenPoint), (true, Request::OpenSwitchify)] {
             let mut s = home_session();
             s.action(Action::Select);
-            assert_eq!(choose_in(&mut s, row, 0), Some(request.clone()));
+            if scanning {
+                assert_eq!(choose_in(&mut s, 3, 0), None);
+            }
+            assert_eq!(choose_in(&mut s, 0, 0), Some(request.clone()));
             s.execution_failed("Input could not be released.".into());
             assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
             assert!(s.technique.home_open());
@@ -2962,7 +2952,7 @@ mod tests {
     }
 
     #[test]
-    fn home_opens_from_the_point_and_mouse_action_menus() {
+    fn home_opens_from_the_point_action_menu_and_the_mouse_panel() {
         let mut s = home_session();
         s.action(Action::Select);
         choose_in(&mut s, 0, 0);
@@ -2975,9 +2965,7 @@ mod tests {
 
         assert_eq!(choose_in(&mut s, 0, 1), Some(Request::OpenMouse));
         s.technique.set_pointer(Some((100.0, 200.0)));
-        s.technique.mouse_key(crate::scan_mouse::Key::Actions);
-        assert_eq!(s.technique.menu.kind, Kind::MouseActions);
-        assert_eq!(choose_in(&mut s, 2, 2), None);
+        s.technique.mouse_key(crate::scan_mouse::Key::Home);
         assert!(s.technique.home_open());
         assert!(!s.technique.mouse_actions_open);
         assert_eq!(s.technique.mouse_feedback(), None);
@@ -3279,7 +3267,6 @@ mod tests {
     #[test]
     fn power_actions_confirm_on_their_own_page_then_return_to_home_or_mouse() {
         use crate::scan_menu::Command;
-        use crate::scan_mouse::Key;
         // From Home: Apps and windows, then Shut down opens its page; Back returns.
         let mut s = home_session();
         s.action(Action::Select);
@@ -3303,35 +3290,10 @@ mod tests {
         assert_eq!(s.technique.menu.kind, Kind::Home);
         assert!(s.technique.parent_menu.is_empty());
         assert!(s.active());
-
-        // From the mouse panel's actions the same selection returns to the mouse panel.
-        let screen = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 1280.0,
-            height: 720.0,
-        };
-        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
-        workflow.handle(Action::OpenMouse);
-        workflow.set_pointer(Some((321.4, 246.6)));
-        assert_eq!(workflow.mouse_key(Key::Actions), None);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
-        assert_eq!(workflow.selected(Item::Group(Kind::Windows)), None);
-        assert_eq!(workflow.selected(Item::Group(Kind::ShutDown)), None);
-        assert_eq!(workflow.menu.kind, Kind::ShutDown);
-        assert_eq!(
-            workflow.selected(Item::Command(Command::ShutDown)),
-            Some(Request::Command {
-                command: Command::ShutDown,
-                point: (321, 247),
-            })
-        );
-        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
     }
     #[test]
-    fn mouse_actions_use_the_current_pointer_and_return_to_mouse() {
+    fn more_clicks_use_the_current_pointer_and_return_to_mouse() {
         use crate::scan_menu::Command;
-        use crate::scan_mouse::Key;
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -3341,18 +3303,13 @@ mod tests {
         let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         workflow.handle(Action::OpenMouse);
         workflow.set_pointer(Some((321.4, 246.6)));
-        assert_eq!(workflow.mouse_key(Key::Actions), None);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
+        open_more_clicks(&mut workflow);
+        assert_eq!(workflow.menu.kind, Kind::Mouse);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Menu));
         assert_eq!(
             workflow.mouse_feedback(),
             Some(crate::input::PointerFeedback::Move)
         );
-        assert_eq!(
-            workflow.control_mode(),
-            crate::point_scan::ControlMode::Mouse
-        );
-        workflow.selected(Item::Group(Kind::Mouse));
         workflow.set_pointer(Some((400.0, 500.0)));
         assert_eq!(
             workflow.selected(Item::Command(Command::ShiftClick)),
@@ -3361,43 +3318,28 @@ mod tests {
                 point: (400, 500),
             })
         );
+        // Back on the Movement page, where the pointer is moved.
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
-        assert_eq!(
-            workflow.mouse_feedback(),
-            Some(crate::input::PointerFeedback::Move)
-        );
+        assert!(!workflow.mouse.more);
         assert_eq!(
             workflow.control_mode(),
             crate::point_scan::ControlMode::Mouse
         );
         assert!(workflow.parent_menu.is_empty());
-
-        workflow.mouse_key(Key::Actions);
-        workflow.selected(Item::Group(Kind::Media));
-        assert_eq!(
-            workflow.selected(Item::Command(Command::Mute)),
-            Some(Request::Command {
-                command: Command::Mute,
-                point: (400, 500),
-            })
-        );
-        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Menu));
+        open_more_clicks(&mut workflow);
         workflow.selected(Item::Back);
-        assert_eq!(workflow.menu.kind, Kind::MouseActions);
-        workflow.selected(Item::Back);
-        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
-
-        workflow.mouse_key(Key::Actions);
-        workflow.selected(Item::Group(Kind::Displays));
-        assert_eq!(
-            workflow.selected(Item::Display(true)),
-            Some(Request::MouseCycleDisplay(true))
-        );
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
     }
 
+    /// Opens More clicks from the mouse panel's More controls page.
+    fn open_more_clicks(workflow: &mut Workflow) {
+        use crate::scan_mouse::Key;
+        assert_eq!(workflow.mouse_key(Key::More), None);
+        assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
+    }
+
     #[test]
-    fn mouse_actions_block_active_drag_and_return_from_keyboard_or_failure() {
+    fn more_clicks_block_active_drag_and_return_from_keyboard_or_failure() {
         use crate::scan_mouse::Key;
         let screen = Rect {
             x: 0.0,
@@ -3409,12 +3351,13 @@ mod tests {
         workflow.handle(Action::OpenMouse);
         workflow.set_pointer(Some((100.0, 200.0)));
         assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
-        assert_eq!(workflow.mouse_key(Key::Actions), None);
+        assert_eq!(workflow.mouse_key(Key::More), None);
+        assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
         assert!(workflow.mouse.dragging);
         assert!(!workflow.mouse_actions_open);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
         assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
-        workflow.mouse_key(Key::Actions);
+        open_more_clicks(&mut workflow);
         assert_eq!(
             workflow.selected(Item::Keyboard),
             Some(Request::OpenKeyboard)
@@ -3426,7 +3369,7 @@ mod tests {
             workflow.mouse_feedback(),
             Some(crate::input::PointerFeedback::Move)
         );
-        workflow.mouse_key(Key::Actions);
+        open_more_clicks(&mut workflow);
         workflow.execution_failed("failed".into());
         assert_eq!(
             workflow.phase(),
@@ -3437,9 +3380,8 @@ mod tests {
     }
 
     #[test]
-    fn mouse_actions_stop_and_unavailable_pointer_never_reuse_an_old_target() {
+    fn more_clicks_stop_and_unavailable_pointer_never_reuse_an_old_target() {
         use crate::scan_menu::Command;
-        use crate::scan_mouse::Key;
         let screen = Rect {
             x: 0.0,
             y: 0.0,
@@ -3452,7 +3394,7 @@ mod tests {
         );
         session.action(Action::OpenMouse);
         session.technique.set_pointer(Some((40.0, 50.0)));
-        session.technique.mouse_key(Key::Actions);
+        open_more_clicks(&mut session.technique);
         session.technique.set_pointer(None);
         assert_eq!(
             session
@@ -3662,11 +3604,12 @@ mod tests {
                     assert_eq!(s.action(Action::Select), None);
                     assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
                 }
-                // So does leaving the mouse actions menu.
+                // So does leaving More clicks.
                 s.technique.pointer = Some((10.0, 10.0));
+                s.technique.choose_mouse_key(crate::scan_mouse::Key::More);
                 assert_eq!(
                     s.technique
-                        .choose_mouse_key(crate::scan_mouse::Key::Actions),
+                        .choose_mouse_key(crate::scan_mouse::Key::MoreClicks),
                     None
                 );
                 s.technique.selected(Item::Back);
@@ -4259,7 +4202,7 @@ mod tests {
         let mut w = Workflow::new(config.point(), screen, 1.0).unwrap();
         w.source = (120, 80);
         w.stage = Stage::Menu;
-        w.selected(Item::More);
+        w.selected(Item::Group(Kind::Mouse));
         // Move well past the top before going down a level.
         w.handle(Action::Next);
         w.handle(Action::Next);
@@ -4269,20 +4212,20 @@ mod tests {
         config.scan_preferences.panel_size = PanelSize::Large;
         w.apply_config(config.point(), false);
         w.selected(Item::Back);
-        assert_eq!(w.menu.kind, Kind::More);
+        assert_eq!(w.menu.kind, Kind::Mouse);
 
         // The same menu opened afresh with the same preferences looks identical.
         let mut fresh = Workflow::new(config.point(), screen, 1.0).unwrap();
         fresh.source = (120, 80);
         fresh.stage = Stage::Menu;
-        fresh.selected(Item::More);
+        fresh.selected(Item::Group(Kind::Mouse));
         let (back, opened) = (w.frame(), fresh.frame());
         assert_eq!(selected_texts(&back), selected_texts(&opened));
         assert_eq!(back.tiles[0].rect, opened.tiles[0].rect);
         // The larger size took effect: the menu grew past its default width.
         let mut standard = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
         standard.stage = Stage::Menu;
-        standard.selected(Item::More);
+        standard.selected(Item::Group(Kind::Mouse));
         assert!(back.tiles[0].rect.width > standard.frame().tiles[0].rect.width);
     }
     #[test]
@@ -4504,7 +4447,7 @@ mod tests {
         let (hello, mine, actions) = (
             tile_rect(&frame, "Hello"),
             tile_rect(&frame, "Mine"),
-            tile_rect(&frame, "Actions"),
+            tile_rect(&frame, "Home"),
         );
         assert!(tile_rect(&frame, "Left click").y < hello.y && hello.y < actions.y);
         assert_eq!(hello.y, mine.y);
@@ -4637,6 +4580,47 @@ mod tests {
     }
 
     #[test]
+    fn switches_and_tiles_saved_for_more_actions_open_home() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        // A switch assigned to More actions before it was retired.
+        let action: Action = serde_json::from_str(r#"{"openMenu":"more"}"#).unwrap();
+        assert_eq!(action, Action::OpenMenu(Kind::More));
+        assert!(action.valid_assignment());
+        let mut session = Session::new(
+            Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+            true,
+        );
+        assert_eq!(session.action(action), None);
+        assert!(session.active());
+        assert_eq!(session.technique.menu.kind, Kind::Home);
+        assert!(session.technique.home_open());
+        assert_eq!(session.technique.error, None);
+        // A tile on one of the user's panels that opened More actions.
+        let mut panel = crate::custom_panels::sample("old", "Old");
+        panel.rows[0][0].action = PanelAction::OpenPanel {
+            panel: BuiltInPanel::Menu(Kind::More),
+        };
+        assert_eq!(panel.validate(), Ok(()));
+        session.technique.set_panels(vec![panel]);
+        session.action(Action::OpenCustomPanel("old".into()));
+        assert_eq!(session.technique.menu.custom_id.as_deref(), Some("old"));
+        session.technique.selected(Item::Custom(0));
+        assert_eq!(session.technique.menu.kind, Kind::Home);
+        assert!(session.technique.home_open());
+        // A saved rearrangement of More actions stays on disk and is not used.
+        let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([(
+            "more".to_string(),
+            crate::builtin_panels::default_document(Kind::Home),
+        )]));
+        assert!(overrides.is_empty());
+    }
+
+    #[test]
     fn a_trial_opens_the_page_over_home_so_back_returns_there() {
         let screen = Rect {
             x: 0.0,
@@ -4732,7 +4716,7 @@ mod tests {
             tile_rect(&frame, "Hello"),
             tile_rect(&frame, "C0"),
             tile_rect(&frame, "C5"),
-            tile_rect(&frame, "Actions"),
+            tile_rect(&frame, "Home"),
         );
         assert_eq!(first.y, drag.y, "column 1 starts beside the top row");
         assert!(first.x > drag.x + drag.width, "to the right of the keys");
@@ -5563,7 +5547,7 @@ mod tests {
             for kind in crate::scan_menu::ALL_MENU_KINDS {
                 let mut s = session(automatic);
                 open(&mut s);
-                s.technique.selected(Item::More);
+                s.technique.selected(Item::Group(Kind::Mouse));
                 s.technique.selected(Item::Group(Kind::Browser));
                 s.technique.open(kind);
                 s.technique.destination = (40, 50);
@@ -5776,14 +5760,14 @@ mod tests {
         .unwrap();
         w.source = (120, 80);
         w.stage = Stage::Menu;
-        w.selected(Item::More);
+        w.selected(Item::Group(Kind::Mouse));
         w.selected(Item::Group(Kind::Browser));
         w.selected(Item::Group(Kind::Tabs));
         assert_eq!(w.parent_menu.len(), 3);
         w.selected(Item::Back);
         assert_eq!(w.menu.kind, Kind::Browser);
         w.selected(Item::Back);
-        assert_eq!(w.menu.kind, Kind::More);
+        assert_eq!(w.menu.kind, Kind::Mouse);
         w.selected(Item::Pause);
         let frame = w.frame();
         w.advance(5000);

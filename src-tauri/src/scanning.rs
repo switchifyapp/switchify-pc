@@ -34,7 +34,7 @@ impl Action {
     pub fn valid_assignment(&self) -> bool {
         match self {
             Self::Cancel => false,
-            Self::OpenMenu(kind) => crate::builtin_panels::editable(*kind),
+            Self::OpenMenu(kind) => crate::builtin_panels::editable(kind.resolved()),
             Self::OpenCustomPanel(id) => crate::panel_actions::validate_panel_id(id).is_ok(),
             _ => true,
         }

@@ -44,18 +44,18 @@ function extrasPanel(view: PanelExtrasView): CustomPanel {
 
 /**
  * Where each built-in menu is reached from, so the page can list it under
- * the menu that opens it. Menus on both Home and More are listed once,
- * under Home, and say so; Tabs sits inside Browser.
+ * the menu that opens it. Home lists every app menu; More clicks follows a
+ * point and is also on the mouse panel's More controls; Tabs sits inside Browser.
  */
-const HOME_MENUS = ["windows", "editing", "browser", "media", "zoom"];
-const MORE_MENUS = ["mouse", "displays", "scanning"];
-const ALSO_ON_MORE = new Set(["windows", "editing", "browser", "media", "zoom"]);
+const HOME_MENUS = ["windows", "editing", "browser", "media", "zoom", "displays", "scanning"];
+const POINT_MENUS = ["mouse"];
 const INSIDE: Record<string, string> = { tabs: "browser" };
+const ALSO: Record<string, string> = { mouse: "also on the mouse panel" };
 
 /** The small text under a built-in menu's name: its state, then where else it lives. */
 export function builtinSummary(menu: BuiltinPanelView) {
   const state = menu.override ? "rearranged" : "not changed";
-  const place = INSIDE[menu.kind] ? "in Browser" : ALSO_ON_MORE.has(menu.kind) ? "also on More" : null;
+  const place = INSIDE[menu.kind] ? "in Browser" : ALSO[menu.kind] ?? null;
   return place ? `${state}, ${place}` : state;
 }
 
@@ -106,10 +106,10 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
   };
   const extrasItem = (view: PanelExtrasView) => <li key={view.target}>{row(`extras-${view.target}`, view.name, extrasSummary(view), () => openExtras(view))}</li>;
   // A menu inside another counts as placed only while its parent is there to list it under.
-  const placed = new Set(["home", "more", ...HOME_MENUS, ...MORE_MENUS, ...Object.keys(INSIDE).filter((kind) => menu(INSIDE[kind]))]);
+  const placed = new Set(["home", ...HOME_MENUS, ...POINT_MENUS, ...Object.keys(INSIDE).filter((kind) => menu(INSIDE[kind]))]);
   const unplaced = builtins.filter((candidate) => !placed.has(candidate.kind));
   const onHome = menu("home") !== undefined || extras.length > 0 || HOME_MENUS.some(menu);
-  const onMore = menu("more") !== undefined || MORE_MENUS.some(menu);
+  const afterPoint = POINT_MENUS.some(menu);
   return <div className="view">
     <PageHeader title="Panels" description="Panels of your own, which Home lists under My panels, then the built-in menus and panels." action={<Button data-opener="new-panel" className="primary" disabled={busy || panels === null} onClick={() => void create()}><Plus size={16} />New panel</Button>} />
     {strip}
@@ -124,8 +124,8 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
         </Button>
       </li>)}</ul>}
     </section>
-    {(onHome || onMore || unplaced.length > 0) && <section className="panel-group" data-section="builtin" data-setting="builtin-menus" aria-labelledby="builtin-heading">
-      <SectionHeader headingId="builtin-heading" title="Built-in menus and panels" description="Listed under the menu that opens them. More actions is a tile on the page that opens after you choose a point, and its menu opens most of Home's menus too. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys." />
+    {(onHome || afterPoint || unplaced.length > 0) && <section className="panel-group" data-section="builtin" data-setting="builtin-menus" aria-labelledby="builtin-heading">
+      <SectionHeader headingId="builtin-heading" title="Built-in menus and panels" description="Listed under the page that opens them. Home holds every app menu; More clicks opens from the page after you choose a point. Rearrange a menu or put it back the way it came, or add tiles of your own around the mouse panel's and the keyboard's keys." />
       <div className="menu-lists">
         {onHome && <section>
           <h3 id="home-list-heading">On Home</h3>
@@ -135,11 +135,10 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
             {HOME_MENUS.map(builtinItem)}
           </ul>
         </section>}
-        {onMore && <section>
-          <h3 id="more-list-heading">On More actions</h3>
-          <ul className="menu-list" aria-labelledby="more-list-heading">
-            {builtinItem("more")}
-            {MORE_MENUS.map(builtinItem)}
+        {afterPoint && <section>
+          <h3 id="point-list-heading">After choosing a point</h3>
+          <ul className="menu-list" aria-labelledby="point-list-heading">
+            {POINT_MENUS.map(builtinItem)}
           </ul>
         </section>}
         {unplaced.length > 0 && <section>

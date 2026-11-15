@@ -64,13 +64,13 @@ const bridge = (platform) => {
       [tile("Save", { type: "key", keys: ["Ctrl", "S"] }, 2), tile("Back", { type: "back" })],
     ] },
   ];
-  // A few of the built-in menus, unchanged, enough to show the Home and More actions groups.
+  // A few of the built-in menus, unchanged, enough to show the Home and After choosing a point groups.
   const builtins = [
     { kind: "home", name: "Home", override: null, default: { id: "builtin-home", version: 1, name: "Home", description: "", rows: [
       [tile("Point", { type: "openPanel", panel: "point" }), tile("Mouse", { type: "openPanel", panel: "mouse" }), tile("Keyboard", { type: "openPanel", panel: "keyboard" })],
       [tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Browser", { type: "openPanel", panel: { menu: "browser" } })],
-      [tile("Media", { type: "openPanel", panel: { menu: "media" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } })],
-      [tile("Switchify", { type: "openPanel", panel: "switchify" }), tile("My panels", { type: "myPanels" }), tile("Close menu", { type: "close" })],
+      [tile("Media", { type: "openPanel", panel: { menu: "media" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), tile("Displays", { type: "openPanel", panel: { menu: "displays" } })],
+      [tile("Scanning", { type: "openPanel", panel: { menu: "scanning" } }), tile("My panels", { type: "myPanels" }), tile("Close menu", { type: "close" })],
     ] } },
     { kind: "editing", name: "Editing", override: null, default: { id: "builtin-editing", version: 1, name: "Editing", description: "", rows: [
       [tile("Copy", { type: "command", command: "copy" }), tile("Cut", { type: "command", command: "cut" }), tile("Paste", { type: "command", command: "paste" })],
@@ -88,10 +88,9 @@ const bridge = (platform) => {
       [tile("Next tab", { type: "command", command: "nextTab" }), tile("Previous tab", { type: "command", command: "previousTab" })],
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
-    { kind: "more", name: "More actions", override: null, default: { id: "builtin-more", version: 1, name: "More actions", description: "", rows: [
-      [tile("More clicks", { type: "openPanel", panel: { menu: "mouse" } }), tile("Editing", { type: "openPanel", panel: { menu: "editing" } }), tile("Apps and windows", { type: "openPanel", panel: { menu: "windows" } })],
-      [tile("Browser", { type: "openPanel", panel: { menu: "browser" } }), tile("Zoom", { type: "openPanel", panel: { menu: "zoom" } }), tile("Media", { type: "openPanel", panel: { menu: "media" } })],
-      [tile("Displays", { type: "openPanel", panel: { menu: "displays" } }), tile("Scanning", { type: "openPanel", panel: { menu: "scanning" } })],
+    { kind: "mouse", name: "More clicks", override: null, default: { id: "builtin-mouse", version: 1, name: "More clicks", description: "", rows: [
+      [tile("Middle click", { type: "command", command: "middleClick" }), tile("Triple click", { type: "command", command: "tripleClick" }), tile("Shift-click", { type: "command", command: "shiftClick" })],
+      [tile("Ctrl-click", { type: "command", command: "ctrlClick" }), tile("Alt-click", { type: "command", command: "altClick" }), tile("Windows-click", { type: "command", command: "metaClick" })],
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
     { kind: "displays", name: "Displays", override: null, default: { id: "builtin-displays", version: 1, name: "Displays", description: "", rows: [
@@ -108,7 +107,7 @@ const bridge = (platform) => {
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
-      ["Actions", "More controls", "Keyboard", "Close"].map((label) => key(label)),
+      ["Home", "More controls", "Keyboard", "Close"].map((label) => key(label)),
     ] },
     { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],

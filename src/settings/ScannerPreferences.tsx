@@ -107,7 +107,7 @@ export function ScannerPreferences({ controller, requestedArea, onAreaOpened, po
         options={[{ value: 'home', label: 'Home menu' }, { value: 'lastMode', label: 'Last mode used' }]}
         note={{ summary: opensHome
           ? 'Home offers Point, Mouse and Keyboard, plus Apps and windows to bring another app forward, without focusing it first. After a click or other action, Select carries on in the same mode. Close menu or Stop scanning returns to Home.'
-          : 'Select starts the last mode you used straight away. Open Home from the Point action menu or Mouse Actions.' }}
+          : 'Select starts the last mode you used straight away. Open Home from the Point action menu or the Mouse panel.' }}
       />
     </SettingGroup>}
     {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Actions opens editing, window, browser, media, display and scanning commands, then returns to Mouse. More clicks use the current pointer. End a drag before opening Actions. Pointer speed and repeat controls are under Mouse pointer, after the shared scanning settings. Close stops scanning.</p>}

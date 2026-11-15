@@ -1,9 +1,9 @@
 ---
 title: Home menu
-description: Press Select to open Home, a scanning menu of everything Switchify PC can do, including windows, editing, browser, media and zoom actions.
+description: Press Select to open Home, the one scanning menu that leads to everything Switchify PC can do, including windows, editing, browser, media, zoom, display and scanning actions.
 ---
 
-Press and release **Select** to open Home. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work. It opens on the display the pointer is on, and moves with the pointer if something moves it to another display while Home is open.
+Press and release **Select** to open Home. Home is the one menu that leads to every action: the other panels have a **Home** key that brings you back here. It scans through these items; press Select on the one you want. Home opens whether or not another app is in front, and it never takes focus away from your work. It opens on the display the pointer is on, and moves with the pointer if something moves it to another display while Home is open.
 
 | Item | What it does |
 | --- | --- |
@@ -15,7 +15,8 @@ Press and release **Select** to open Home. It scans through these items; press S
 | **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
 | **Zoom** | Zoom in, zoom out and reset zoom in the app in front, using the Ctrl or Cmd shortcuts with =, - and 0. Browsers, PDF readers, mail apps and many other apps zoom with these keys. Some apps use them for something else; Word, for example, does not zoom. |
-| **Switchify** | Change the scan speed and line speed, switch between line-only and grid-then-line point scanning, change the keyboard layout, pause, reverse direction, and move to the next or previous display. |
+| **Displays** | **Next display** or **Previous display** starts point scanning on another display. |
+| **Scanning** | **Open Switchify** to show the Switchify PC window, then pause, reverse direction, change the scan speed and line speed, and switch between line-only and grid-then-line point scanning. |
 | **My panels** | Shown once you have made panels of your own. Opens a list of them; choose one to open it. A panel stays open after each action, so you can choose the next one, until you choose a tile that goes Back or closes it. |
 | **Close menu** | Close Home and stop scanning. **Close menu** does the same on every menu. |
 

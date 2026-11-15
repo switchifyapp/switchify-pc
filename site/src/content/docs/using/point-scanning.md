@@ -19,7 +19,7 @@ Narrow the search first:
 2. Cells in that row highlight in turn. Press Select to choose a cell. Choose **Back to rows** to go up a level.
 3. The lines then run only inside that cell, as above.
 
-The grid can be anything from 2 × 2 to 10 × 10. Switch between the two methods under **Point scanning** on the Scanning page, or from the Switchify item in Home.
+The grid can be anything from 2 × 2 to 10 × 10. Switch between the two methods under **Point scanning** on the Scanning page, or from **Scanning** in Home.
 
 ## Speed and passes
 
@@ -36,11 +36,11 @@ With **Auto select** on, a countdown starts at the chosen point and a left click
 | **Left click**, **Right click**, **Double click** | Click at the point. |
 | **Scroll** | Up, down, left or right at the point, three wheel steps per press. |
 | **Drag** | Start a drag here. Nothing is held yet. Point scanning runs again to choose the destination, then **Drag here** performs it, or **New destination** lets you choose again. |
-| **More** | **More clicks** at the point (middle, triple, Shift, Ctrl, Alt and Windows or Command click), and the same editing, apps and windows, browser, zoom, media, display and scanning items as Home. |
+| **More clicks** | Middle, triple, Shift, Ctrl, Alt and Windows or Command click at the point. |
 | **Keyboard** | Open the scanning [keyboard](/using/keyboard/) with focus left where it is. |
 | **My panels** | Shown once you have made [panels](/using/panels/) of your own. Opens the list of them; choose one to open it. Its mouse tiles act at the point. |
 | **New point** | Start a fresh scan on the same display. |
-| **Home** | Open [Home](/using/home-menu/). |
+| **Home** | Open [Home](/using/home-menu/) for editing, windows, browser, media, zoom and the rest. |
 | **Close menu** | Stop scanning. |
 
 A crosshair marks the chosen point while the menu is open.
@@ -51,7 +51,7 @@ By default a click ends the scan and Select starts the next one. On the Scanning
 
 ## Several displays
 
-Point scanning runs on one display at a time. Choose **Next display** or **Previous display** from the Switchify item in Home to move it.
+Point scanning runs on one display at a time. Choose **Displays** in Home, then **Next display** or **Previous display**, to move it.
 
 ## When the scan stops
 
