@@ -275,13 +275,40 @@ class Serving(unittest.TestCase):
         with patch.dict(sys.modules, self.textslinger_types()):
             replies = self.run_requests(self.cased_model(calls), [
                 {"id": 1, "before": "(", "prefix": "Mon"},
-                {"id": 2, "before": "", "prefix": "internati"},
-                {"id": 3, "before": "", "prefix": ""}], cased=True)
+                {"id": 2, "before": "", "prefix": "internati"}], cased=True)
         self.assertTrue(all("input_sequence" not in call for call in calls))
-        self.assertEqual([c["left_context"] for c in calls], ["(Mon", " internati", " "])
+        self.assertEqual([c["left_context"] for c in calls], ["(Mon", " internati"])
         self.assertTrue(all(c["predict_lower"] is False for c in calls))
         # The typed prefix keeps its case; "ey" and "EY" are one word.
         self.assertEqual(replies[1], {"id": 1, "words": ["Money"]})
+
+    def test_a_cased_model_offers_first_words_in_their_mid_sentence_case(self):
+        calls = []
+
+        class Model:
+            def predict_words(self, **kwargs):
+                calls.append(kwargs)
+                if kwargs["left_context"] == "":
+                    words = ["I", "The", "You", "I'm", "the", "If", "So"]
+                else:
+                    # Mid-sentence, most likely first: "i" ranks below "I".
+                    words = ["the", "you", "I", "if", "I'm", "i"]
+                return SimpleNamespace(top=lambda n: [SimpleNamespace(word=w) for w in words][:n])
+
+        with patch.dict(sys.modules, self.textslinger_types()):
+            replies = self.run_requests(Model(), [
+                {"id": 1, "before": "", "prefix": ""},
+                {"id": 2, "before": " ", "prefix": ""}], cased=True)
+        # "The", "You" and "If" are likelier lowercase mid-sentence; "I" and
+        # "I'm" are not, and "So" is not among the mid-sentence words at all.
+        # "the" repeats "the", so it takes no slot.
+        self.assertEqual(replies[1], {"id": 1, "words": ["I", "the", "you", "I'm", "if"]})
+        self.assertEqual(replies[2], {"id": 2, "words": ["I", "the", "you", "I'm", "if"]})
+        middle, sentence_start = calls[:2]
+        self.assertEqual((sentence_start["nbest"], middle["nbest"]),
+                         (bridge.CASED_CANDIDATES, bridge.FIRST_WORDS_CASES))
+        self.assertEqual(middle["left_context"], bridge.MID_SENTENCE)
+        self.assertTrue(all(c["predict_lower"] is False and "input_sequence" not in c for c in calls))
 
     def test_a_cased_search_past_its_budget_falls_back_to_completion(self):
         calls = []

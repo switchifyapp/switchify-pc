@@ -48,6 +48,10 @@ CASED_CANDIDATES = 2 * SUGGESTIONS
 # its words. Switchify decides sentence starts itself, so an empty context is
 # given as a space: the middle of a sentence.
 MID_SENTENCE = " "
+# With nothing typed in the sentence yet, a cased model offers the words that
+# begin sentences, each in the case it takes mid-sentence; that case comes
+# from the model's FIRST_WORDS_CASES most likely mid-sentence words.
+FIRST_WORDS_CASES = 100
 # Nearby-key spread, in key widths. Tight enough that a correctly typed word
 # keeps the suggestions it gets without nearby keys; keys further than RADIUS
 # from a press are not considered.
@@ -202,6 +206,31 @@ def completions(model, before, prefix, cased=False):
     return [prefix + p.replacement.text for p in result.top(CASED_CANDIDATES if cased else SUGGESTIONS)]
 
 
+def first_words(model):
+    """Words that begin a sentence, for a cased model, each in the case it
+    takes mid-sentence: "The" reads "the" but "I" stays "I". Switchify
+    capitalises them when the keyboard knows a sentence starts here."""
+
+    def words(context, count):
+        return [p.word for p in model.predict_words(
+            left_context=context,
+            word_spelling_characters=CASED_SPELLING,
+            word_ending_characters=(" ",),
+            predict_lower=False,
+            nbest=count,
+        ).top(count)]
+
+    middle = {word: rank for rank, word in enumerate(reversed(words(MID_SENTENCE, FIRST_WORDS_CASES)))}
+    result = []
+    for word in words("", CASED_CANDIDATES):
+        lower = word[:1].lower() + word[1:]
+        # The lowercase form must be the likelier one mid-sentence.
+        if middle.get(lower, -1) > middle.get(word, -1):
+            word = lower
+        result.append(word)
+    return merged(result)
+
+
 def suggestions(model, before, prefix, positions=None, cased=False):
     """Up to SUGGESTIONS words for prefix, or none. Each completes prefix,
     unless positions are given, when a word may instead correct presses that
@@ -209,6 +238,10 @@ def suggestions(model, before, prefix, positions=None, cased=False):
     model keeps the context's case and suggests words with their capitals."""
     if not cased:
         prefix = prefix.lower()
+    # Nothing typed in this sentence: the keyboard has just opened, or a
+    # sentence has just ended.
+    if cased and not prefix and not before.strip():
+        return first_words(model)
     spelling = CASED_SPELLING if cased else SPELLING
     # With no prefix, a non-space tail (an opening quote, a hyphen) is a
     # fragment in TextSlinger's word model, not the start of a fresh word.
