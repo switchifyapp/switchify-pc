@@ -11,7 +11,7 @@ The suggestion is typed one character at a time, with a very short gap between c
 
 ## The suggestion row
 
-Before you type anything, the row offers words that often begin a sentence, such as *I*, *the* and *you*, so you can start with one. They come back after a full stop, with a capital, and after Enter. If you click into some text, use the arrow keys, or use a shortcut such as Ctrl+V, Switchify PC cannot tell what is next to the cursor, so they wait until you type. Once you type a letter, suggestions follow what you type, and continue after a space as suggestions for the next word. Most complete the word you are typing, so they start with the letters you have typed so far.
+Before you type anything, the row offers words that often begin a sentence, such as *I*, *the* and *you*, so you can start with one. They come back after a full stop, with a capital, and after Enter. If you click somewhere, switch windows, use the arrow keys, or use a shortcut such as Ctrl+V, Switchify PC cannot tell what is next to the cursor, so they wait until you type. Once you type a letter, suggestions follow what you type, and continue after a space as suggestions for the next word. Most complete the word you are typing, so they start with the letters you have typed so far.
 
 A slot with no suggestion shows a faint dashed outline instead of a word. The outline keeps the slot's place, so the other suggestions stay where they were, and the scan skips it.
 

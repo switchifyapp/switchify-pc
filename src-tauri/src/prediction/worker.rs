@@ -130,6 +130,11 @@ pub struct Engine {
     activity: u64,
     tracked: bool,
     buffer: String,
+    /// The buffer began where a new text is known to start: the keyboard
+    /// had just opened, or Enter or Tab was pressed. Only then does an empty
+    /// buffer offer the first words of a sentence. After any other clear the
+    /// caret may sit inside or just after a word they would join.
+    fresh: bool,
     clipped: bool,
     revision: u64,
     snapshot: Option<String>,
@@ -156,6 +161,7 @@ impl Engine {
             target: None,
             activity: 0,
             buffer: String::new(),
+            fresh: true,
             clipped: false,
             revision: 0,
             snapshot: None,
@@ -173,6 +179,7 @@ impl Engine {
         self.database.reset();
         self.displayed = None;
         self.buffer.clear();
+        self.fresh = false;
         self.clipped = false;
         self.snapshot = None;
         self.batch = None;
@@ -184,7 +191,10 @@ impl Engine {
     fn apply_edit(&mut self, edit: Edit) {
         match edit {
             Edit::Reset => self.clear(),
-            Edit::End => self.clear(),
+            Edit::End => {
+                self.clear();
+                self.fresh = true;
+            }
             Edit::Append(text) => {
                 if text.chars().count() > 512 {
                     self.clear();
@@ -229,7 +239,10 @@ impl Engine {
         };
         let (epoch, healthy) = (self.observe)();
         if self.target != Some(target) || self.activity != epoch {
+            // The first query finds no target yet; nothing has been typed.
+            let first = self.target.is_none() && self.fresh;
             self.clear();
+            self.fresh = first;
         }
         self.target = Some(target);
         self.activity = epoch;
@@ -249,8 +262,10 @@ impl Engine {
             self.clear();
             return None;
         }
-        // An empty buffer still predicts: the keyboard has just opened, or
-        // the text before the caret is unknown, so first words are offered.
+        if self.buffer.is_empty() && !self.fresh {
+            self.clear();
+            return None;
+        }
         self.status = self.database.status();
         let same = self.snapshot.as_ref() == Some(&self.buffer)
             && self.case == (shift, caps, sentence_start)
@@ -841,6 +856,43 @@ mod tests {
         .unwrap();
         let again = e.query(vec![], 1, Shift::Off, false, false).unwrap();
         assert_eq!(again.words, crate::prediction::slots(["the", "I"]));
+        // Deleting what was typed returns to that start.
+        let back = e
+            .query(
+                vec![append("a"), edit(Edit::Backspace)],
+                2,
+                Shift::Off,
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(back.words, crate::prediction::slots(["the", "I"]));
+
+        // After any other clear the caret may be inside or just after a
+        // word, so nothing is offered until something is typed.
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        assert!(e
+            .query(vec![edit(Edit::Reset)], 1, Shift::Off, false, false)
+            .is_none());
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        assert!(e.query(vec![], 1, Shift::Off, false, false).is_some());
+        // Outside input, such as a click into a word.
+        e.observe = || (1, true);
+        assert!(e.query(vec![], 2, Shift::Off, false, false).is_none());
+        // A Backspace past the start of the buffer.
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        assert!(e
+            .query(vec![edit(Edit::Backspace)], 1, Shift::Off, false, false)
+            .is_none());
+        // Another window.
+        let mut e = engine();
+        e.database = Database::with_predictor(Box::new(FirstWords));
+        assert!(e.query(vec![], 1, Shift::Off, false, false).is_some());
+        e.foreground = || Ok(2);
+        assert!(e.query(vec![], 2, Shift::Off, false, false).is_none());
     }
     #[test]
     fn words_that_read_the_same_once_cased_take_one_slot() {

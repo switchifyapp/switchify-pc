@@ -243,17 +243,6 @@ struct Service {
     /// completed as if they began one. Nothing reaches the worker until a
     /// word boundary is typed.
     held: bool,
-    /// The caret moved to somewhere never seen, which may be just after or
-    /// inside a word, and nothing has reached the worker since. Its buffer
-    /// is empty, and the first words of a sentence it offers could land in
-    /// that word, so none is shown until something is typed.
-    blind: bool,
-    /// The worker's buffer began where `blind` was set, so deleting back to
-    /// its start makes the parent blind again.
-    unseen_start: bool,
-    /// The last character typed was whitespace, so a new word starts at the
-    /// caret. After a Backspace this is not known.
-    spaced: bool,
     /// The activity epoch last seen, to notice input from outside.
     epoch: Option<u64>,
     /// Characters the worker has had since its context was last cleared.
@@ -351,11 +340,6 @@ impl Service {
     fn in_word(&self) -> bool {
         self.shape.last().copied().unwrap_or(self.beyond)
     }
-    /// Whether a word starts at the caret: after whitespace, or at the start
-    /// of text. After punctuation such as "," or "-" a word would join it.
-    fn word_start(&self) -> bool {
-        self.spaced || (self.shape.is_empty() && !self.beyond)
-    }
     fn shaped(&mut self, edit: &Edit) {
         match edit {
             Edit::Append(text) => {
@@ -389,9 +373,6 @@ impl Service {
             self.shape.clear();
             self.beyond = false;
             self.held = false;
-            self.blind = true;
-            self.unseen_start = true;
-            self.spaced = false;
             // The worker saw it too and cleared its own context.
             self.known = 0;
         }
@@ -402,8 +383,6 @@ impl Service {
         self.shape.clear();
         self.beyond = false;
         self.held = false;
-        self.blind = false;
-        self.unseen_start = false;
         self.forget();
     }
     /// Enter or Tab: the text so far is finished, so its last word is
@@ -412,8 +391,6 @@ impl Service {
         self.shape.clear();
         self.beyond = false;
         self.held = false;
-        self.blind = false;
-        self.unseen_start = false;
         self.known = 0;
         self.queue_edit(Edit::End, scope);
     }
@@ -421,8 +398,6 @@ impl Service {
     /// suggestions wait for the next one.
     fn interrupt(&mut self) {
         self.held |= self.in_word();
-        self.blind |= !self.word_start();
-        self.unseen_start = self.blind;
         self.forget();
     }
     /// An accepted suggestion was not fully typed. Focus went elsewhere:
@@ -440,9 +415,6 @@ impl Service {
     /// inside a word; after a shortcut, only if it was before.
     fn displaced(&mut self, navigated: bool) {
         self.held |= navigated || self.in_word();
-        self.blind = true;
-        self.unseen_start = true;
-        self.spaced = false;
         self.shape.clear();
         self.beyond = self.held;
         self.forget();
@@ -454,12 +426,8 @@ impl Service {
     fn typed(&mut self, edit: Edit, scope: InputScope) {
         let unknown = matches!(edit, Edit::Backspace) && self.known == 0;
         self.shaped(&edit);
-        self.spaced = matches!(&edit, Edit::Append(text) if text.ends_with(char::is_whitespace));
         if self.held || unknown {
             self.held = self.in_word();
-            // Only whitespace leaves the caret where a new word starts.
-            self.blind = self.held || !self.word_start();
-            self.unseen_start = self.blind;
             self.forget();
             return;
         }
@@ -468,9 +436,6 @@ impl Service {
             Edit::Backspace => self.known -= 1,
             Edit::Reset | Edit::End => {}
         }
-        // Deleting everything the worker has returns the caret to where it
-        // started, which may be an unseen spot.
-        self.blind = self.known == 0 && self.unseen_start;
         self.queue_edit(edit, scope);
     }
     fn response_timed_out(&self, now: Instant) -> bool {
@@ -561,11 +526,7 @@ impl Service {
             self.edit.clear();
             self.known = 0;
         }
-        // While held or blind the worker's buffer is empty, and the first
-        // words of a sentence it offers could land inside a word.
         let visible = keyboard.page == Page::Letters
-            && !self.held
-            && !self.blind
             && !keyboard.modifiers[1..].iter().any(|m| *m != Modifier::Off);
         keyboard.predictions(
             if visible { batch } else { None },
@@ -727,19 +688,12 @@ pub fn retry() {
     let kept = SERVICE.with(|s| {
         let mut s = s.borrow_mut();
         s.interrupt();
-        (
-            std::mem::take(&mut s.shape),
-            s.beyond,
-            s.held,
-            s.blind,
-            s.unseen_start,
-            s.epoch,
-        )
+        (std::mem::take(&mut s.shape), s.beyond, s.held, s.epoch)
     });
     stop();
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
-        (s.shape, s.beyond, s.held, s.blind, s.unseen_start, s.epoch) = kept;
+        (s.shape, s.beyond, s.held, s.epoch) = kept;
     });
 }
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
@@ -839,15 +793,7 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
     };
     SERVICE.with(|slot| {
         let mut s = slot.borrow_mut();
-        let was_blind = s.blind;
         s.observe(activity::snapshot());
-        // Outside input may have moved the caret: suggestions shown for where
-        // it was are withdrawn at once, and a choice of one goes stale.
-        if s.blind && !was_blind {
-            s.generation = s.generation.wrapping_add(1);
-            s.last = None;
-            keyboard.predictions(None, s.failed);
-        }
         let case = (
             keyboard.prediction_shift(),
             keyboard.caps,
@@ -1496,117 +1442,6 @@ mod tests {
         s.typed(Edit::Append("b".into()), InputScope::capture());
         assert!(s.beyond);
     }
-    #[test]
-    fn held_suggestions_stay_hidden_until_the_next_word() {
-        let batch = || worker::Batch {
-            token: 1,
-            refined: false,
-            words: slots(["the", "I"]),
-        };
-        let mut keyboard = Keyboard::new(false);
-        let mut s = service("hel");
-        s.interrupt();
-        assert!(s.held);
-        // The worker's buffer is empty while held, so it offers first words;
-        // they would land inside the word, so none is shown.
-        s.suggestions(&mut keyboard, Some(batch()), true, database::Status::Ready);
-        assert_eq!(keyboard.displayed_prediction(), None);
-        s.stroke(key(' '), true, true, InputScope::capture());
-        assert!(!s.held);
-        s.suggestions(&mut keyboard, Some(batch()), true, database::Status::Ready);
-        assert_eq!(keyboard.displayed_prediction(), Some(1));
-    }
-
-    #[test]
-    fn first_words_wait_for_typing_after_the_caret_moves_somewhere_unseen() {
-        let batch = || worker::Batch {
-            token: 1,
-            refined: false,
-            words: slots(["the", "I"]),
-        };
-        let shown = |s: &mut Service| {
-            let mut keyboard = Keyboard::new(false);
-            s.suggestions(&mut keyboard, Some(batch()), true, database::Status::Ready);
-            keyboard.displayed_prediction().is_some()
-        };
-        let scope = InputScope::capture();
-        // A freshly opened keyboard offers first words.
-        let mut s = service("");
-        s.observe((4, true));
-        assert!(shown(&mut s));
-        // Outside input, such as a click into "hello", leaves the caret
-        // anywhere: first words could land inside a word.
-        s.observe((5, true));
-        assert!(s.blind && !shown(&mut s));
-        // Typing a letter completes it as before.
-        s.stroke(key('w'), true, true, scope);
-        assert!(shown(&mut s));
-
-        // A shortcut after a space, such as Ctrl+V, can leave the caret
-        // straight after a pasted word.
-        let mut s = service("I said ");
-        let mut paste = key('v');
-        paste.modifiers[1] = true;
-        s.stroke(paste, true, true, scope);
-        assert!(!s.held && !shown(&mut s));
-        s.stroke(key(' '), true, true, scope);
-        assert!(shown(&mut s));
-
-        // Held after an arrow key, a space releases both: a word starts.
-        let mut s = service("hello ");
-        s.stroke(named("ArrowLeft"), true, true, scope);
-        assert!(s.held && s.blind && !shown(&mut s));
-        s.stroke(key(' '), true, true, scope);
-        assert!(!s.held && !s.blind && shown(&mut s));
-
-        // Context lost straight after punctuation: a word would join it.
-        let mut s = service("hello,");
-        s.interrupt();
-        assert!(!s.held && !shown(&mut s));
-        let mut s = service("hello, ");
-        s.interrupt();
-        assert!(shown(&mut s));
-        // Nothing typed yet is the start of the text.
-        let mut s = service("");
-        s.interrupt();
-        assert!(shown(&mut s));
-        // A hold that ends on "-" leaves the caret where a word would join
-        // it; only whitespace starts a new one.
-        let mut s = service("hello");
-        s.stroke(named("ArrowLeft"), true, true, scope);
-        s.stroke(key('-'), true, true, scope);
-        assert!(!s.held && !shown(&mut s));
-        s.stroke(key('x'), true, true, scope);
-        assert!(shown(&mut s));
-        // Deleting back to an unseen spot is blind again; at a known word
-        // start it is not.
-        let mut s = service("");
-        s.observe((4, true));
-        s.observe((5, true));
-        s.stroke(key('w'), true, true, scope);
-        assert!(shown(&mut s));
-        s.stroke(named("Backspace"), true, true, scope);
-        assert!(s.blind && !shown(&mut s));
-        let mut s = service("hello ");
-        s.interrupt();
-        s.stroke(key('w'), true, true, scope);
-        s.stroke(named("Backspace"), true, true, scope);
-        assert!(shown(&mut s));
-
-        // Enter and a change of window each start somewhere fresh.
-        for enter in [false, true] {
-            let mut s = service("hel");
-            s.observe((4, true));
-            s.observe((5, true));
-            if enter {
-                s.finish(scope);
-            } else {
-                s.moved();
-            }
-            assert!(shown(&mut s));
-        }
-    }
-
     #[test]
     fn invalid_edit_acknowledgements_fail_closed() {
         let mut service = Service {
