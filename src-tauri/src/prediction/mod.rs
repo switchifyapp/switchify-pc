@@ -694,6 +694,8 @@ pub fn retry() {
     SERVICE.with(|s| {
         let mut s = s.borrow_mut();
         (s.shape, s.beyond, s.held, s.epoch) = kept;
+        // The new worker starts with the caret mid-text, not somewhere fresh.
+        s.reset = true;
     });
 }
 pub fn record(stroke: Stroke, success: bool, scope: InputScope) {
@@ -783,6 +785,9 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         stop();
         if let Some(keyboard) = keyboard {
             keyboard.predictions(None, false);
+            // Typing goes on without prediction, so a worker started when it
+            // comes back must not take the caret for a fresh start.
+            SERVICE.with(|s| s.borrow_mut().reset = true);
         }
         return;
     }
@@ -1419,7 +1424,7 @@ mod tests {
         retry();
         SERVICE.with(|slot| {
             let s = slot.borrow();
-            assert!(s.held && s.edit.is_empty());
+            assert!(s.held && s.edit.is_empty() && s.reset);
             assert_eq!((s.generation, s.known, s.shape.len()), (0, 0, 7));
         });
         retry();
