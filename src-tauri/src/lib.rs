@@ -1375,7 +1375,10 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
             .available()
             .map(|update| update.version().to_owned()),
     );
-    if asked || ready.is_none() {
+    // Quiet: shows nothing unless a newer or withdrawn release changes what
+    // is waiting.
+    let quiet = !asked && ready.is_some();
+    if !quiet {
         publish_update(app, &model, UpdateView::checking());
     }
     // A stable build never installs a pre-release, whatever the feed offers.
@@ -1383,35 +1386,46 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
         .updater_builder()
         .version_comparator(|current, release| updater::accepts_update(&current, &release.version))
         .build();
+    // Bounded here, not with the builder's timeout, which would also cap the
+    // download. Install and asked checks can be waiting on this check.
     let result = match updater {
-        Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
+        Ok(updater) => match tokio::time::timeout(UPDATE_CHECK_TIMEOUT, updater.check()).await {
+            Ok(result) => result.map_err(|error| error.to_string()),
+            Err(_) => Err("the update server did not respond in time".to_owned()),
+        },
         Err(error) => Err(error.to_string()),
     };
     // The gate stays held until the outcome is recorded, so a download cannot
     // start against the update this check is about to replace.
-    let outcome = check_outcome(app, &model, &manager, ready, result);
+    let outcome = check_outcome(app, &model, &manager, ready, quiet, result);
     manager.finish(UpdateOperation::Check);
     outcome
 }
+
+const UPDATE_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 fn check_outcome(
     app: &AppHandle,
     model: &AppModel,
     manager: &UpdateManager,
     ready: Option<(u64, String)>,
+    quiet: bool,
     result: Result<Option<tauri_plugin_updater::Update>, String>,
 ) -> AppState {
     match result {
         Ok(Some(update)) => {
             let version = update.version().to_owned();
             if manager.offer(Some(update)) {
+                model.record_updater("ready", None);
+                if quiet {
+                    return model.snapshot();
+                }
                 let downloaded = ready.map_or(0, |(bytes, _)| bytes);
                 state::set_activity(
                     &model.shared,
                     ActivityKind::Success,
                     format!("Switchify PC {version} is still the latest and is ready to install."),
                 );
-                model.record_updater("ready", None);
                 return publish_update(
                     app,
                     model,
@@ -1439,6 +1453,10 @@ fn check_outcome(
         // A failed check leaves an update already found where it was, ready
         // or available, and says the check failed.
         Err(error) => {
+            if quiet {
+                model.record_updater("failed", Some(error.as_str()));
+                return model.snapshot();
+            }
             let kept = match ready {
                 Some((downloaded, version)) => {
                     Some(UpdateView::ready(version, downloaded, Some(downloaded)))
@@ -1596,6 +1614,11 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
     };
     let Some(bytes) = manager.take_download() else {
         manager.finish(UpdateOperation::Install);
+        // The check this install waited out found a newer release and
+        // dropped the old download; it already shows the newer one.
+        if model.snapshot().updater.status == updater::UpdateStatus::Available {
+            return Ok(model.snapshot());
+        }
         return Ok(update_failure(
             &app,
             &model,
