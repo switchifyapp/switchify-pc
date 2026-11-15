@@ -4560,6 +4560,17 @@ mod tests {
             workflow.control_mode(),
             crate::point_scan::ControlMode::Mouse
         );
+        // An added Back tile leaves the same way.
+        workflow.set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Mouse,
+            crate::panel_extras::PanelExtras::rows(vec![vec![extra("Done", PanelAction::Back, 1)]]),
+        )]));
+        workflow.open_mouse(true);
+        assert_eq!(
+            workflow.choose_mouse_key(Key::Extra(0, 0)),
+            Some(Request::Close)
+        );
+        assert!(workflow.stage == Stage::Idle);
         // The More controls page and the Position page keep their rows.
         workflow.open_mouse(true);
         workflow.choose_mouse_key(Key::More);
