@@ -248,6 +248,9 @@ struct Service {
     /// is empty, and the first words of a sentence it offers could land in
     /// that word, so none is shown until something is typed.
     blind: bool,
+    /// The last character typed was whitespace, so a new word starts at the
+    /// caret. After a Backspace this is not known.
+    spaced: bool,
     /// The activity epoch last seen, to notice input from outside.
     epoch: Option<u64>,
     /// Characters the worker has had since its context was last cleared.
@@ -345,6 +348,11 @@ impl Service {
     fn in_word(&self) -> bool {
         self.shape.last().copied().unwrap_or(self.beyond)
     }
+    /// Whether a word starts at the caret: after whitespace, or at the start
+    /// of text. After punctuation such as "," or "-" a word would join it.
+    fn word_start(&self) -> bool {
+        self.spaced || (self.shape.is_empty() && !self.beyond)
+    }
     fn shaped(&mut self, edit: &Edit) {
         match edit {
             Edit::Append(text) => {
@@ -379,6 +387,7 @@ impl Service {
             self.beyond = false;
             self.held = false;
             self.blind = true;
+            self.spaced = false;
             // The worker saw it too and cleared its own context.
             self.known = 0;
         }
@@ -406,6 +415,7 @@ impl Service {
     /// suggestions wait for the next one.
     fn interrupt(&mut self) {
         self.held |= self.in_word();
+        self.blind |= !self.word_start();
         self.forget();
     }
     /// An accepted suggestion was not fully typed. Focus went elsewhere:
@@ -424,6 +434,7 @@ impl Service {
     fn displaced(&mut self, navigated: bool) {
         self.held |= navigated || self.in_word();
         self.blind = true;
+        self.spaced = false;
         self.shape.clear();
         self.beyond = self.held;
         self.forget();
@@ -435,11 +446,11 @@ impl Service {
     fn typed(&mut self, edit: Edit, scope: InputScope) {
         let unknown = matches!(edit, Edit::Backspace) && self.known == 0;
         self.shaped(&edit);
+        self.spaced = matches!(&edit, Edit::Append(text) if text.ends_with(char::is_whitespace));
         if self.held || unknown {
             self.held = self.in_word();
-            // A character that ends the word leaves the caret where a new
-            // one starts.
-            self.blind &= self.held;
+            // Only whitespace leaves the caret where a new word starts.
+            self.blind = self.held || !self.word_start();
             self.forget();
             return;
         }
@@ -1527,6 +1538,26 @@ mod tests {
         assert!(s.held && s.blind && !shown(&mut s));
         s.stroke(key(' '), true, true, scope);
         assert!(!s.held && !s.blind && shown(&mut s));
+
+        // Context lost straight after punctuation: a word would join it.
+        let mut s = service("hello,");
+        s.interrupt();
+        assert!(!s.held && !shown(&mut s));
+        let mut s = service("hello, ");
+        s.interrupt();
+        assert!(shown(&mut s));
+        // Nothing typed yet is the start of the text.
+        let mut s = service("");
+        s.interrupt();
+        assert!(shown(&mut s));
+        // A hold that ends on "-" leaves the caret where a word would join
+        // it; only whitespace starts a new one.
+        let mut s = service("hello");
+        s.stroke(named("ArrowLeft"), true, true, scope);
+        s.stroke(key('-'), true, true, scope);
+        assert!(!s.held && !shown(&mut s));
+        s.stroke(key('x'), true, true, scope);
+        assert!(shown(&mut s));
 
         // Enter and a change of window each start somewhere fresh.
         for enter in [false, true] {
