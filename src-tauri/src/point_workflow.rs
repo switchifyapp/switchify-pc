@@ -613,6 +613,9 @@ impl Workflow {
         let changed = self.mouse.blocks != blocks || self.mouse_block_size != block_size;
         self.mouse.blocks = blocks;
         self.mouse_block_size = block_size;
+        if changed {
+            self.block_hop = None;
+        }
         if changed && self.stage == Stage::MouseMoving {
             self.stage = Stage::Mouse;
             self.move_repeat = None;
@@ -674,7 +677,8 @@ impl Workflow {
         }
         match self.stage {
             Stage::MouseMoving => Some(PointerFeedback::RepeatMove {
-                accelerated: self.mouse_acceleration_ms > 0,
+                // Block hops keep one size and pace.
+                accelerated: self.block_hop.is_none() && self.mouse_acceleration_ms > 0,
                 dragging: self.mouse.dragging,
             }),
             Stage::MouseScrolling => Some(PointerFeedback::RepeatScroll {
@@ -1194,6 +1198,8 @@ impl Workflow {
                 Some(Request::MouseMove { dx, dy })
             }
             Key::Move(dx, dy) => {
+                // A hop left behind by a page opened mid-repeat never resumes.
+                self.block_hop = None;
                 let step = crate::mouse_repeat::DIRECTION_MOVE_DELTA;
                 let delta = (i32::from(dx) * step, i32::from(dy) * step);
                 if self.mouse_repeat_enabled {
@@ -4151,7 +4157,63 @@ mod tests {
     }
 
     #[test]
-    fn the_blocks_tile_asks_to_flip_the_setting_and_shows_it() {
+    fn a_hop_left_by_another_page_never_resumes_and_draws_no_acceleration() {
+        use crate::input::PointerFeedback;
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        use crate::scan_mouse::Key;
+        let context = UpdateContext {
+            movement_enabled: true,
+            paused: false,
+            switch_held: false,
+        };
+        let mut workflow = session(false).technique;
+        workflow.open_mouse(true);
+        workflow.set_mouse_settings(100, 1000, 250, 250, true);
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        workflow.mouse_key(Key::Drag);
+        workflow.mouse_key(Key::Move(1, 0));
+        // A hop keeps one size and pace, and carries a held drag.
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(PointerFeedback::RepeatMove {
+                accelerated: false,
+                dragging: true
+            })
+        );
+        // A page such as the keyboard took over mid-hop and came back to
+        // the panel without ending it. Turning blocks off drops the hop.
+        workflow.stage = Stage::Mouse;
+        workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Medium);
+        assert!(workflow.block_hop.is_none());
+
+        // So does the next smooth move, however blocks came to be off.
+        workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium);
+        workflow.mouse_key(Key::Move(1, 0));
+        workflow.stage = Stage::Mouse;
+        workflow.mouse.blocks = false;
+        assert_eq!(
+            workflow.mouse_key(Key::Move(0, 1)),
+            Some(Request::MouseMove { dx: 0, dy: 1 })
+        );
+        assert!(workflow.block_hop.is_none());
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(PointerFeedback::RepeatMove {
+                accelerated: true,
+                dragging: true
+            })
+        );
+        for _ in 0..40 {
+            workflow.update(33, context);
+            if let Some(Request::MouseMove { dx, dy }) = workflow.take_selection() {
+                assert_eq!(dx, 0, "the old hop came back");
+                assert!(dy > 0);
+            }
+        }
+    }
+
+    #[test]
+    fn the_blocks_tile_label_follows_the_setting() {
         use crate::mouse_repeat::{BlockSize, MouseMovement};
         use crate::scan_mouse::Key;
         let mut workflow = session(false).technique;

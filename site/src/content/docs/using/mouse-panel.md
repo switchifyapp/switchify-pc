@@ -25,7 +25,7 @@ Pointer speed has ten levels plus fine tuning. The panel, the **Mouse pointer** 
 
 ## Move in blocks
 
-With **Move in blocks** on, the arrows jump the pointer a set distance instead of gliding. Turn it on or off with the **Blocks** tile on the Speed and more page, or with the switch of the same name in the **Mouse pointer** section. The tile shows On or Off.
+With **Move in blocks** on, the arrows jump the pointer a set distance instead of gliding. Turn it on or off with the **Blocks** tile on the Speed and more page, or with **Move in blocks** in the **Mouse pointer** section. The tile shows On or Off.
 
 - With repeat off, each press moves the pointer one block.
 - With repeat on, the pointer hops one block at a time, at the mouse panel's scan speed, until you stop it the same way you stop a glide.

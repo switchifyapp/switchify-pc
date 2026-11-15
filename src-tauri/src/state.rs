@@ -1309,6 +1309,38 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
     #[test]
+    fn the_blocks_tile_flips_and_persists_only_the_mouse_movement() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        let root =
+            std::env::temp_dir().join(format!("switchify-mouse-movement-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let mut settings = model.snapshot().settings;
+        settings.mouse_block_size = BlockSize::Large;
+        settings.cursor_crosshairs = true;
+        let consent = model.snapshot().telemetry.consent;
+        model
+            .apply_settings_with_telemetry(settings.clone(), consent)
+            .unwrap();
+
+        assert_eq!(model.toggle_mouse_movement(), Ok(MouseMovement::Blocks));
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let saved = restored.snapshot().settings;
+        assert_eq!(saved.mouse_movement, MouseMovement::Blocks);
+        assert_eq!(
+            saved,
+            AppSettings {
+                mouse_movement: MouseMovement::Blocks,
+                ..settings.clone()
+            }
+        );
+
+        assert_eq!(model.toggle_mouse_movement(), Ok(MouseMovement::Smooth));
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        assert_eq!(restored.snapshot().settings, settings);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
     fn telemetry_opt_in_and_pointer_speed_remain_durable_when_concurrent() {
         let root = std::env::temp_dir().join(format!(
             "switchify-telemetry-pointer-race-{}",
