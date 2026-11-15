@@ -22,12 +22,19 @@ export function picturePalette(theme: PanelTheme | undefined) {
 export type TilePlace = { row: number; cell: number; column?: true };
 
 /** Makes a picture editable: the user's tiles are drawn by `tile`, every
- *  row gets tools beside it and columns get labelled tools below. The whole thing is a group
- *  rather than an image. */
+ *  row gets tools beside it and columns get labelled tools below. Wherever a
+ *  tile can be created there is an add button: at the end of a row or column
+ *  with room (`rowEnd`, `columnEnd`), a new row where it will land (`newRow`)
+ *  and a new column to the right (`newColumn`). Each is null where there is
+ *  no room. The whole thing is a group rather than an image. */
 export type PictureEditing = {
   tile: (cell: PanelCell, place: TilePlace, colours: Palette) => React.ReactNode;
   rowTools: (row: number) => React.ReactNode;
   columnTools: (column: number) => React.ReactNode;
+  rowEnd: (row: number) => React.ReactNode;
+  columnEnd: (column: number) => React.ReactNode;
+  newRow: React.ReactNode;
+  newColumn: React.ReactNode;
 };
 
 /** A panel drawn as the scan will show it: a title band, then the rows of
@@ -51,21 +58,38 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
     ? editing.tile(cell, place, colours)
     : <PictureTile cell={cell} colours={colours} width={width} data-column={place.column ? place.row + 1 : undefined} />;
   type Line = { key: string; keys: React.ReactNode[]; blank: boolean; row?: number };
+  // A row's add button sits after its tiles at a fixed width, so the tiles keep their shares of the row.
+  const rowEnd = (row: number) => {
+    const add = editing?.rowEnd(row);
+    return add ? [<span key="add" className="panel-picture-add">{add}</span>] : [];
+  };
+  // A new row is drawn where it will land: after the user's rows, so above a native panel's last row of keys.
+  const newRow: Line[] = editing?.newRow ? [{ key: "new-row", blank: false, keys: [<span key="add" className="panel-picture-slot" style={{ flexGrow: 1, flexBasis: 0 }}>{editing.newRow}</span>] }] : [];
   const lines: Line[] = [
     // While editing, the keys are scenery: the group's label already says they are there.
     ...(fixed ?? []).slice(0, -1).map((row, index): Line => ({ key: `fixed-${index}`, blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} hidden={editing !== undefined} />) })),
-    ...panel.rows.map((row, index): Line => ({ key: `row-${index}`, blank: false, row: index, keys: row.map((cell, column) => <span key={column} className="panel-picture-slot" style={{ flexGrow: cell.span, flexBasis: 0 }}>{userTile(cell, { row: index, cell: column })}</span>) })),
+    ...panel.rows.map((row, index): Line => ({ key: `row-${index}`, blank: false, row: index, keys: [...row.map((cell, column) => <span key={column} className="panel-picture-slot" style={{ flexGrow: cell.span, flexBasis: 0 }}>{userTile(cell, { row: index, cell: column })}</span>), ...rowEnd(index)] })),
+    ...newRow,
     ...(fixed ?? []).slice(-1).map((row): Line => ({ key: "fixed-last", blank: false, keys: row.map((key, column) => <FixedTile key={column} cell={key} colours={colours} hidden={editing !== undefined} />) })),
   ];
-  const longest = Math.max(0, ...columns.map((column) => column.length));
+  const columnEnds = columns.map((_, c) => editing?.columnEnd(c) || null);
+  const longest = Math.max(0, ...columns.map((column, c) => column.length + (columnEnds[c] ? 1 : 0)));
   for (let index = lines.length; index < longest; index++) lines.push({ key: `below-${index}`, blank: true, keys: [] });
-  const slots = (index: number) => columns.map((column, c) => column[index]
-    ? <span key={`column-${c}`} className="panel-picture-slot" style={{ flexGrow: columnWidth(column), flexBasis: 0 }}>{userTile(column[index], { row: c, cell: index, column: true }, columnWidth(column))}</span>
-    : <span key={`column-${c}`} className="panel-picture-spacer" style={{ flexGrow: columnWidth(column), flexBasis: 0 }} />);
+  const newColumn = editing?.newColumn || null;
+  const slots = (index: number) => [
+    ...columns.map((column, c) => column[index]
+      ? <span key={`column-${c}`} className="panel-picture-slot" style={{ flexGrow: columnWidth(column), flexBasis: 0 }}>{userTile(column[index], { row: c, cell: index, column: true }, columnWidth(column))}</span>
+      : index === column.length && columnEnds[c]
+      ? <span key={`column-${c}`} className="panel-picture-slot" style={{ flexGrow: columnWidth(column), flexBasis: 0 }}>{columnEnds[c]}</span>
+      : <span key={`column-${c}`} className="panel-picture-spacer" style={{ flexGrow: columnWidth(column), flexBasis: 0 }} />),
+    // A new column starts beside the first line; the lines below keep its width clear.
+    ...(newColumn ? [<span key="new-column" className="panel-picture-add">{index === 0 && newColumn}</span>] : []),
+  ];
+  const besideKeys = columns.length > 0 || newColumn !== null;
   const keys = (line: Line) => line.blank
     ? <span className="panel-picture-spacer" style={{ flexGrow: keysWeight, flexBasis: 0 }} />
     // With columns beside them, every line keeps its keys to the keys' width so the columns line up.
-    : columns.length > 0 ? <span className="panel-picture-keys" style={{ flexGrow: keysWeight, flexBasis: 0 }}>{line.keys}</span> : line.keys;
+    : besideKeys ? <span className="panel-picture-keys" style={{ flexGrow: keysWeight, flexBasis: 0 }}>{line.keys}</span> : line.keys;
   const line = (entry: Line, index: number) => {
     const row = <div className="panel-picture-row" role={editing && entry.row !== undefined ? "group" : undefined} aria-label={editing && entry.row !== undefined ? `Row ${entry.row + 1}` : undefined}>{keys(entry)}{slots(index)}</div>;
     return editing

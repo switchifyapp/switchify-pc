@@ -220,6 +220,8 @@ async function click(page, text, selector = "button") {
 }
 async function shot(page, name, selector) {
   if (!keep.has(name)) return;
+  // A click leaves the pointer where it was, hovering whatever has taken that place since.
+  await page.mouse.move(0, 0);
   await pause(600);
   const file = path.join(outDir, `${name}.png`);
   if (selector) {
