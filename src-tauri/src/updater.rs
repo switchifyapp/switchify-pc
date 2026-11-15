@@ -10,7 +10,7 @@ use std::{
 
 use serde::Serialize;
 use tauri_plugin_updater::Update;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 
 type DownloadFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send + 'a>>;
 
@@ -334,16 +334,20 @@ struct RuntimeData<U> {
     cancel_download: Option<watch::Sender<bool>>,
 }
 
-pub struct UpdateManager<U = Update>(Mutex<RuntimeData<U>>);
+/// The second field wakes callers waiting for an operation to finish.
+pub struct UpdateManager<U = Update>(Mutex<RuntimeData<U>>, Notify);
 
 impl<U> Default for UpdateManager<U> {
     fn default() -> Self {
-        Self(Mutex::new(RuntimeData {
-            active: None,
-            available: None,
-            downloaded: None,
-            cancel_download: None,
-        }))
+        Self(
+            Mutex::new(RuntimeData {
+                active: None,
+                available: None,
+                downloaded: None,
+                cancel_download: None,
+            }),
+            Notify::new(),
+        )
     }
 }
 
@@ -371,15 +375,35 @@ impl<U: Clone> UpdateManager<U> {
         if operation == Operation::Download {
             data.cancel_download = None;
         }
+        drop(data);
+        self.1.notify_waiters();
     }
 
-    pub fn replace_available(&self, update: Option<U>) {
-        let mut data = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        data.available = update;
-        data.downloaded = None;
+    /// Begins `operation`, first waiting out a check in progress. A check can
+    /// run unannounced over a download waiting to install, so a press of
+    /// Install or Check during it is carried out once it ends, not dropped.
+    /// Returns false if another kind of operation is active.
+    pub async fn begin_after_check(&self, operation: Operation) -> bool {
+        loop {
+            let finished = self.1.notified();
+            tokio::pin!(finished);
+            finished.as_mut().enable();
+            {
+                let mut data = self
+                    .0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                match data.active {
+                    None => {
+                        data.active = Some(operation);
+                        return true;
+                    }
+                    Some(Operation::Check) => {}
+                    Some(_) => return false,
+                }
+            }
+            finished.await;
+        }
     }
 
     pub fn available(&self) -> Option<U> {
@@ -405,12 +429,14 @@ impl<U: Clone> UpdateManager<U> {
             .take()
     }
 
-    pub fn has_download(&self) -> bool {
+    /// The size of the stored download, if one is waiting to install.
+    pub fn download_len(&self) -> Option<u64> {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .downloaded
-            .is_some()
+            .as_ref()
+            .map(|bytes| bytes.len() as u64)
     }
 
     pub fn set_download_cancel(&self, sender: watch::Sender<bool>) {
@@ -427,6 +453,29 @@ impl<U: Clone> UpdateManager<U> {
             .cancel_download
             .as_ref()
             .is_some_and(|sender| sender.send(true).is_ok())
+    }
+}
+
+impl<U: UpdateArtifact> UpdateManager<U> {
+    /// Records what a check found. A download of the same version stays, with
+    /// the update it was verified against, so it can still be installed. A
+    /// different version, or none, discards it so an outdated download is
+    /// never installed. Returns whether a stored download was kept.
+    pub fn offer(&self, update: Option<U>) -> bool {
+        let mut data = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let same_version = match (&data.available, &update) {
+            (Some(current), Some(offered)) => current.version() == offered.version(),
+            _ => false,
+        };
+        if same_version && data.downloaded.is_some() {
+            return true;
+        }
+        data.available = update;
+        data.downloaded = None;
+        false
     }
 }
 
@@ -664,7 +713,77 @@ mod tests {
         manager.finish(Operation::Check);
         assert!(manager.begin(Operation::Install));
         manager.store_download(vec![1, 2, 3]);
-        assert!(manager.has_download());
+        assert_eq!(manager.download_len(), Some(3));
+    }
+
+    fn versioned(version: &str) -> FakeUpdate {
+        FakeUpdate {
+            version: version.into(),
+            ..FakeUpdate::successful(Vec::new())
+        }
+    }
+
+    #[test]
+    fn a_check_keeps_a_download_of_the_same_version() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(manager.offer(Some(versioned("2.0.0"))));
+        assert_eq!(manager.download_len(), Some(3));
+        assert_eq!(manager.available().unwrap().version(), "2.0.0");
+    }
+
+    #[test]
+    fn a_newer_release_discards_an_outdated_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(!manager.offer(Some(versioned("2.0.1"))));
+        assert_eq!(manager.download_len(), None);
+        assert_eq!(manager.available().unwrap().version(), "2.0.1");
+    }
+
+    #[test]
+    fn a_withdrawn_release_discards_its_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        manager.store_download(vec![1, 2, 3]);
+        assert!(!manager.offer(None));
+        assert_eq!(manager.download_len(), None);
+        assert!(manager.available().is_none());
+    }
+
+    #[test]
+    fn an_offer_without_a_download_replaces_the_available_update() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        manager.offer(Some(versioned("2.0.0")));
+        assert!(!manager.offer(Some(versioned("2.0.0"))));
+        assert_eq!(manager.available().unwrap().version(), "2.0.0");
+        assert_eq!(manager.download_len(), None);
+    }
+
+    #[tokio::test]
+    async fn an_install_waits_out_a_check_instead_of_being_dropped() {
+        let manager = Arc::new(UpdateManager::<FakeUpdate>::default());
+        assert!(manager.begin(Operation::Check));
+        let waiting = tokio::spawn({
+            let manager = manager.clone();
+            async move { manager.begin_after_check(Operation::Install).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        manager.finish(Operation::Check);
+        assert!(waiting.await.unwrap());
+        assert!(!manager.begin(Operation::Check));
+    }
+
+    #[tokio::test]
+    async fn waiting_to_begin_gives_way_to_a_download() {
+        let manager = UpdateManager::<FakeUpdate>::default();
+        assert!(manager.begin(Operation::Download));
+        assert!(!manager.begin_after_check(Operation::Install).await);
+        manager.finish(Operation::Download);
+        assert!(manager.begin_after_check(Operation::Install).await);
     }
 
     #[tokio::test]

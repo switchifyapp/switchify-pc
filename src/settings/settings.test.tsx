@@ -167,6 +167,44 @@ describe("Switchify PC settings", () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it("keeps a waiting update installable when a re-check fails", async () => {
+    browserState.updater = { status: "readyToInstall", version: "1.0.0-beta.2", downloadedBytes: 200, totalBytes: 200, error: "Update check failed: offline", retryAction: null };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSection("Updates");
+    const region = within(screen.getByRole("region", { name: "Updates" }));
+    expect(region.getByRole("status")).toHaveTextContent("Couldn't check for a newer version. Switchify PC 1.0.0-beta.2 is still ready to install.");
+    expect(region.getByRole("button", { name: "Install and restart" })).toBeInTheDocument();
+  });
+
+  it("keeps an available update downloadable when a re-check fails", async () => {
+    browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: "Update check failed: offline", retryAction: null };
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSection("Updates");
+    const region = within(screen.getByRole("region", { name: "Updates" }));
+    expect(region.getByRole("status")).toHaveTextContent("Couldn't check for a newer version. Switchify PC 1.0.0-beta.2 is still available.");
+    expect(region.getByRole("button", { name: "Download" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["available", null],
+    ["readyToInstall", null],
+    ["cancelled", "download"],
+  ] as const)("still checks for a newer update while one is %s", async (status, retryAction) => {
+    browserState.updater = { status, version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction };
+    const check = vi.spyOn(api, "checkForUpdates").mockResolvedValue(structuredClone(browserState));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSection("Updates");
+    fireEvent.click(within(screen.getByRole("region", { name: "Updates" })).getByRole("button", { name: "Check for updates" }));
+    expect(check).toHaveBeenCalledOnce();
+    check.mockRestore();
+  });
+
   it("retries a cancelled download from the beginning", async () => {
     browserState.updater = { status: "cancelled", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: "download" };
     const download = vi.spyOn(api, "downloadUpdate").mockResolvedValue(structuredClone(browserState));

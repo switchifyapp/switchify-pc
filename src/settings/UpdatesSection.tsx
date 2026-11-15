@@ -49,9 +49,14 @@ export function updateDescription(update: UpdateState) {
     case "unconfigured": return "Updates are unavailable in this build because its signed feed is not configured.";
     case "idle": return "Automatic update checks are enabled.";
     case "checking": return "Checking for updates…";
-    case "available": return `Switchify PC ${update.version} is available.`;
+    case "available": return update.error
+      ? `Couldn't check for a newer version. Switchify PC ${update.version} is still available.`
+      : `Switchify PC ${update.version} is available.`;
     case "downloading": return `Downloading Switchify PC ${update.version}…`;
-    case "readyToInstall": return `Switchify PC ${update.version} is ready to install.`;
+    // A failed re-check keeps the waiting download, and says so politely.
+    case "readyToInstall": return update.error
+      ? `Couldn't check for a newer version. Switchify PC ${update.version} is still ready to install.`
+      : `Switchify PC ${update.version} is ready to install.`;
     case "applying": return `Installing Switchify PC ${update.version}…`;
     case "current": return "Switchify PC is up to date.";
     case "failed": return sentence(update.error ?? "The update operation failed.");
@@ -87,13 +92,16 @@ export function UpdateControls({ update, run, cancel }: { update: UpdateState; r
   const label = update.status === "failed" ? "Retry"
     : action === "download" ? (update.status === "cancelled" ? "Retry download" : "Download")
       : action === "install" ? "Install and restart" : "Check for updates";
+  // A waiting update can be outdated by a newer release, so checking stays
+  // possible alongside downloading or installing it.
+  const recheck = action === "download" || action === "install";
   return <div className="update-controls">
     <p role={updateStatusRole(update)}>{updateDescription(update)}</p>
     {update.status === "downloading" && <>
       <progress aria-label="Update download progress" value={update.downloadedBytes} max={update.totalBytes ?? undefined} />
       <span>{updateProgress(update)}</span>
     </>}
-    <div>{action && <Button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</Button>}{update.status === "downloading" && <Button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</Button>}{(update.status === "checking" || update.status === "applying") && <Button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</Button>}</div>
+    <div>{action && <Button className="secondary" type="button" onClick={() => run(action)}>{action === "download" && <Download size={16} />}{action === "check" && <RefreshCw size={16} />}{label}</Button>}{recheck && <Button className="secondary" type="button" onClick={() => run("check")}><RefreshCw size={16} />Check for updates</Button>}{update.status === "downloading" && <Button className="secondary" type="button" onClick={cancel}><X size={16} />Cancel</Button>}{(update.status === "checking" || update.status === "applying") && <Button className="secondary" type="button" disabled><RefreshCw className="spin" size={16} />{update.status === "checking" ? "Checking" : "Installing"}</Button>}</div>
   </div>;
 }
 
