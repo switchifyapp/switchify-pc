@@ -110,7 +110,7 @@ export function ScannerPreferences({ controller, requestedArea, onAreaOpened, po
           : 'Select starts the last mode you used straight away. Open Home from the Point action menu or the Mouse panel.' }}
       />
     </SettingGroup>}
-    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Home opens editing, window, browser, media, display and scanning commands; choose Mouse there to come back. More clicks, on the More controls page, use the current pointer and then return to Mouse. End a drag before opening Home or More clicks. Pointer speed and repeat controls are under Mouse pointer, after the shared scanning settings. Close stops scanning.</p>}
+    {area === 'mouse' && <p className="setting-note">The ring stays visible while Mouse is open. Select a direction to move or a scroll tile to scroll; with Repeat mouse movement and scrolling on, {mouseRepeatStopInstruction(config).toLowerCase()} either action. Home opens editing, window, browser, media, display and scanning commands; choose Mouse there to come back. More clicks, on the Speed and more page, use the current pointer and then return to Mouse. End a drag before opening Home or More clicks. Pointer speed and repeat controls are under Mouse pointer, after the shared scanning settings. Close stops scanning.</p>}
     {area === 'mouse' && <SettingGroup setting="radar" title="Radar" description="Radar picks an area, then a direction, then a distance to move the pointer.">
       <OptionGroup<number>
         legend="Radar speed"

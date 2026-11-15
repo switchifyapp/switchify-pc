@@ -53,7 +53,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(within(navigation).getByRole("button", { name: "Scanning" }));
     fireEvent.click(await screen.findByRole("button", { name: "Customise mouse scanning" }));
     expect(screen.getByText(/Home opens editing, window, browser, media, display and scanning commands/)).toBeInTheDocument();
-    expect(screen.getByText(/More clicks, on the More controls page, use the current pointer/)).toBeInTheDocument();
+    expect(screen.getByText(/More clicks, on the Speed and more page, use the current pointer/)).toBeInTheDocument();
     expect(screen.getByText(/press and release a switch to stop either action/)).toBeInTheDocument();
     expect(screen.getByText(/the stop switch keeps the action going until release/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to scanning settings" }));

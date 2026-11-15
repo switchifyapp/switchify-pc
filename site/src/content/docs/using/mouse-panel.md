@@ -11,7 +11,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch the **Open mou
 - **Left click**, **Right click**, **Double click**.
 - **Start drag** and **End drag**.
 - **Scroll up** and **Scroll down**.
-- **More controls**, a second page with **Slower** and **Faster** pointer speed, **More clicks** (middle, triple, Shift, Ctrl, Alt and Windows or Command click at the pointer), **Monitor left, right, up, down** to jump the pointer to another display, and a choice of where the panel sits. Speed shows the current level, from 1 to 10, and a press moves it half a level. **Movement** returns to the first page. After a click from More clicks, or **Back**, the panel comes back on its first page.
+- **Speed and more**, a second page with **Slower** and **Faster** pointer speed, **More clicks** (middle, triple, Shift, Ctrl, Alt and Windows or Command click at the pointer), **Monitor left, right, up, down** to jump the pointer to another display, and a choice of where the panel sits. Speed shows the current level, from 1 to 10, and a press moves it half a level. **Movement** returns to the first page. After a click from More clicks, or **Back**, the panel comes back on its first page.
 - **Home** to open [Home](/using/home-menu/), for editing, windows, browser, media, zoom and the rest, and **My panels** once you have made [panels](/using/panels/) of your own. Choose **Mouse** on Home to bring the panel back.
 - **Keyboard** to open the scanning [keyboard](/using/keyboard/).
 - **Close** to stop scanning. To change to [point scanning](/using/point-scanning/) instead, choose **Home**, then **Point**.

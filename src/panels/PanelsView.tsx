@@ -45,7 +45,7 @@ function extrasPanel(view: PanelExtrasView): CustomPanel {
 /**
  * Where each built-in menu is reached from, so the page can list it under
  * the menu that opens it. Home lists every app menu; More clicks follows a
- * point and is also on the mouse panel's More controls; Tabs sits inside Browser.
+ * point and is also on the mouse panel's Speed and more page; Tabs sits inside Browser.
  */
 const HOME_MENUS = ["windows", "editing", "browser", "media", "zoom", "displays", "scanning"];
 const POINT_MENUS = ["mouse"];

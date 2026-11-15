@@ -15,7 +15,7 @@ Press and release **Select** to open Home. Home is the one menu that leads to ev
 | **Browser** | Back, forward, reload, new tab, close tab, reopen a closed tab, next and previous tab, address bar. |
 | **Media** | Play or pause, next and previous track, volume up and down, mute. |
 | **Zoom** | Zoom in, zoom out and reset zoom in the app in front, using the Ctrl or Cmd shortcuts with =, - and 0. Browsers, PDF readers, mail apps and many other apps zoom with these keys. Some apps use them for something else; Word, for example, does not zoom. |
-| **Displays** | **Next display** or **Previous display** starts point scanning on another display. On the mouse panel, the Monitor keys under More controls move the pointer instead. |
+| **Displays** | **Next display** or **Previous display** starts point scanning on another display. On the mouse panel, the Monitor keys under Speed and more move the pointer instead. |
 | **Scanning** | **Open Switchify** to show the Switchify PC window, then pause, reverse direction, change the scan speed and line speed, and switch between line-only and grid-then-line point scanning. Home stays open; the next point scan uses the method you chose. |
 | **My panels** | Shown once you have made panels of your own. Opens a list of them; choose one to open it. A panel stays open after each action, so you can choose the next one, until you choose a tile that goes Back or closes it. |
 | **Close menu** | Close Home and stop scanning. **Close menu** does the same on every menu. |
