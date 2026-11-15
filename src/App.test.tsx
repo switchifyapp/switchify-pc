@@ -737,7 +737,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("textbox", { name: "Panel name" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove tiles" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
-    expect(screen.getByText("No tiles of your own yet. Add a row below the keys or a column beside them, then give its tiles labels and actions.")).toBeInTheDocument();
+    expect(screen.getByText("No tiles of your own yet. Choose Add row above the last row of keys, or the + beside the keys for a column, then give its tiles labels and actions.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());
@@ -780,7 +780,8 @@ describe("Switchify PC shell", () => {
     // and removing a column puts focus back on Add column.
     fireEvent.click(screen.getByRole("button", { name: "Mouse panel, 1 column" }));
     fireEvent.click(await screen.findByRole("button", { name: "Add column" }));
-    expect(screen.getByRole("button", { name: "Add column" })).toBeDisabled();
+    // With no room for another column, its + is gone.
+    expect(screen.queryByRole("button", { name: "Add column" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.click(screen.getByRole("button", { name: /^Column 2, tile 1/ }));
@@ -845,7 +846,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Mouse panel, keys only" }));
     await screen.findByRole("heading", { name: "Mouse panel", level: 1 });
     for (let added = 0; added < 4; added++) fireEvent.click(screen.getByRole("button", { name: "Add row" }));
-    expect(screen.getByRole("button", { name: "Add row" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Add row" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 

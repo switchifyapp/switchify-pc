@@ -42,8 +42,6 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const [catalogue, setCatalogue] = useState<PanelActionEntry[]>([]);
   const backRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
-  const addRowRef = useRef<HTMLButtonElement>(null);
-  const addColumnRef = useRef<HTMLButtonElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const rowsRef = useRef<HTMLElement>(null);
   const ids = useId();
@@ -55,6 +53,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   /** Brings an element into view and gives it focus. */
   const reveal = (element: HTMLElement | null) => { element?.scrollIntoView?.({ block: "center" }); element?.focus(); };
   const tileId = (selection: Selection) => `${ids}-${selection.column ? "ctile" : "tile"}-${selection.row}-${selection.cell}`;
+  /** The add button at the end of a row or column, or (no index) the one that adds a new row or column. */
+  const addId = (column: boolean, index?: number) => `${ids}-add-${column ? "column" : "row"}${index === undefined ? "" : `-${index}`}`;
   /** What stops the panel saving, each with a way to the place it is about,
    *  so a problem out of view is never a mystery. */
   const attention = Object.entries(problems).map(([key, message]) => {
@@ -66,7 +66,8 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     const line = key.match(/^(row|column)-(\d+)$/);
     if (line) {
       const place = `${line[1] === "row" ? "Row" : "Column"} ${Number(line[2]) + 1}`;
-      return { label: `${place}: ${message}`, go: () => reveal(document.querySelector<HTMLElement>(`[aria-label="Add tile to ${place.toLowerCase()}"]`)) };
+      const first: Selection = { row: Number(line[2]), cell: 0, ...(line[1] === "column" ? { column: true as const } : {}) };
+      return { label: `${place}: ${message}`, go: () => reveal(document.getElementById(tileId(first)) ?? document.getElementById(addId(line[1] === "column", first.row)) ?? rowsRef.current) };
     }
     const section = key === "name" ? nameRef : rowsRef;
     return { label: `To save: ${message}`, go: () => reveal(section.current) };
@@ -81,8 +82,13 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const replaceIn = (lines: PanelCell[][], selection: Selection, cell: PanelCell) => lines.map((line, r) => r === selection.row ? line.map((candidate, c) => c === selection.cell ? cell : candidate) : line);
   const setCell = (selection: Selection, cell: PanelCell) => selection.column ? setColumns(replaceIn(columns, selection, cell)) : updateRows(replaceIn(draft.rows, selection, cell));
   const problemOf = (selection: Selection) => problems[selection.column ? `ctile-${selection.row}-${selection.cell}` : `tile-${selection.row}-${selection.cell}`] ?? null;
-  /** Focus goes to the section's Add button once the tile that had it is gone. */
-  const focusAfterRemoval = (column = false) => requestAnimationFrame(() => (column ? addColumnRef : addRowRef).current?.focus());
+  /** Once the tile that had focus is gone, focus goes to the add button
+   *  where it was: the end of its row or column if that is still there,
+   *  otherwise the one that adds a new row or column. */
+  const focusAfterRemoval = (column: boolean, index?: number) => requestAnimationFrame(() => {
+    const target = (index === undefined ? null : document.getElementById(addId(column, index))) ?? document.getElementById(addId(column));
+    (target ?? rowsRef.current)?.focus();
+  });
 
   const addTile = (rowIndex: number) => {
     if (draft.rows[rowIndex].length >= maxTilesPerRow) return;
@@ -95,10 +101,12 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     choose({ row: draft.rows.length, cell: 0 });
   };
   const removeTile = (selection: Selection) => {
-    const lines = (selection.column ? columns : draft.rows).map((line, r) => r === selection.row ? line.filter((_, c) => c !== selection.cell) : line).filter((line) => line.length > 0);
+    const before = selection.column ? columns : draft.rows;
+    const lines = before.map((line, r) => r === selection.row ? line.filter((_, c) => c !== selection.cell) : line).filter((line) => line.length > 0);
     if (selection.column) setColumns(lines); else updateRows(lines);
     setSelected(null);
-    focusAfterRemoval(selection.column === true);
+    // A line left empty goes, and the lines after it move up, so only a line that stays keeps its place.
+    focusAfterRemoval(selection.column === true, before[selection.row].length > 1 ? selection.row : undefined);
   };
   const addColumnTile = (columnIndex: number) => {
     if (columns[columnIndex].length >= maxColumnTiles) return;
@@ -126,7 +134,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
   const removeRow = (rowIndex: number) => {
     updateRows(draft.rows.filter((_, r) => r !== rowIndex));
     setSelected(null);
-    focusAfterRemoval();
+    focusAfterRemoval(false);
   };
   /** Moves a tile to the end of another row or column, or a new one. A row
    *  or column left empty goes with it. */
@@ -173,6 +181,9 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
     setCell(selection, { ...cell, action, label });
   };
 
+  /** A + drawn in the picture where a tile can be created; the new row's one says so in words. */
+  const addButton = (id: string, label: string, onClick: () => void, wide = false) => <Button id={id} className="panel-editor-add" aria-label={label} title={label} onClick={onClick}><Plus size={20} aria-hidden="true" />{wide && <span aria-hidden="true">{label}</span>}</Button>;
+
   const requestClose = () => { if (!dirty) { onClose(); return; } onClearError?.(); setConfirmation("discard"); };
   const requestDelete = () => { onClearError?.(); setConfirmation("delete"); };
   const keepEditing = () => {
@@ -195,7 +206,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
       busy={busy} error={error} onCancel={keepEditing} onConfirm={() => { if (confirmation === "delete") void onDelete(); else onClose(); }}
     />}
     <div inert={confirmation !== null || undefined}>
-      <PageHeader title={panel.name} before={<Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button>} description={<>{extras ? "Add rows of your own below the keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</>} action={
+      <PageHeader title={panel.name} before={<Button ref={backRef} className="text-button panel-back" onClick={requestClose}><ChevronLeft size={18} aria-hidden="true" />All panels</Button>} description={<>{extras ? "Add rows of your own above the last row of keys, or columns beside them. The keys stay as they are; your tiles scan with them." : builtin ? (builtin.kind === "home" ? "Rearrange Home. Keep a Close tile, which ends scanning." : "Rearrange this built-in menu. Keep a Back or Close tile so it can be left.") : "Choose a tile to change what it says and does. Rows share their width between their tiles."}</>} action={
         <div className="panel-header-actions">{onTry && <Button className="secondary" disabled={busy || dirty} title={dirty ? "Save first, then try" : "Open this panel in the scanner"} onClick={() => { onClearError?.(); void onTry(); }}><Play size={16} aria-hidden="true" />Try it</Button>}{extras
           ? <Button ref={deleteRef} className="secondary danger" disabled={busy || !extras.hasTiles} title={extras.hasTiles ? undefined : "No tiles added yet"} onClick={requestDelete}><Trash2 size={16} aria-hidden="true" />Remove tiles</Button>
           : builtin
@@ -214,7 +225,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
           </form>
           <section ref={rowsRef} tabIndex={-1} className="panel-grid-editor" aria-label="Tiles">
             <h2>As it will scan</h2>
-            <p className="capability-note">{extras ? "Choose one of your tiles to change it. Row tools sit beside the picture; labelled column tools sit below it." : "Choose a tile to change it. Each row has its tools beside it."} Wide pictures scroll sideways while you edit.</p>
+            <p className="capability-note">{extras ? "Choose one of your tiles to change it, or a + to add one where it shows. Row tools sit beside the picture; labelled column tools sit below it." : "Choose a tile to change it, or a + to add one where it shows. Each row has its tools beside it."} Wide pictures scroll sideways while you edit.</p>
             {problems.rows && <p className="field-error">{problems.rows}</p>}
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
@@ -225,31 +236,29 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
                 const where = `${place.column ? "Column" : "Row"} ${place.row + 1}, tile ${place.cell + 1}`;
                 return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
               },
+              rowEnd: (rowIndex) => draft.rows[rowIndex].length < maxTilesPerRow && addButton(addId(false, rowIndex), `Add tile to row ${rowIndex + 1}`, () => addTile(rowIndex)),
+              columnEnd: (columnIndex) => columns[columnIndex].length < maxColumnTiles && addButton(addId(true, columnIndex), `Add tile to column ${columnIndex + 1}`, () => addColumnTile(columnIndex)),
+              newRow: draft.rows.length < rowLimit && addButton(addId(false), "Add row", addRow, true),
+              newColumn: extras !== undefined && columns.length < maxExtraColumns && addButton(addId(true), "Add column", addColumn),
               rowTools: (rowIndex) => <>
-                <IconButton disabled={draft.rows[rowIndex].length >= maxTilesPerRow} label={`Add tile to row ${rowIndex + 1}`} onClick={() => addTile(rowIndex)}><Plus size={16} /></IconButton>
                 <IconButton disabled={rowIndex === 0} label={`Move row ${rowIndex + 1} up`} onClick={() => moveRow(rowIndex, -1)}><ArrowUp size={16} /></IconButton>
                 <IconButton disabled={rowIndex === draft.rows.length - 1} label={`Move row ${rowIndex + 1} down`} onClick={() => moveRow(rowIndex, 1)}><ArrowDown size={16} /></IconButton>
                 <IconButton className="danger-icon" label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}><Trash2 size={16} /></IconButton>
               </>,
               columnTools: (columnIndex) => <>
-                <IconButton disabled={columns[columnIndex].length >= maxColumnTiles} label={`Add tile to column ${columnIndex + 1}`} onClick={() => addColumnTile(columnIndex)}><Plus size={16} /></IconButton>
                 <IconButton disabled={columnIndex === 0} label={`Move column ${columnIndex + 1} left`} onClick={() => moveColumn(columnIndex, -1)}><ArrowLeft size={16} /></IconButton>
                 <IconButton disabled={columnIndex === columns.length - 1} label={`Move column ${columnIndex + 1} right`} onClick={() => moveColumn(columnIndex, 1)}><ArrowRight size={16} /></IconButton>
                 <IconButton className="danger-icon" label={`Remove column ${columnIndex + 1}`} onClick={() => removeColumn(columnIndex)}><Trash2 size={16} /></IconButton>
               </>,
             }} />
-            <div className="panel-canvas-actions">
-              <Button ref={addRowRef} className="secondary" disabled={draft.rows.length >= rowLimit} onClick={addRow}><Plus size={16} aria-hidden="true" />Add row</Button>
-              {extras && <Button ref={addColumnRef} className="secondary" disabled={columns.length >= maxExtraColumns} onClick={addColumn}><Plus size={16} aria-hidden="true" />Add column</Button>}
-            </div>
-            {extras && draft.rows.length === 0 && columns.length === 0 && <p className="capability-note">No tiles of your own yet. Add a row below the keys or a column beside them, then give its tiles labels and actions.</p>}
+            {extras && draft.rows.length === 0 && columns.length === 0 && <p className="capability-note">No tiles of your own yet. Choose Add row above the last row of keys, or the + beside the keys for a column, then give its tiles labels and actions.</p>}
           </section>
         </div>
         <aside className="panel-inspector" aria-label="Selected tile">
           {selected && current
             ? <TileInspector pick={pick} selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problemOf(selected)} lines={selected.column ? columns : draft.rows} lineLimit={selected.column ? maxExtraColumns : rowLimit} tileLimit={selected.column ? maxColumnTiles : maxTilesPerRow}
               onChange={(cell) => setCell(selected, cell)} onAction={(action) => chooseAction(selected, current, action)} onMove={(direction) => moveTile(selected, direction)} onMoveTo={(target) => moveTileTo(selected, target)} onRemove={() => removeTile(selected)} />
-            : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width and action, or add a tile to a row.</p></div>}
+            : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width and action, or a + to add one.</p></div>}
         </aside>
       </div>
     </div>

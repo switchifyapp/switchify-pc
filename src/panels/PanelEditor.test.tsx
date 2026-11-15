@@ -100,7 +100,9 @@ describe("PanelEditor", () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Add tile to row 1" }));
     expect(screen.getByRole("heading", { name: "Row 1, tile 3" })).toBeInTheDocument();
-    expect(within(screen.getByRole("group", { name: "Row 1" })).getAllByRole("button")).toHaveLength(3);
+    expect(within(screen.getByRole("group", { name: "Row 1" })).getAllByRole("button", { name: /^Row 1, tile/ })).toHaveLength(3);
+    // The row ends with its + after the new tile.
+    expect(within(screen.getByRole("group", { name: "Row 1" })).getAllByRole("button").at(-1)).toHaveAccessibleName("Add tile to row 1");
     fireEvent.click(screen.getByRole("button", { name: "Move tile left" }));
     expect(screen.getByRole("heading", { name: "Row 1, tile 2" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
@@ -115,6 +117,29 @@ describe("PanelEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
     expect(screen.getByText("Add at least one row.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+  });
+
+  it("shows a + wherever a tile can be created, and none where there is no room", async () => {
+    const tile = (label: string) => ({ label, action: { type: "back" as const }, span: 1 });
+    const full = Array.from({ length: 8 }, (_, index) => tile(`T${index + 1}`));
+    mount({ ...starter(), rows: [full, [tile("Back")]] });
+    // A full row has no +; one with room ends with one; and a new row can be added.
+    expect(screen.queryByRole("button", { name: "Add tile to row 1" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Row 2" })).getByRole("button", { name: "Add tile to row 2" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add tile to row 2" }));
+    expect(screen.getByRole("heading", { name: "Row 2, tile 2" })).toBeInTheDocument();
+    // Removing a tile from a row that stays puts focus on that row's +.
+    fireEvent.click(screen.getByRole("button", { name: "Remove tile" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add tile to row 2" })).toHaveFocus());
+    for (let added = 2; added < 12; added++) fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    expect(screen.getByRole("group", { name: "Row 12" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add row" })).not.toBeInTheDocument();
+  });
+
+  it("takes a note about an empty row to that row's +", async () => {
+    mount({ ...starter(), rows: [...starter().rows, []] });
+    fireEvent.click(within(screen.getByRole("status")).getByRole("button", { name: /^Row 3:/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add tile to row 3" })).toHaveFocus());
   });
 
   it("keeps focus and the user's labels when tiles and rows move", async () => {

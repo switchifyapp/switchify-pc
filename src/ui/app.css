@@ -425,7 +425,10 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .panel-column-toolbars { display: flex; flex-wrap: wrap; gap: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
 .panel-column-toolbar { display: grid; gap: 8px; min-width: 0; }
 .panel-column-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.panel-canvas-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+/* Where a tile can be created: a dashed + at a fixed width, so the tiles beside it keep their shares. */
+.panel-picture-add { display: flex; flex: 0 0 64px; min-width: 64px; }
+.btn.panel-editor-add { width: 100%; min-width: 64px; min-height: 64px; gap: 8px; border: 2px dashed var(--border-strong); border-radius: 8px; padding: 6px 8px; color: var(--muted); background: transparent; }
+.btn.panel-editor-add:hover { border-color: var(--scan); color: var(--text); }
 .panel-picture-keys { display: flex; gap: 4px; min-width: 0; }
 .panel-picture-large .panel-picture-keys { gap: 8px; }
 .panel-picture-large { font-size: 1rem; }

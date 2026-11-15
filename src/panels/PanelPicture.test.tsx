@@ -68,6 +68,7 @@ describe("PanelPicture", () => {
       tile: (cell, place) => <button type="button">{place.column ? "column" : "row"} {place.row + 1}.{place.cell + 1} {cell.label}</button>,
       rowTools: (row) => <button type="button">tools for row {row + 1}</button>,
       columnTools: (column) => <button type="button">tools for column {column + 1}</button>,
+      rowEnd: () => null, columnEnd: () => null, newRow: null, newColumn: null,
     }} />);
     const group = screen.getByRole("group", { name: "Greetings as it will scan: Copy, Hello; Back; columns: A" });
     expect(within(group).getByRole("button", { name: "row 1.2 Hello" })).toBeInTheDocument();
@@ -77,8 +78,23 @@ describe("PanelPicture", () => {
     expect(within(group).getByRole("button", { name: "tools for column 1" })).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     // A native panel's keys are scenery while editing: not read out one by one.
-    render(<PanelPicture panel={panel} fixed={[[{ label: "q", weight: 1 }]]} theme="dark" editing={{ tile: () => null, rowTools: () => null, columnTools: () => null }} />);
+    render(<PanelPicture panel={panel} fixed={[[{ label: "q", weight: 1 }]]} theme="dark" editing={{ tile: () => null, rowTools: () => null, columnTools: () => null, rowEnd: () => null, columnEnd: () => null, newRow: null, newColumn: null }} />);
     expect(screen.getByText("q")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("draws a + wherever a tile can be created, a new row where it will land", () => {
+    const tile = (label: string) => ({ label, action: { type: "text", text: label } as const, span: 1 });
+    const { container } = render(<PanelPicture panel={{ ...panel, rows: [[tile("R")]] }} fixed={[[{ label: "q", weight: 1 }], [{ label: "z", weight: 1 }]]} columns={[[tile("A")]]} theme="dark" editing={{
+      tile: (cell) => <button type="button">{cell.label}</button>,
+      rowTools: () => null, columnTools: () => null,
+      rowEnd: (row) => <button type="button">end of row {row + 1}</button>,
+      columnEnd: (column) => <button type="button">end of column {column + 1}</button>,
+      newRow: <button type="button">new row</button>,
+      newColumn: <button type="button">new column</button>,
+    }} />);
+    const rows = [...container.querySelectorAll(".panel-picture-row")] as HTMLElement[];
+    // The keys, the user's row, the new row, then the last row of keys.
+    expect(rows.map((row) => row.textContent)).toEqual(["qAnew column", "Rend of row 1end of column 1", "new row", "z"]);
   });
 
   it("follows the chosen panel theme, or the computer when set to system", () => {
