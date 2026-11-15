@@ -382,7 +382,7 @@ pub fn save_override(
         .overrides
         .get(&key)
         .map_or(1, |saved| saved.version.saturating_add(1));
-    crate::builtin_panels::validate_override(kind, &panel)?;
+    crate::builtin_panels::validate_edit(kind, &panel)?;
     let mut next = current.clone();
     next.overrides.insert(key, panel);
     write(app, &next)?;
@@ -825,6 +825,26 @@ mod tests {
         })
         .unwrap();
         assert!(load(&stray).is_none());
+        // A rearranged More actions page, saved before it was retired, still loads
+        // with everything around it, and is kept for an older build.
+        let mut more = crate::builtin_panels::default_document(crate::scan_menu::Kind::Editing);
+        more.id = "builtin-more".into();
+        let retired = serde_json::to_vec(&Store {
+            schema_version: STORE_SCHEMA,
+            panels: vec![sample("a", "A")],
+            overrides: BTreeMap::from([("more".to_string(), more.clone())]),
+            extras: BTreeMap::new(),
+        })
+        .unwrap();
+        let loaded = load(&retired).unwrap();
+        assert_eq!(loaded.panels.len(), 1);
+        assert_eq!(loaded.overrides["more"], more);
+        // Sync accepts it too.
+        assert!(plan_override_replacement(
+            &BTreeMap::new(),
+            BTreeMap::from([("more".to_string(), more)])
+        )
+        .is_ok());
         // A file holding only rows of extra tiles, from an earlier build, loads.
         let only_rows = br#"{"schemaVersion":2,"panels":[],"overrides":{},"extras":{"mouse":[[{"label":"Hi","action":{"type":"text","text":"Hi"},"span":1}]]}}"#;
         let loaded = load(only_rows).unwrap();

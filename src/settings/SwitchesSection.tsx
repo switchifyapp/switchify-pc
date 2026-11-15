@@ -15,6 +15,8 @@ import {
   actionLabel,
   actions,
   panelMenus,
+  retiredMenus,
+  menuName,
   type Binding,
   type SwitchAction,
   type SwitchController,
@@ -76,6 +78,7 @@ function ActionSelect({
         </option>
       ))}
       {Object.entries(panelMenus).map(([menu, name]) => <option key={menu} value={JSON.stringify({ openMenu: menu })}>Open {name}</option>)}
+      {typeof value !== "string" && "openMenu" in value && value.openMenu in retiredMenus && <option value={JSON.stringify(value)}>Open {menuName(value.openMenu)}</option>}
       {panels.map((panel) => <option key={panel.id} value={JSON.stringify({ openCustomPanel: panel.id })}>Open {panel.name}</option>)}
       {typeof value !== "string" && "openCustomPanel" in value && !panels.some((p) => p.id === value.openCustomPanel) && <option value={JSON.stringify(value)}>Custom panel unavailable</option>}
     </Select>

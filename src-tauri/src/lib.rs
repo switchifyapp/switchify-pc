@@ -882,7 +882,10 @@ fn list_builtin_panels(app: AppHandle) -> Vec<BuiltinPanelView> {
             BuiltinPanelView {
                 name: kind.label().into(),
                 default: builtin_panels::default_document(kind),
-                rearranged: overrides.get(&key).cloned(),
+                // An older rearranged Home shows what it scans as.
+                rearranged: overrides
+                    .get(&key)
+                    .map(|panel| builtin_panels::upgraded(kind, panel)),
                 kind: key,
             }
         })

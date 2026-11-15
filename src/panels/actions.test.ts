@@ -81,6 +81,9 @@ describe("panel action helpers", () => {
     const home: CustomPanel = { id: "builtin-home", version: 1, name: "Taken", description: "", rows: [[{ label: "Back", action: { type: "back" }, span: 1 }]] };
     expect(panelProblems(home, [other], "home").rows).toMatch(/Home keeps a Close/);
     expect(panelProblems(home, [other], "home").name).toBeUndefined();
+    const closes = { ...home, rows: [[{ label: "Close menu", action: { type: "close" as const }, span: 1 }]] };
+    expect(panelProblems(closes, [], "home").rows).toMatch(/Home keeps Scanning/);
+    expect(panelProblems({ ...closes, rows: [[...closes.rows[0], { label: "Scanning", action: { type: "openPanel" as const, panel: { menu: "scanning" as const } }, span: 1 }]] }, [], "home").rows).toBeUndefined();
     expect(panelProblems({ ...home, rows: [[{ label: "Copy", action: { type: "command", command: "copy" }, span: 1 }]] }, [], "editing").rows).toMatch(/Back or Close/);
     expect(Object.keys(panelProblems(home, [], "editing"))).toEqual([]);
   });

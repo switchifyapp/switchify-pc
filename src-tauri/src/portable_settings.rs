@@ -1111,6 +1111,24 @@ mod tests {
     }
 
     #[test]
+    fn documents_with_a_rearranged_more_actions_page_still_apply() {
+        use crate::builtin_panels::default_document;
+        use crate::scan_menu::Kind;
+        let local = local();
+        let mut cloud = local.clone();
+        let mut more = default_document(Kind::Editing);
+        more.id = "builtin-more".into();
+        cloud.menu_overrides.insert("more".into(), more.clone());
+        let parsed = parse(
+            serde_json::to_value(cloud.document()).unwrap(),
+            SCHEMA_VERSION,
+        )
+        .unwrap();
+        let planned = plan(&local, parsed).unwrap().menu_overrides.unwrap();
+        assert_eq!(planned["more"].rows, more.rows);
+    }
+
+    #[test]
     fn version_seven_documents_read_with_no_rearranged_menus() {
         use crate::builtin_panels::{default_document, key};
         use crate::scan_menu::Kind;

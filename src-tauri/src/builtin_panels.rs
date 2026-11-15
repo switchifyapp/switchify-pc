@@ -10,9 +10,8 @@ use crate::{
 use std::collections::BTreeMap;
 
 /// The menus a user may rearrange, in the order the Panels page lists them.
-pub const EDITABLE: [Kind; 11] = [
+pub const EDITABLE: [Kind; 10] = [
     Kind::Home,
-    Kind::More,
     Kind::Mouse,
     Kind::Editing,
     Kind::Windows,
@@ -23,6 +22,10 @@ pub const EDITABLE: [Kind; 11] = [
     Kind::Displays,
     Kind::Scanning,
 ];
+
+/// Keys of menus that were retired. A rearrangement saved for one stays in
+/// the file, so an older build still reads it, and is never used.
+pub const RETIRED: [&str; 1] = ["more"];
 
 pub fn editable(kind: Kind) -> bool {
     EDITABLE.contains(&kind)
@@ -64,9 +67,6 @@ fn cell(item: Item) -> Option<Cell> {
         },
         Item::MousePanel => PanelAction::OpenPanel {
             panel: BuiltInPanel::Mouse,
-        },
-        Item::More => PanelAction::OpenPanel {
-            panel: BuiltInPanel::Menu(Kind::More),
         },
         Item::Group(kind) => PanelAction::OpenPanel {
             panel: BuiltInPanel::Menu(kind),
@@ -134,6 +134,10 @@ pub fn validate_override(kind: Kind, panel: &CustomPanel) -> Result<(), String> 
 /// Checks a whole set of overrides, as saved or synced.
 pub fn validate_overrides(overrides: &BTreeMap<String, CustomPanel>) -> Result<(), String> {
     for (key, panel) in overrides {
+        if RETIRED.contains(&key.as_str()) {
+            panel.validate()?;
+            continue;
+        }
         let kind = kind_from_key(key).ok_or("That menu cannot be changed.")?;
         validate_override(kind, panel)?;
     }
@@ -144,8 +148,55 @@ pub fn validate_overrides(overrides: &BTreeMap<String, CustomPanel>) -> Result<(
 pub fn document(kind: Kind, overrides: &BTreeMap<Kind, CustomPanel>) -> CustomPanel {
     overrides
         .get(&kind)
-        .cloned()
+        .map(|panel| upgraded(kind, panel))
         .unwrap_or_else(|| default_document(kind))
+}
+
+/// Whether a tile on the panel opens this menu.
+fn opens(panel: &CustomPanel, kind: Kind) -> bool {
+    panel.rows.iter().flatten().any(|cell| {
+        cell.action
+            == PanelAction::OpenPanel {
+                panel: BuiltInPanel::Menu(kind),
+            }
+    })
+}
+
+/// A Home rearranged before it became the only hub has no Scanning tile,
+/// and Displays and Scanning were reached through More actions. Such a
+/// Home gains a row with them just above its last row. Home saved since
+/// then keeps Scanning (see `validate_edit`), so it is left as it is.
+pub fn upgraded(kind: Kind, panel: &CustomPanel) -> CustomPanel {
+    let mut panel = panel.clone();
+    if kind != Kind::Home || opens(&panel, Kind::Scanning) {
+        return panel;
+    }
+    let mut row = Vec::new();
+    if !opens(&panel, Kind::Displays) {
+        row.extend(cell(Item::Group(Kind::Displays)));
+    }
+    row.extend(cell(Item::Group(Kind::Scanning)));
+    if panel.rows.len() < crate::custom_panels::MAX_ROWS {
+        let at = panel.rows.len().saturating_sub(1);
+        panel.rows.insert(at, row);
+    } else if let Some(last) = panel.rows.last_mut() {
+        // A Home with every row in use takes what fits in its last row,
+        // Scanning first, since it holds Pause and Open Switchify.
+        let room = crate::custom_panels::MAX_CELLS_PER_ROW.saturating_sub(last.len());
+        let keep = row.len().min(room);
+        last.splice(0..0, row.split_off(row.len() - keep));
+    }
+    panel
+}
+
+/// Checks a menu the user saves in the editor. Beyond `validate_override`,
+/// Home keeps Scanning, which holds Pause and Open Switchify.
+pub fn validate_edit(kind: Kind, panel: &CustomPanel) -> Result<(), String> {
+    validate_override(kind, panel)?;
+    if kind == Kind::Home && !opens(panel, Kind::Scanning) {
+        return Err("Home keeps Scanning, which holds Pause and Open Switchify.".into());
+    }
+    Ok(())
 }
 
 /// Overrides keyed by menu rather than by name, for the runtime.
@@ -177,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn home_ships_with_my_panels_beside_switchify_and_keeps_close() {
+    fn home_ships_with_my_panels_beside_scanning_and_keeps_close() {
         let home = default_document(Kind::Home);
         let last: Vec<_> = home
             .rows
@@ -186,7 +237,7 @@ mod tests {
             .iter()
             .map(|c| c.label.as_str())
             .collect();
-        assert_eq!(last, ["Switchify", "My panels", "Close menu"]);
+        assert_eq!(last, ["Scanning", "My panels", "Close menu"]);
         let mut rearranged = home.clone();
         rearranged
             .rows
@@ -205,6 +256,58 @@ mod tests {
     }
 
     #[test]
+    fn a_home_rearranged_before_it_held_scanning_gains_displays_and_scanning() {
+        // As Home was shipped before: no Displays or Scanning, Close last.
+        let mut old = default_document(Kind::Home);
+        for row in &mut old.rows {
+            row.retain(|cell| {
+                !matches!(
+                    cell.action,
+                    PanelAction::OpenPanel {
+                        panel: BuiltInPanel::Menu(Kind::Displays | Kind::Scanning)
+                    }
+                )
+            });
+        }
+        old.rows.reverse();
+        old.rows.retain(|row| !row.is_empty());
+        let close_row = old.rows.len() - 1;
+        old.rows.swap(0, close_row);
+        assert!(validate_override(Kind::Home, &old).is_ok());
+        assert!(validate_edit(Kind::Home, &old).is_err());
+        let new = upgraded(Kind::Home, &old);
+        assert_eq!(new.rows.len(), old.rows.len() + 1);
+        let added: Vec<_> = new.rows[old.rows.len() - 1]
+            .iter()
+            .map(|cell| cell.label.as_str())
+            .collect();
+        assert_eq!(added, ["Displays", "Scanning"]);
+        assert_eq!(new.rows.last(), old.rows.last());
+        assert_eq!(validate_edit(Kind::Home, &new), Ok(()));
+        // The runtime scans the upgraded Home.
+        let by_kind = BTreeMap::from([(Kind::Home, old.clone())]);
+        assert_eq!(document(Kind::Home, &by_kind), new);
+        // A Home that already has Scanning, and every other menu, stay as saved.
+        assert_eq!(upgraded(Kind::Home, &new), new);
+        let editing = default_document(Kind::Editing);
+        assert_eq!(upgraded(Kind::Editing, &editing), editing);
+        // A Home with every row in use takes Scanning in its last row.
+        let mut full = old.clone();
+        let filler = full.rows[0].clone();
+        while full.rows.len() < crate::custom_panels::MAX_ROWS {
+            full.rows.insert(0, filler.clone());
+        }
+        let last = full.rows.last_mut().unwrap();
+        while last.len() < crate::custom_panels::MAX_CELLS_PER_ROW - 1 {
+            last.push(last[0].clone());
+        }
+        let new = upgraded(Kind::Home, &full);
+        assert_eq!(new.rows.len(), crate::custom_panels::MAX_ROWS);
+        assert_eq!(new.rows.last().unwrap()[0].label, "Scanning");
+        assert_eq!(validate_edit(Kind::Home, &new), Ok(()));
+    }
+
+    #[test]
     fn overrides_are_keyed_by_menu_name_and_resolved_by_kind() {
         let mut overrides = BTreeMap::new();
         let mut home = default_document(Kind::Home);
@@ -217,6 +320,13 @@ mod tests {
             document(Kind::Editing, &by_kind),
             default_document(Kind::Editing)
         );
+        // A rearrangement of the retired More actions page is kept, unused.
+        let mut more = default_document(Kind::Home);
+        more.id = "builtin-more".into();
+        more.name = "More actions".into();
+        overrides.insert("more".into(), more);
+        assert_eq!(validate_overrides(&overrides), Ok(()));
+        assert!(!super::by_kind(&overrides).contains_key(&Kind::More));
         overrides.insert("shutDown".into(), default_document(Kind::ShutDown));
         assert!(validate_overrides(&overrides).is_err());
     }

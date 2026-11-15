@@ -9,10 +9,10 @@ Choose the **Panels** tile at the top of the Switchify PC window to see your pan
 
 Below them, **Built-in menus and panels** lists everything else that scans, one row each, under the menu that opens it, so you can see what belongs to what:
 
-- **On Home**: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs under it, Media and Zoom.
-- **On More actions**: More is a tile on the page that opens after you choose a point. Its menu opens most of Home's menus too, so those stay under Home and say **Also on More**; here are More itself and the three menus Home does not open: Mouse, Displays and Scanning.
+- **On Home**: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs under it, Media, Zoom, Displays and Scanning.
+- **After choosing a point**: **More clicks**, the middle, triple and modified clicks offered on the page that opens after you choose a point. The mouse panel's More controls page opens it too, and the row says so.
 
-![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs; On More actions lists More actions and Displays. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
+![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs, then Displays; After choosing a point lists More clicks, also on the mouse panel. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -56,13 +56,15 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 ## Rearrange the built-in menus
 
-Home and the menus it opens, More actions and the menus it opens, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
+Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
 
-Two rules keep a menu usable: it must keep a tile that goes **Back** or closes it, and Home must keep a tile that closes it, which ends scanning. The editor says so and keeps Save off until the rule is met.
+Three rules keep a menu usable: it must keep a tile that goes **Back** or closes it; Home must keep a tile that closes it, which ends scanning; and Home must keep **Scanning**, which holds Pause and Open Switchify. The editor says so and keeps Save off until the rule is met.
+
+If you rearranged Home in an earlier version, it gains a row with **Displays** and **Scanning** just above its last row, because those menus are now reached from Home. Move them where you like and save.
 
 **Reset to default** puts a menu back the way it came. Switchify PC asks first.
 
-The Shut down and Restart pages, the page of clicks that appears after you choose a point, and the mouse panel's own pages cannot be changed. More actions, reached from that page of clicks, can.
+The Shut down and Restart pages, the page of clicks that appears after you choose a point, and the mouse panel's own pages cannot be changed. More clicks, reached from that page of clicks, can.
 
 ![The editor open on the built-in Home menu: its four rows of tiles drawn as they scan with tools beside each row, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
 
@@ -84,8 +86,8 @@ Added tiles are saved on this computer and, if you sign in to your account, go t
 
 ## Open a panel
 
-Press Select to open Home. Once you have made a panel, Home has a **My panels** item beside Switchify. Choose it to see your panels by name, then choose one to open it. The same item sits beside Close menu on the page that opens after you choose a point and on the mouse panel's Actions page, so your panels are one choice away from anywhere.
+Press Select to open Home. Once you have made a panel, Home has a **My panels** item beside Scanning. Choose it to see your panels by name, then choose one to open it. The same item sits beside Close menu on the page that opens after you choose a point. From the mouse panel, choose **Home**, then **My panels**.
 
-On a panel, **Back** returns to the list, and from the list Back returns to the page you came from: Home, the point's page or the mouse panel's Actions page. **Close** ends scanning, as Close menu does on Home.
+On a panel, **Back** returns to the list, and from the list Back returns to the page you came from: Home or the point's page. **Close** ends scanning, as Close menu does on Home.
 
 If a tile opens a panel you have since deleted, a short message says the panel no longer exists and the current panel stays open. Press Select to carry on.

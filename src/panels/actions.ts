@@ -145,6 +145,7 @@ export function panelProblems(panel: CustomPanel, panels: CustomPanel[], builtin
     const actions = panel.rows.flat().map((cell) => cell.action.type);
     if (!actions.some((type) => type === "back" || type === "close")) problems.rows = "Keep a Back or Close tile so the menu can be left.";
     else if (builtinKind === "home" && !actions.includes("close")) problems.rows = "Home keeps a Close tile, which ends scanning.";
+    else if (builtinKind === "home" && !panel.rows.flat().some((cell) => cell.action.type === "openPanel" && typeof cell.action.panel === "object" && cell.action.panel.menu === "scanning")) problems.rows = "Home keeps Scanning, which holds Pause and Open Switchify.";
   }
   if (extras) { if (panel.rows.length > maxExtraRows) problems.rows = `A panel takes up to ${maxExtraRows} extra rows.`; }
   else if (panel.rows.length === 0) problems.rows = "Add at least one row.";
