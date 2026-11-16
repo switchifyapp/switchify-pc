@@ -47,6 +47,9 @@ pub enum Request {
         right: bool,
         count: u8,
     },
+    /// A left click from the Left click at the pointer switch. A held drag
+    /// refuses it instead of being dropped.
+    PointerClick,
     MouseScroll {
         dy: i32,
     },

@@ -143,7 +143,7 @@ pub fn interrupt(app: &AppHandle) {
 /// panels first and reaches the window underneath, as it did before.
 fn keeps_visuals(request: &Request, over_menu_bar: bool) -> bool {
     match request {
-        Request::MouseClick { .. } => !over_menu_bar,
+        Request::MouseClick { .. } | Request::PointerClick => !over_menu_bar,
         request => matches!(
             request,
             Request::Keyboard(_)
@@ -201,10 +201,7 @@ impl Adapter for PointScan {
         true
     }
     fn immediate_selection(action: &crate::scanning::Action) -> Option<Request> {
-        (*action == crate::scanning::Action::ClickAtPointer).then_some(Request::MouseClick {
-            right: false,
-            count: 1,
-        })
+        (*action == crate::scanning::Action::ClickAtPointer).then_some(Request::PointerClick)
     }
     fn carry_over(previous: &Workflow, next: &mut Workflow) {
         next.resume_from(previous);
@@ -229,6 +226,10 @@ impl Adapter for PointScan {
                     MouseButton::Left
                 },
                 count,
+            }),
+            Request::PointerClick => Some(PointerFeedback::Click {
+                button: MouseButton::Left,
+                count: 1,
             }),
             Request::MouseScroll { dy } => Some(PointerFeedback::Scroll { dx: 0, dy }),
             _ => None,
@@ -355,6 +356,7 @@ impl Adapter for PointScan {
             }
             Request::Setting(setting) => scanning_runtime::update_point_setting(app, setting),
             Request::Display(next) => scanning_runtime::restart_point_on_display(app, next),
+            Request::PointerClick => crate::scan_executor::click_pointer_keeping_drag(),
             request => crate::scan_executor::activate(request),
         }
         .map(|()| None)
@@ -579,7 +581,7 @@ impl Adapter for PointScan {
     fn preserve_visuals(app: &AppHandle, technique: &Workflow, request: &Request) -> bool {
         // A click lands wherever the pointer is. An unreadable pointer counts
         // as over the menu bar, so the panel hides as it always has.
-        let over_menu_bar = matches!(request, Request::MouseClick { .. })
+        let over_menu_bar = matches!(request, Request::MouseClick { .. } | Request::PointerClick)
             && display_navigation::pointer(app)
                 .map_or(true, |pointer| technique.menu_bar_contains(pointer));
         keeps_visuals(request, over_menu_bar)
@@ -730,10 +732,7 @@ mod tests {
         use crate::scanning::Action;
         assert_eq!(
             PointScan::immediate_selection(&Action::ClickAtPointer),
-            Some(Request::MouseClick {
-                right: false,
-                count: 1
-            })
+            Some(Request::PointerClick)
         );
         for action in [
             Action::Select,
@@ -750,6 +749,13 @@ mod tests {
         let click = PointScan::immediate_selection(&Action::ClickAtPointer).unwrap();
         assert!(keeps_visuals(&click, false));
         assert!(!keeps_visuals(&click, true));
+        assert_eq!(
+            PointScan::cursor_action_feedback(&click),
+            Some(crate::input::PointerFeedback::Click {
+                button: crate::protocol::MouseButton::Left,
+                count: 1
+            })
+        );
     }
     #[test]
     fn settings_saves_keep_the_runtime_mode() {

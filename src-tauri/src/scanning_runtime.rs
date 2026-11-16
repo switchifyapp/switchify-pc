@@ -615,8 +615,8 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         }
     }
     if let Some(request) = A::immediate_selection(&action) {
-        // A failed click says why and leaves scanning running, so a switch
-        // pressed during a drag does not end the scan.
+        // A refused or failed click says why and leaves scanning running. A
+        // held drag refuses the click rather than being dropped.
         if let Err(error) = immediate::<A>(app, request) {
             c.data.lock().unwrap_or_else(|p| p.into_inner()).message = error;
         }
@@ -728,10 +728,14 @@ fn immediate<A: Adapter>(
     }
     let feedback = mouse_action_feedback(A::cursor_action_feedback(&request), active_feedback);
     A::activate(app, request)?;
+    // The click has happened, so a cue the overlay cannot show now, such as
+    // during the cursor handoff, is not reported as a failed click.
     if let (Some(token), Some(feedback)) = (mouse_token, feedback) {
-        let settings = app.state::<crate::state::AppModel>().snapshot().settings;
-        app.state::<crate::overlay::CursorOverlay>()
-            .show_scan_mouse(token, feedback, settings)?;
+        let overlay = app.state::<crate::overlay::CursorOverlay>();
+        if overlay.scan_ready(token) {
+            let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+            let _ = overlay.show_scan_mouse(token, feedback, settings);
+        }
     }
     Ok(())
 }

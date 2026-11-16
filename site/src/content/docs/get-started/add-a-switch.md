@@ -40,7 +40,7 @@ The action list is split under headings, so related actions sit together. Give t
   - **Reverse direction**, **Pause / resume**, **Stop scanning**.
   - **Auto select on / off** turns point scanning's [Auto select](/using/point-scanning/#auto-select) on or off.
 - **Mouse**
-  - **Left click at the pointer** clicks wherever the pointer is, with no point scan or menu. It works while scanning runs and while it waits for Select, and the scan stays where it was.
+  - **Left click at the pointer** clicks wherever the pointer is, with no point scan or menu. It works with a panel or menu open and while scanning waits for Select, and the scan stays where it was. See [Clicking](/using/mouse-panel/#clicking) for when it doesn't click.
   - **Move in blocks on / off** turns the mouse panel's [Move in blocks](/using/mouse-panel/#move-in-blocks) on or off.
 - **Open a panel**: **Keyboard**, **Point** or **Mouse** jumps straight to that mode.
 - **Open a menu**: a built-in menu, such as **Home** or **Editing**. **Scanning settings** opens the Scanning menu.

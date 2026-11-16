@@ -42,6 +42,12 @@ The panel can move itself out of the way when the pointer approaches it.
 
 To left click without scanning to the Left click tile, give a switch the **Left click at the pointer** action, under **Mouse** in the switch action list. It clicks wherever the pointer is, with the panel open or not, and the panel keeps scanning where it was. It's handy with [Move in blocks](#move-in-blocks): hop the pointer onto the target, then press the click switch.
 
+A few things change what the click switch does:
+
+- While a drag is held, it doesn't click. Switchify PC asks you to end the drag first, and the drag carries on.
+- During an Auto select countdown, it opens the action menu, as other switches do.
+- In the middle of a point scan, a click that brings another window to the front ends that point scan. Start again with Select.
+
 ## Settings bar
 
 Every scanning panel has a slim bar along its top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The panel stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work, as it does from the tray or menu bar.
