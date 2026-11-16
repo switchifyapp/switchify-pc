@@ -203,6 +203,9 @@ impl Adapter for PointScan {
     fn immediate_selection(action: &crate::scanning::Action) -> Option<Request> {
         (*action == crate::scanning::Action::ClickAtPointer).then_some(Request::PointerClick)
     }
+    fn immediate_refused(technique: &mut Workflow) {
+        technique.switch_click_refused();
+    }
     fn carry_over(previous: &Workflow, next: &mut Workflow) {
         next.resume_from(previous);
     }

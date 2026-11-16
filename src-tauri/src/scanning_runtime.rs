@@ -46,6 +46,9 @@ pub trait Adapter: Send + Sync + 'static {
     fn immediate_selection(_action: &Action) -> Option<<Self::Technique as Technique>::Selection> {
         None
     }
+    /// Shows that an immediate request was refused, such as a click during a
+    /// drag, without changing what the technique is doing.
+    fn immediate_refused(_technique: &mut Self::Technique) {}
     /// Saves local, unsynced state an action changed, such as the panel position.
     fn remember(_app: &AppHandle, _technique: &mut Self::Technique) {}
     fn cursor_action_feedback(
@@ -618,7 +621,11 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         // A refused or failed click says why and leaves scanning running. A
         // held drag refuses the click rather than being dropped.
         if let Err(error) = immediate::<A>(app, request) {
-            c.data.lock().unwrap_or_else(|p| p.into_inner()).message = error;
+            let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            d.message = error;
+            if let Some(engine) = d.engine.as_mut().filter(|engine| engine.active()) {
+                A::immediate_refused(&mut engine.technique);
+            }
         }
         publish::<A>(app);
         return;
@@ -705,7 +712,9 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     }
 }
 /// Runs a request outside the scan: the technique is neither told nor moved,
-/// so the scan carries on where it was, idle or not.
+/// so the scan carries on where it was, idle or not. It skips the cursor
+/// handoff check `switch` makes, because nothing here depends on the scan's
+/// visuals being on screen.
 fn immediate<A: Adapter>(
     app: &AppHandle,
     request: <A::Technique as Technique>::Selection,

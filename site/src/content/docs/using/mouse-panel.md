@@ -40,13 +40,15 @@ The panel can move itself out of the way when the pointer approaches it.
 
 **Left click**, **Right click** and **Double click** click wherever the pointer is. The panel stays on screen while it clicks. Clicks pass through the panel, so a click with the pointer over the panel reaches the window behind it. The [Settings bar](#settings-bar) is the exception: with the pointer over the bar, the panel is hidden for a moment while it clicks, so the click reaches the window behind the bar rather than opening Settings.
 
-To left click without scanning to the Left click tile, give a switch the **Left click at the pointer** action, under **Mouse** in the switch action list. It clicks wherever the pointer is, with the panel open or not, and the panel keeps scanning where it was. It's handy with [Move in blocks](#move-in-blocks): hop the pointer onto the target, then press the click switch.
+To left click without scanning to the Left click tile, give a switch the **Left click at the pointer** action, under **Mouse** in the switch action list. It clicks wherever the pointer is, with the panel open or not. It's handy with [Move in blocks](#move-in-blocks): hop the pointer onto the target, then press the click switch.
 
-A few things change what the click switch does:
+With this panel, the keyboard or Home open, or while scanning waits for Select, scanning stays where it was after the click. Other menus, custom panels and point scans act on the window they began over. With one of those under way, a click that brings another window to the front resets scanning; start again with Select.
 
-- While a drag is held, it doesn't click. Switchify PC asks you to end the drag first, and the drag carries on.
-- During an Auto select countdown, it opens the action menu, as other switches do.
-- In the middle of a point scan, a click that brings another window to the front ends that point scan. Start again with Select.
+The click switch doesn't click:
+
+- while a drag is held. The drag carries on. On this panel, the message above the panel says the action failed; press Select to carry on.
+- while the pointer is moving or scrolling until you stop it. The press stops it, as any switch does.
+- during an Auto select countdown. It opens the action menu, as other switches do.
 
 ## Settings bar
 

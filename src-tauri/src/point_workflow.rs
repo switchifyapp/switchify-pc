@@ -604,6 +604,14 @@ impl Workflow {
             self.mouse.restart();
         }
     }
+    /// A switch click was refused, for example during a drag. The mouse panel
+    /// writes out the failure as it does for its own actions; the drag and
+    /// everything else stay as they were.
+    pub fn switch_click_refused(&mut self) {
+        if self.stage == Stage::Mouse {
+            self.mouse.failed();
+        }
+    }
     /// Takes a new Auto select setting without moving the scan. A countdown
     /// already under way gives way to the action menu when it is turned off.
     pub fn set_auto_select(&mut self, enabled: bool) {
@@ -3758,6 +3766,22 @@ mod tests {
                 assert_eq!(s.technique.phase(), mouse);
             }
         }
+    }
+    #[test]
+    fn a_refused_switch_click_shows_on_the_mouse_panel_and_keeps_the_drag() {
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.mouse.dragging = true;
+        workflow.switch_click_refused();
+        assert!(workflow.mouse.error);
+        assert!(workflow.mouse.dragging);
+        assert!(workflow.mouse_open());
     }
     #[test]
     fn turning_auto_select_off_mid_countdown_opens_the_action_menu() {
