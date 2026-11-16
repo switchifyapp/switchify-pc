@@ -210,6 +210,16 @@ mod tests {
         }
     }
     #[test]
+    fn countdown_turns_the_auto_select_toggle_into_select() {
+        let mut settings = settings();
+        settings.bindings[0].press_action = Action::ToggleAutoSelect;
+        let mut gestures = Gestures::default();
+        gestures.pressed_for_scan("one", 0, &settings, true);
+        assert_eq!(gestures.released("one", 10), Some(Action::Select));
+        gestures.pressed_for_scan("one", 20, &settings, false);
+        assert_eq!(gestures.released("one", 30), Some(Action::ToggleAutoSelect));
+    }
+    #[test]
     fn overlapping_countdown_switches_do_not_select_a_menu_tile() {
         let mut gestures = Gestures::default();
         gestures.pressed_for_scan("one", 0, &settings(), true);

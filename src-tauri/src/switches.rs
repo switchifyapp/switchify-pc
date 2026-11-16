@@ -165,15 +165,20 @@ mod tests {
         );
     }
     #[test]
-    fn the_mouse_blocks_toggle_round_trips_as_an_additive_action() {
+    fn the_setting_actions_round_trip_as_additive_actions() {
         let mut settings = Settings::migrate(&crate::point_scan::Config::default());
         settings.bindings[0].press_action = Action::ToggleMouseBlocks;
-        settings.bindings[0].hold_actions = vec![Action::Next, Action::ToggleMouseBlocks];
+        settings.bindings[0].hold_actions = vec![
+            Action::Next,
+            Action::ToggleMouseBlocks,
+            Action::ToggleAutoSelect,
+        ];
         settings.validate().unwrap();
         let value = serde_json::to_value(&settings).unwrap();
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["bindings"][0]["pressAction"], "toggleMouseBlocks");
         assert_eq!(value["bindings"][0]["holdActions"][1], "toggleMouseBlocks");
+        assert_eq!(value["bindings"][0]["holdActions"][2], "toggleAutoSelect");
         assert_eq!(serde_json::from_value::<Settings>(value).unwrap(), settings);
     }
     #[test]

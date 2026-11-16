@@ -601,9 +601,6 @@ impl Workflow {
             self.mouse.restart();
         }
     }
-    /// Whether the arrows glide or jump a block, and how big a block is.
-    /// A change ends a move in flight, as other mouse settings do; a scroll
-    /// carries on.
     /// Takes a new Auto select setting without moving the scan. A countdown
     /// already under way gives way to the action menu when it is turned off.
     pub fn set_auto_select(&mut self, enabled: bool) {
@@ -613,6 +610,9 @@ impl Workflow {
             self.open(Kind::Actions);
         }
     }
+    /// Whether the arrows glide or jump a block, and how big a block is.
+    /// A change ends a move in flight, as other mouse settings do; a scroll
+    /// carries on.
     pub fn set_mouse_movement(
         &mut self,
         movement: crate::mouse_repeat::MouseMovement,
