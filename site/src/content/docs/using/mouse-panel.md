@@ -42,7 +42,7 @@ The panel can move itself out of the way when the pointer approaches it.
 
 To left click without scanning to the Left click tile, give a switch the **Left click at the pointer** action, under **Mouse** in the switch action list. It clicks wherever the pointer is, with the panel open or not. It's handy with [Move in blocks](#move-in-blocks): hop the pointer onto the target, then press the click switch.
 
-With this panel, the keyboard, or Home and anything opened from it, or while scanning waits for Select, scanning stays where it was after the click. Other menus, custom panels and point scans act on the window they began over. With one of those under way, a click that brings another window to the front resets scanning; start again with Select.
+Scanning stays where it was after the click while this panel, the keyboard, or Home or anything opened from it is open, and while scanning waits for Select. Other menus, custom panels and point scans act on the window they began over. With one of those under way, a click that brings another window to the front resets scanning; start again with Select.
 
 The click switch doesn't click:
 

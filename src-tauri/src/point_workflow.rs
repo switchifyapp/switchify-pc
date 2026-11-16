@@ -3771,7 +3771,7 @@ mod tests {
         }
     }
     #[test]
-    fn a_refused_switch_click_shows_on_the_mouse_panel_and_keeps_the_drag() {
+    fn a_refused_switch_click_shows_on_the_mouse_panel_and_keeps_the_drag_and_its_cue() {
         let screen = Rect {
             x: 0.0,
             y: 0.0,
