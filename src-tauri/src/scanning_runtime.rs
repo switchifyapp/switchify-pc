@@ -41,6 +41,11 @@ pub trait Adapter: Send + Sync + 'static {
     ) -> bool {
         false
     }
+    /// The request a switch action runs straight away, outside the scan, such
+    /// as Left click at the pointer. The technique never sees the action.
+    fn immediate_selection(_action: &Action) -> Option<<Self::Technique as Technique>::Selection> {
+        None
+    }
     /// Saves local, unsynced state an action changed, such as the panel position.
     fn remember(_app: &AppHandle, _technique: &mut Self::Technique) {}
     fn cursor_action_feedback(
@@ -609,6 +614,15 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             return;
         }
     }
+    if let Some(request) = A::immediate_selection(&action) {
+        // A failed click says why and leaves scanning running, so a switch
+        // pressed during a drag does not end the scan.
+        if let Err(error) = immediate::<A>(app, request) {
+            c.data.lock().unwrap_or_else(|p| p.into_inner()).message = error;
+        }
+        publish::<A>(app);
+        return;
+    }
     if matches!(action, Action::Cancel | Action::Stop) {
         // Escape resets the scan; the next tick re-arms the keys.
         disable::<A>(app, "Escape pressed. Scanning reset.");
@@ -689,6 +703,37 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     } else {
         publish::<A>(app);
     }
+}
+/// Runs a request outside the scan: the technique is neither told nor moved,
+/// so the scan carries on where it was, idle or not.
+fn immediate<A: Adapter>(
+    app: &AppHandle,
+    request: <A::Technique as Technique>::Selection,
+) -> Result<(), String> {
+    A::validate_environment(app, None)?;
+    let c = app.state::<Controller<A>>();
+    let (preserve, mouse_token, active_feedback) = {
+        let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        let technique = d.engine.as_ref().map(|engine| &engine.technique);
+        (
+            technique.is_none_or(|technique| A::preserve_visuals(app, technique, &request)),
+            d.cursor_suppression
+                .map(|(token, _)| token)
+                .filter(|_| d.cursor_mouse.is_some()),
+            technique.and_then(A::cursor_feedback),
+        )
+    };
+    if !preserve {
+        hide_scan_visuals();
+    }
+    let feedback = mouse_action_feedback(A::cursor_action_feedback(&request), active_feedback);
+    A::activate(app, request)?;
+    if let (Some(token), Some(feedback)) = (mouse_token, feedback) {
+        let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+        app.state::<crate::overlay::CursorOverlay>()
+            .show_scan_mouse(token, feedback, settings)?;
+    }
+    Ok(())
 }
 fn dispatch<A: Adapter>(
     app: &AppHandle,

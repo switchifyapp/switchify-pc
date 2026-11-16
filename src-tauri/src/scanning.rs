@@ -23,6 +23,8 @@ pub enum Action {
     ToggleMouseBlocks,
     /// Flips point scanning's Auto select. Techniques never see it.
     ToggleAutoSelect,
+    /// Left clicks wherever the pointer is. Techniques never see it.
+    ClickAtPointer,
 }
 impl Action {
     pub fn opens_panel(&self) -> bool {
@@ -59,6 +61,7 @@ impl Action {
             Self::Cancel => "Disable scanning",
             Self::ToggleMouseBlocks => "Move in blocks on / off",
             Self::ToggleAutoSelect => "Auto select on / off",
+            Self::ClickAtPointer => "Left click at the pointer",
         }
     }
 }

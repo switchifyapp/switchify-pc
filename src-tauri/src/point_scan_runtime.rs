@@ -200,6 +200,12 @@ impl Adapter for PointScan {
         }
         true
     }
+    fn immediate_selection(action: &crate::scanning::Action) -> Option<Request> {
+        (*action == crate::scanning::Action::ClickAtPointer).then_some(Request::MouseClick {
+            right: false,
+            count: 1,
+        })
+    }
     fn carry_over(previous: &Workflow, next: &mut Workflow) {
         next.resume_from(previous);
     }
@@ -718,6 +724,32 @@ mod tests {
             None
         ));
         assert_eq!(config, before);
+    }
+    #[test]
+    fn only_the_pointer_click_action_runs_outside_the_scan() {
+        use crate::scanning::Action;
+        assert_eq!(
+            PointScan::immediate_selection(&Action::ClickAtPointer),
+            Some(Request::MouseClick {
+                right: false,
+                count: 1
+            })
+        );
+        for action in [
+            Action::Select,
+            Action::Next,
+            Action::Pause,
+            Action::OpenMouse,
+            Action::ToggleMouseBlocks,
+            Action::ToggleAutoSelect,
+        ] {
+            assert_eq!(PointScan::immediate_selection(&action), None, "{action:?}");
+        }
+        // Panels stay up for it, as they do for a mouse panel click, except
+        // over the menu bar.
+        let click = PointScan::immediate_selection(&Action::ClickAtPointer).unwrap();
+        assert!(keeps_visuals(&click, false));
+        assert!(!keeps_visuals(&click, true));
     }
     #[test]
     fn settings_saves_keep_the_runtime_mode() {

@@ -693,7 +693,7 @@ it("groups the switch actions under headings with every action listed once", asy
   const groups = Array.from(press.querySelectorAll("optgroup")).map((group) => [group.label, Array.from(group.querySelectorAll("option")).map((o) => o.textContent)]);
   expect(groups).toEqual([
     ["Scanning", ["Select", "Next", "Previous", "Reverse direction", "Pause / resume", "Stop scanning", "Auto select on / off"]],
-    ["Mouse", ["Move in blocks on / off"]],
+    ["Mouse", ["Left click at the pointer", "Move in blocks on / off"]],
     ["Open a panel", ["Keyboard", "Point", "Mouse"]],
     ["Open a menu", ["Home", "More clicks", "Editing", "Apps and windows", "Browser", "Tabs", "Zoom", "Media", "Displays", "Scanning settings"]],
     ["My panels", expect.arrayContaining(["Greetings"])],
