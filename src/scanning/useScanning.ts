@@ -105,6 +105,7 @@ export function useScanning() {
     let stop: (() => void) | undefined;
     const receive = (next: PointScanState) => {
       if (!alive) return;
+      const previous = model.current.latestRuntime;
       model.current.supported = next.supported;
       model.current.latestRuntime = next;
       setState(next);
@@ -114,6 +115,12 @@ export function useScanning() {
       ) {
         model.current.config = next.config;
         setConfig(next.config);
+      } else if (previous && next.config.autoSelectEnabled !== previous.config.autoSelectEnabled) {
+        // A switch can turn Auto select on or off outside this form. An
+        // unsaved form takes that change, so its next save does not undo it.
+        const merged = { ...model.current.config, autoSelectEnabled: next.config.autoSelectEnabled };
+        model.current.config = merged;
+        setConfig(merged);
       }
     };
     if (!("__TAURI_INTERNALS__" in window)) {

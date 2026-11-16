@@ -269,6 +269,25 @@ it("retains a failed colour selection for retry", async () => {
   }));
 });
 
+it("keeps a switch's Auto select change when an unsaved form retries", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  mocks.invoke.mockRejectedValueOnce("Disk is full.");
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
+  fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
+  await screen.findByText("Disk is full.");
+  const event = mocks.listen.mock.calls[0][1];
+  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
+  // An event that does not change Auto select leaves the unsaved form alone.
+  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...initial.config, mode: "grid", autoSelectEnabled: true },
+  }));
+  await screen.findByText("Saved automatically.");
+});
+
 it("saves auto selection separately from scan movement and validates its delay", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
