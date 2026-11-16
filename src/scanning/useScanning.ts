@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { defaultScanPreferences } from "./preferences";
 export const scannerColors = ["red", "green", "blue", "yellow"] as const;
 export type ScannerColor = typeof scannerColors[number];
 export type KeyboardLayout = "qwerty" | "simpleQwerty" | "commonLetters";
@@ -38,6 +39,48 @@ export function lastModeName(config: PointScanConfig) {
 }
 export function mouseRepeatStopInstruction(config: PointScanConfig) {
   return config.mouseRepeatStopEdge === "press" ? "Press a switch to stop" : "Press and release a switch to stop";
+}
+type OutsideField = {
+  get: (config: PointScanConfig) => unknown;
+  set: (config: PointScanConfig, value: unknown) => PointScanConfig;
+};
+const topLevel = (key: "autoSelectEnabled" | "speed" | "mode" | "blockIntervalMs"): OutsideField => ({
+  get: (config) => config[key],
+  set: (config, value) => ({ ...config, [key]: value }),
+});
+/**
+ * Values that change outside the settings form: Auto select from a switch,
+ * and the scan rate, line speed and Line/Grid from the Scanning menu. An
+ * unsaved form takes a change to one of these, so its next save does not
+ * undo it.
+ */
+const outsideFields: OutsideField[] = [
+  topLevel("autoSelectEnabled"),
+  topLevel("speed"),
+  topLevel("mode"),
+  topLevel("blockIntervalMs"),
+  {
+    // The menu's own scan rate, when it has one.
+    get: (config) => config.scanPreferences?.menu?.intervalMs,
+    set: (config, value) => {
+      if (typeof value !== "number") return config;
+      const preferences = config.scanPreferences ?? defaultScanPreferences;
+      return { ...config, scanPreferences: { ...preferences, menu: { ...preferences.menu, intervalMs: value } } };
+    },
+  },
+];
+/** The form with every outside change in `next` that is not an echo of the save in flight. */
+function withOutsideChanges(
+  form: PointScanConfig,
+  next: PointScanConfig,
+  previous: PointScanConfig,
+  inFlight: PointScanConfig | null,
+) {
+  return outsideFields.reduce((merged, field) => {
+    const value = field.get(next);
+    const changed = value !== field.get(previous) && (!inFlight || value !== field.get(inFlight));
+    return changed ? field.set(merged, value) : merged;
+  }, form);
 }
 export type PointScanState = {
   remote?: boolean;
@@ -97,7 +140,7 @@ export function useScanning() {
     pending: 0,
     supported: false,
     latestRuntime: null as PointScanState | null,
-    /** The config of the save in flight, so its echo is not taken for a switch change. */
+    /** The config of the save in flight, so its echo is not taken for an outside change. */
     inFlight: null as PointScanConfig | null,
   });
   const queue = useRef(Promise.resolve());
@@ -117,16 +160,12 @@ export function useScanning() {
       ) {
         model.current.config = next.config;
         setConfig(next.config);
-      } else if (
-        previous &&
-        next.config.autoSelectEnabled !== previous.config.autoSelectEnabled &&
-        next.config.autoSelectEnabled !== model.current.inFlight?.autoSelectEnabled
-      ) {
-        // A switch can turn Auto select on or off outside this form. An
-        // unsaved form takes that change, so its next save does not undo it.
-        const merged = { ...model.current.config, autoSelectEnabled: next.config.autoSelectEnabled };
-        model.current.config = merged;
-        setConfig(merged);
+      } else if (previous) {
+        const merged = withOutsideChanges(model.current.config, next.config, previous.config, model.current.inFlight);
+        if (merged !== model.current.config) {
+          model.current.config = merged;
+          setConfig(merged);
+        }
       }
     };
     if (!("__TAURI_INTERNALS__" in window)) {
@@ -181,8 +220,8 @@ export function useScanning() {
       if (revision !== model.current.revision) return;
       setError(null);
       const runtime = runtimeRevision.current;
-      // The form as it is now: the edit plus any Auto select change a switch
-      // made while this save waited in the queue.
+      // The form as it is now: the edit plus any outside change made while
+      // this save waited in the queue.
       const next = model.current.config;
       model.current.inFlight = next;
       let result: PointScanState;

@@ -280,10 +280,36 @@ it("keeps a switch's Auto select change when an unsaved form retries", async () 
   const event = mocks.listen.mock.calls[0][1];
   act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
   // Anything else the event carries leaves the unsaved form alone.
-  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true, speed: 4 } } }));
+  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true, gridSize: 4 } } }));
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: { ...initial.config, mode: "grid", autoSelectEnabled: true },
+  }));
+  await screen.findByText("Saved automatically.");
+});
+
+it("keeps the Scanning menu's speed, mode and scan rate when an unsaved form retries", async () => {
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  mocks.invoke.mockRejectedValueOnce("Disk is full.");
+  more();
+  more();
+  fireEvent.click(screen.getByRole("radio", { name: "Green" }));
+  await screen.findByText("Disk is full.");
+  const event = mocks.listen.mock.calls[0][1];
+  const menuChanged = {
+    ...initial.config,
+    speed: 3,
+    mode: "grid" as const,
+    blockIntervalMs: 900,
+    gridSize: 4,
+    scanPreferences: { ...defaultScanPreferences, menu: { intervalMs: 700 } },
+  };
+  act(() => event({ payload: { ...initial, config: menuChanged } }));
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  // The menu's changes join the form's own edit; grid size is not one of them.
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...menuChanged, gridSize: initial.config.gridSize, scannerColor: "green" },
   }));
   await screen.findByText("Saved automatically.");
 });
