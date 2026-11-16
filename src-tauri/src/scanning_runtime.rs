@@ -41,6 +41,14 @@ pub trait Adapter: Send + Sync + 'static {
     ) -> bool {
         false
     }
+    /// The request a switch action runs straight away, outside the scan, such
+    /// as Left click at the pointer. The technique never sees the action.
+    fn immediate_selection(_action: &Action) -> Option<<Self::Technique as Technique>::Selection> {
+        None
+    }
+    /// Shows that an immediate request was refused, such as a click during a
+    /// drag, without changing what the technique is doing.
+    fn immediate_refused(_technique: &mut Self::Technique) {}
     /// Saves local, unsynced state an action changed, such as the panel position.
     fn remember(_app: &AppHandle, _technique: &mut Self::Technique) {}
     fn cursor_action_feedback(
@@ -576,6 +584,17 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         reset_scanner_for_capture::<A>(app, "Switch capture stopped.", true);
         return;
     }
+    // The gestures keep a press action whose switch also has a panel on
+    // hold, so a click arriving now still yields to the countdown.
+    let counting_down = c
+        .data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .engine
+        .as_ref()
+        .is_some_and(|engine| engine.technique.auto_selecting());
+    let runs_now = A::immediate_selection(&action).is_some();
+    let action = during_countdown(action, runs_now, counting_down);
     if action == Action::ToggleMouseBlocks {
         // A saved preference, not a scan step: the scan keeps its place and
         // the next tick reads the new movement into an open mouse panel.
@@ -608,6 +627,19 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             publish::<A>(app);
             return;
         }
+    }
+    if let Some(request) = A::immediate_selection(&action) {
+        // A refused or failed click says why and leaves scanning running. A
+        // held drag refuses the click rather than being dropped.
+        if let Err(error) = immediate::<A>(app, request) {
+            let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+            d.message = error;
+            if let Some(engine) = d.engine.as_mut().filter(|engine| engine.active()) {
+                A::immediate_refused(&mut engine.technique);
+            }
+        }
+        publish::<A>(app);
+        return;
     }
     if matches!(action, Action::Cancel | Action::Stop) {
         // Escape resets the scan; the next tick re-arms the keys.
@@ -689,6 +721,52 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
     } else {
         publish::<A>(app);
     }
+}
+/// During an Auto select countdown every switch opens the action menu, so a
+/// click that would run outside the scan becomes Select there.
+fn during_countdown(action: Action, immediate: bool, counting_down: bool) -> Action {
+    if immediate && counting_down {
+        Action::Select
+    } else {
+        action
+    }
+}
+/// Runs a request outside the scan: the technique is neither told nor moved,
+/// so the scan carries on where it was, idle or not. It skips the cursor
+/// handoff check `switch` makes, because nothing here depends on the scan's
+/// visuals being on screen.
+fn immediate<A: Adapter>(
+    app: &AppHandle,
+    request: <A::Technique as Technique>::Selection,
+) -> Result<(), String> {
+    A::validate_environment(app, None)?;
+    let c = app.state::<Controller<A>>();
+    let (preserve, mouse_token, active_feedback) = {
+        let d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        let technique = d.engine.as_ref().map(|engine| &engine.technique);
+        (
+            technique.is_none_or(|technique| A::preserve_visuals(app, technique, &request)),
+            d.cursor_suppression
+                .map(|(token, _)| token)
+                .filter(|_| d.cursor_mouse.is_some()),
+            technique.and_then(A::cursor_feedback),
+        )
+    };
+    if !preserve {
+        hide_scan_visuals();
+    }
+    let feedback = mouse_action_feedback(A::cursor_action_feedback(&request), active_feedback);
+    A::activate(app, request)?;
+    // The click has happened, so a cue the overlay cannot show now, such as
+    // during the cursor handoff, is not reported as a failed click.
+    if let (Some(token), Some(feedback)) = (mouse_token, feedback) {
+        let overlay = app.state::<crate::overlay::CursorOverlay>();
+        if overlay.scan_ready(token) {
+            let settings = app.state::<crate::state::AppModel>().snapshot().settings;
+            let _ = overlay.show_scan_mouse(token, feedback, settings);
+        }
+    }
+    Ok(())
 }
 fn dispatch<A: Adapter>(
     app: &AppHandle,
@@ -1939,6 +2017,23 @@ mod repeat_stop_tests {
         assert!(!stop.held());
     }
 
+    #[test]
+    fn a_switch_click_yields_to_an_auto_select_countdown() {
+        use super::during_countdown;
+        assert_eq!(
+            during_countdown(Action::ClickAtPointer, true, true),
+            Action::Select
+        );
+        assert_eq!(
+            during_countdown(Action::ClickAtPointer, true, false),
+            Action::ClickAtPointer
+        );
+        assert_eq!(
+            during_countdown(Action::OpenKeyboard, false, true),
+            Action::OpenKeyboard
+        );
+        assert_eq!(during_countdown(Action::Next, false, true), Action::Next);
+    }
     #[test]
     fn ending_repeat_while_held_still_consumes_pending_releases() {
         // Settings, a failure or a display change can end the technique's

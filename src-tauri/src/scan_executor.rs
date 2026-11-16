@@ -26,6 +26,9 @@ pub fn execute<I: InputInjector>(
         | Request::Close => input.release_all(),
         Request::MouseMove { dx, dy } => input.move_pointer_pixels(dx, dy).map(|_| ()),
         Request::MouseMoveAbsolute { x, y } => input.move_pointer_pixels_absolute(x, y).map(|_| ()),
+        Request::PointerClick => Err(
+            "Use click_pointer_keeping_drag for a switch click so a drag is not dropped.".into(),
+        ),
         Request::MouseClick { right, count } => {
             if input.has_active_drag() {
                 return Err("End the drag before clicking.".into());
@@ -189,6 +192,43 @@ pub fn activate(request: Request) -> Result<(), String> {
         }
         result
     })
+}
+/// Left clicks at the pointer. While a drag is held the click is refused and
+/// nothing is released, so the drag carries on and the scan still matches it.
+pub fn click_pointer_keeping_drag() -> Result<(), String> {
+    INPUT.with(|slot| {
+        let mut input = slot.borrow_mut();
+        if input.is_none() {
+            *input = Some(DesktopInput::new(
+                enigo::Enigo::new(&crate::input::injection_settings())
+                    .map_err(|_| "Scan input could not be initialized.")?,
+            ));
+        }
+        click_keeping_drag(
+            input.as_mut().unwrap(),
+            crate::scan_host::modifiers_released(),
+        )
+    })
+}
+fn click_keeping_drag<I: InputInjector>(
+    input: &mut DesktopInput<I>,
+    modifiers_released: bool,
+) -> Result<(), String> {
+    if input.has_active_drag() {
+        return Err("End the drag before clicking.".into());
+    }
+    let result = execute(
+        input,
+        Request::MouseClick {
+            right: false,
+            count: 1,
+        },
+        modifiers_released,
+    );
+    if result.is_err() {
+        let _ = input.release_all();
+    }
+    result
 }
 pub fn toggle_mouse_drag(point: (i32, i32)) -> Result<(), String> {
     if !crate::scan_host::modifiers_released() {
@@ -691,6 +731,22 @@ mod tests {
         input.injector.fail_release = false;
         input.release_all().unwrap();
         assert!(!input.has_active_drag());
+    }
+    #[test]
+    fn a_switch_click_is_refused_during_a_drag_and_keeps_it() {
+        let mut input = DesktopInput::new(Fake::default());
+        click_keeping_drag(&mut input, true).unwrap();
+        assert_eq!(input.injector.events, ["click Left 1"]);
+        execute(&mut input, Request::DragStart((10, 20)), true).unwrap();
+        let before = input.injector.events.len();
+        assert_eq!(
+            click_keeping_drag(&mut input, true),
+            Err("End the drag before clicking.".into())
+        );
+        assert!(input.has_active_drag());
+        assert_eq!(input.injector.events.len(), before);
+        // Only the switch path may run it.
+        assert!(execute(&mut input, Request::PointerClick, true).is_err());
     }
     #[test]
     fn mouse_actions_use_fake_input_and_close_releases_drag() {
