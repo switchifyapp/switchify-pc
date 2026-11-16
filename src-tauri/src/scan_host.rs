@@ -500,6 +500,8 @@ mod platform {
             let mtm =
                 MainThreadMarker::new().ok_or("Point scan requires the AppKit main thread.")?;
             if self.last_rects != rects {
+                // The panel moves, so a picture skipped as unchanged would be in the wrong place.
+                self.last_picture = None;
                 let screens = NSScreen::screens(mtm);
                 let primary = screens
                     .firstObject()
@@ -651,12 +653,16 @@ mod platform {
         ) -> Result<(), String> {
             use objc2_app_kit::NSImageView;
             let mtm = MainThreadMarker::new().ok_or("Overlay drawing requires the main thread.")?;
-            self.render(&[crate::scanning::PaintedRect {
-                rect,
-                color: [0, 0, 0],
-                opacity: 0,
-                role: crate::scanning::VisualRole::Accent,
-            }])?;
+            // A picture already showing at this rect needs no move or reorder;
+            // `hide` forgets it, so a hidden panel is always shown again.
+            if self.last_picture.as_ref().map(|(old, _)| *old) != Some(rect) {
+                self.render(&[crate::scanning::PaintedRect {
+                    rect,
+                    color: [0, 0, 0],
+                    opacity: 0,
+                    role: crate::scanning::VisualRole::Accent,
+                }])?;
+            }
             let ratio = self.panels[0].backingScaleFactor();
             let pixels = draw(ratio)?;
             let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));

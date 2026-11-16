@@ -78,7 +78,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(TileHosts,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((NO_TILE_HOSTS,vec![]))}; static SKETCH: RefCell<(Vec<Host>, Option<crate::scan_sketch::Sketch>)> = const { RefCell::new((Vec::new(), None)) };}
+thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(TileHosts,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((NO_TILE_HOSTS,vec![]))}; static SKETCH: RefCell<(SketchHosts, Option<crate::scan_sketch::Sketch>)> = const { RefCell::new((SketchHosts::new(), None)) };}
 // macOS shows every tile in one panel, so each frame reaches the screen at
 // once rather than one key window at a time. Other platforms give each tile
 // its own window.
@@ -758,20 +758,70 @@ fn render_sketch(sketch: Option<&crate::scan_sketch::Sketch>) -> Result<(), Stri
             return Ok(());
         }
         let cells = sketch.map_or_else(Vec::new, crate::scan_sketch::Sketch::cells);
-        while slot.0.len() < cells.len() {
-            slot.0.push(Host::new()?);
-        }
-        for (index, host) in slot.0.iter_mut().enumerate() {
-            match (sketch, cells.get(index)) {
-                (Some(sketch), Some(&cell)) => {
-                    host.picture(cell, |ratio| sketch.draw(cell, ratio))?
-                }
-                _ => host.hide(),
+        let hosts = &mut slot.0;
+        hosts.retire(|place| cells.iter().any(|&cell| SketchHosts::place(cell) == place));
+        if let Some(sketch) = sketch {
+            for &cell in &cells {
+                hosts
+                    .at(SketchHosts::place(cell))?
+                    .picture(cell, |ratio| sketch.draw(cell, ratio))?;
             }
         }
         slot.1 = sketch.cloned();
         Ok(())
     })
+}
+
+/// Sketch windows, each kept for one place on the display while something
+/// is drawn there. A cell that has not changed keeps its window, rect and
+/// pixels, so it is not sent again when the beam moves elsewhere.
+struct SketchHosts {
+    shown: Vec<((i64, i64), Host)>,
+    spare: Vec<Host>,
+}
+impl SketchHosts {
+    const fn new() -> Self {
+        Self {
+            shown: Vec::new(),
+            spare: Vec::new(),
+        }
+    }
+    fn place(cell: crate::scanning::Rect) -> (i64, i64) {
+        (cell.x.round() as i64, cell.y.round() as i64)
+    }
+    /// Hides and sets aside every window whose place is no longer drawn.
+    fn retire(&mut self, keep: impl Fn((i64, i64)) -> bool) {
+        let mut index = 0;
+        while index < self.shown.len() {
+            if keep(self.shown[index].0) {
+                index += 1;
+            } else {
+                let (_, mut host) = self.shown.swap_remove(index);
+                host.hide();
+                self.spare.push(host);
+            }
+        }
+    }
+    fn hide_all(&mut self) {
+        self.retire(|_| false);
+        for host in &mut self.spare {
+            host.hide();
+        }
+    }
+    fn at(&mut self, place: (i64, i64)) -> Result<&mut Host, String> {
+        let index = match self.shown.iter().position(|(p, _)| *p == place) {
+            Some(index) => index,
+            None => {
+                let host = match self.spare.pop() {
+                    Some(host) => host,
+                    None => Host::new()?,
+                };
+                self.shown.push((place, host));
+                self.shown.len() - 1
+            }
+        };
+        Ok(&mut self.shown[index].1)
+    }
 }
 
 // Rendering can fail after a native window is shown but before its cache is
@@ -803,13 +853,7 @@ fn hide_scan_visuals() {
             }
         })
     });
-    SKETCH.with(|slot| {
-        clear_cached_visual(&mut slot.borrow_mut(), |hosts| {
-            for host in hosts.iter_mut() {
-                host.hide();
-            }
-        })
-    });
+    SKETCH.with(|slot| clear_cached_visual(&mut slot.borrow_mut(), SketchHosts::hide_all));
 }
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn update_tiles(

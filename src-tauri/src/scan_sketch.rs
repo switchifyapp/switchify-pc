@@ -10,6 +10,8 @@ use tiny_skia::{
 
 /// The dark edge every mark carries, so it shows on light and dark windows.
 const EDGE: [u8; 3] = [10, 12, 18];
+/// Device pixels drawn beyond each side of a cell and then cropped away.
+const MARGIN: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Shape {
@@ -268,8 +270,12 @@ impl Sketch {
         };
         let width = (cell.width * ratio).round().clamp(1.0, 4096.0) as u32;
         let height = (cell.height * ratio).round().clamp(1.0, 4096.0) as u32;
-        let mut pixmap = Pixmap::new(width, height).ok_or("Cannot draw the scanning overlay.")?;
-        let transform = Transform::from_scale(ratio as f32, ratio as f32)
+        // Drawn with a margin and cropped, so anti-aliasing at the edges of a
+        // cell matches its neighbours rather than being cut by the bitmap edge.
+        let mut pixmap = Pixmap::new(width + MARGIN * 2, height + MARGIN * 2)
+            .ok_or("Cannot draw the scanning overlay.")?;
+        let transform = Transform::from_translate(MARGIN as f32, MARGIN as f32)
+            .pre_scale(ratio as f32, ratio as f32)
             .pre_translate(-cell.x as f32, -cell.y as f32);
         let pad = self.pad();
         let styles: Vec<Style> = self
@@ -312,7 +318,12 @@ impl Sketch {
                 pixmap.stroke_path(&style.path, &paint, &stroke, transform, None);
             }
         }
-        Ok(pixmap)
+        pixmap
+            .clone_rect(
+                tiny_skia::IntRect::from_xywh(MARGIN as i32, MARGIN as i32, width, height)
+                    .ok_or("Cannot draw the scanning overlay.")?,
+            )
+            .ok_or_else(|| "Cannot draw the scanning overlay.".into())
     }
 }
 
@@ -478,6 +489,75 @@ mod tests {
         let p = s.draw(cell, 2.0).unwrap();
         assert_eq!((p.width(), p.height()), (200, 200));
         assert_eq!(p.pixel(100, 100).unwrap().alpha(), 255);
+    }
+
+    #[test]
+    fn stitched_cells_match_one_drawing_of_the_whole_display() {
+        // Every kind of mark, thick, with a divider exactly on a cell edge
+        // and marks running off the display.
+        let s = Sketch {
+            width: 18.0,
+            ..sketch(vec![
+                Shape::Divider {
+                    from: (-500.0, 100.0),
+                    to: (-500.0, 900.0),
+                },
+                Shape::Divider {
+                    from: (-1000.0, 500.0),
+                    to: (0.0, 500.0),
+                },
+                Shape::Outline {
+                    rect: Rect {
+                        x: -973.0,
+                        y: 127.0,
+                        width: 446.0,
+                        height: 346.0,
+                    },
+                    radius: 36.0,
+                },
+                Shape::Line {
+                    from: (-250.0, 700.0),
+                    to: (-1100.0, 0.0),
+                },
+                Shape::Dotted {
+                    from: (-250.0, 700.0),
+                    to: (60.0, 950.0),
+                },
+                Shape::Ring {
+                    centre: (-600.0, 300.0),
+                    radius: 40.0,
+                },
+                Shape::Dot {
+                    centre: (-1.0, 101.0),
+                    radius: 22.0,
+                },
+            ])
+        };
+        let whole = s.draw(s.bounds, 1.0).unwrap();
+        let mut stitched = Pixmap::new(whole.width(), whole.height()).unwrap();
+        for cell in s.cells() {
+            let part = s.draw(cell, 1.0).unwrap();
+            stitched.draw_pixmap(
+                (cell.x - s.bounds.x) as i32,
+                (cell.y - s.bounds.y) as i32,
+                part.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
+        }
+        // Anti-aliased edges differ by a few levels wherever the rasteriser's
+        // origin moves, inside a cell as much as at its edge. A clipped or
+        // missing piece would differ by far more.
+        let worst = whole
+            .data()
+            .iter()
+            .zip(stitched.data())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(worst <= 24, "cells differ from the whole by up to {worst}");
+        assert!(whole.data().iter().any(|&byte| byte > 0));
     }
 
     #[test]
