@@ -19,6 +19,8 @@ pub enum Action {
     OpenMouse,
     OpenMenu(crate::scan_menu::Kind),
     OpenCustomPanel(String),
+    /// Flips the mouse panel's Move in blocks setting. Techniques never see it.
+    ToggleMouseBlocks,
 }
 impl Action {
     pub fn opens_panel(&self) -> bool {
@@ -53,6 +55,7 @@ impl Action {
             Self::Reverse => "Reverse direction",
             Self::Stop => "Stop scanning",
             Self::Cancel => "Disable scanning",
+            Self::ToggleMouseBlocks => "Move in blocks on / off",
         }
     }
 }

@@ -693,6 +693,7 @@ it("groups the switch actions under headings with every action listed once", asy
   const groups = Array.from(press.querySelectorAll("optgroup")).map((group) => [group.label, Array.from(group.querySelectorAll("option")).map((o) => o.textContent)]);
   expect(groups).toEqual([
     ["Scanning", ["Select", "Next", "Previous", "Reverse direction", "Pause / resume", "Stop scanning"]],
+    ["Mouse", ["Move in blocks on / off"]],
     ["Open a panel", ["Keyboard", "Point", "Mouse"]],
     ["Open a menu", ["Home", "More clicks", "Editing", "Apps and windows", "Browser", "Tabs", "Zoom", "Media", "Displays", "Scanning settings"]],
     ["My panels", expect.arrayContaining(["Greetings"])],
@@ -703,6 +704,8 @@ it("groups the switch actions under headings with every action listed once", asy
   fireEvent.change(press, { target: { value: JSON.stringify({ openMenu: "scanning" }) } });
   await waitFor(() => expect(current.settings.bindings[0].pressAction).toEqual({ openMenu: "scanning" }));
   expect(actionLabel({ openMenu: "scanning" })).toBe("Open Scanning");
+  fireEvent.change(press, { target: { value: "toggleMouseBlocks" } });
+  await waitFor(() => expect(current.settings.bindings[0].pressAction).toBe("toggleMouseBlocks"));
 });
 
 it("leaves out the My panels heading when there are no custom panels", async () => {
@@ -713,7 +716,7 @@ it("leaves out the My panels heading when there are no custom panels", async () 
   await waitFor(() => expect(mocks.invoke.mock.calls.some(([command]) => command === "list_custom_panels")).toBe(true));
   await act(async () => {});
   const press = screen.getByLabelText("Normal action for Head switch");
-  expect(Array.from(press.querySelectorAll("optgroup")).map((g) => g.label)).toEqual(["Scanning", "Open a panel", "Open a menu"]);
+  expect(Array.from(press.querySelectorAll("optgroup")).map((g) => g.label)).toEqual(["Scanning", "Mouse", "Open a panel", "Open a menu"]);
 });
 
 it("keeps a deleted panel assignment visible for replacement", async () => {

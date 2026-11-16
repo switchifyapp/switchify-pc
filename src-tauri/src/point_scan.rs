@@ -354,7 +354,8 @@ impl Engine {
             | Action::OpenPoint
             | Action::OpenMouse
             | Action::OpenMenu(_)
-            | Action::OpenCustomPanel(_) => {}
+            | Action::OpenCustomPanel(_)
+            | Action::ToggleMouseBlocks => {}
         }
         None
     }

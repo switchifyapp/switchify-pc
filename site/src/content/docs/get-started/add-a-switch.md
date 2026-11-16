@@ -38,6 +38,7 @@ The action list is split under four headings, so related actions sit together. G
   - **Select** chooses the highlighted item. Automatic scanning needs one switch set to Select.
   - **Next** and **Previous** step through items. Manual scanning needs Select, Next and Previous.
   - **Reverse direction**, **Pause / resume**, **Stop scanning**.
+- **Mouse**: **Move in blocks on / off** turns the mouse panel's [Move in blocks](/using/mouse-panel/#move-in-blocks) on or off.
 - **Open a panel**: **Keyboard**, **Point** or **Mouse** jumps straight to that mode.
 - **Open a menu**: a built-in menu, such as **Home** or **Editing**. **Scanning settings** opens the Scanning menu.
 - **My panels**: your saved custom panels. This heading appears once you have saved one.

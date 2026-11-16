@@ -15,6 +15,7 @@ import {
   actionLabel,
   actions,
   menuPickerNames,
+  mouseActions,
   panelActions,
   scanningActions,
   retiredMenus,
@@ -77,6 +78,9 @@ function ActionSelect({
     >
       <optgroup label="Scanning">
         {scanningActions.map((action) => <option key={action} value={action}>{actions[action]}</option>)}
+      </optgroup>
+      <optgroup label="Mouse">
+        {mouseActions.map((action) => <option key={action} value={action}>{actions[action]}</option>)}
       </optgroup>
       <optgroup label="Open a panel">
         {Object.entries(panelActions).map(([action, name]) => <option key={action} value={action}>{name}</option>)}

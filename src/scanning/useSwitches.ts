@@ -11,6 +11,7 @@ export const actions = {
   reverse: "Reverse direction",
   stop: "Stop scanning",
   pause: "Pause / resume",
+  toggleMouseBlocks: "Move in blocks on / off",
 } as const;
 export type SwitchAction = keyof typeof actions | { openMenu: import("../types").MenuKind } | { openCustomPanel: string };
 export const panelMenus = {
@@ -19,6 +20,7 @@ export const panelMenus = {
 } as const;
 /** The switch action picker's groups. Names under a heading drop the "Open" the heading already says. */
 export const scanningActions = ["select", "next", "back", "reverse", "pause", "stop"] as const satisfies readonly (keyof typeof actions)[];
+export const mouseActions = ["toggleMouseBlocks"] as const satisfies readonly (keyof typeof actions)[];
 export const panelActions = { openKeyboard: "Keyboard", openPoint: "Point", openMouse: "Mouse" } as const satisfies Partial<Record<keyof typeof actions, string>>;
 /** The Scanning menu reads as settings in the picker so it is not mistaken for Stop scanning. */
 export const menuPickerNames: Record<keyof typeof panelMenus, string> = { ...panelMenus, scanning: "Scanning settings" };

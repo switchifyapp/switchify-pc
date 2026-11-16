@@ -48,7 +48,7 @@ impl Gestures {
                 && !binding.press_action.opens_panel()
                 && !matches!(
                     binding.press_action,
-                    Action::Stop | Action::Pause | Action::Cancel
+                    Action::Stop | Action::Pause | Action::Cancel | Action::ToggleMouseBlocks
                 )
             {
                 binding.press_action = Action::Select;
@@ -193,7 +193,12 @@ mod tests {
 
     #[test]
     fn countdown_preserves_safety_switches_and_cancellation() {
-        for action in [Action::Stop, Action::Pause, Action::Cancel] {
+        for action in [
+            Action::Stop,
+            Action::Pause,
+            Action::Cancel,
+            Action::ToggleMouseBlocks,
+        ] {
             let mut settings = settings();
             settings.bindings[0].press_action = action.clone();
             let mut gestures = Gestures::default();
