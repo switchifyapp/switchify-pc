@@ -693,7 +693,10 @@ impl Workflow {
     pub fn mouse_feedback(&self) -> Option<crate::input::PointerFeedback> {
         use crate::input::PointerFeedback;
         if self.mouse.error {
-            return None;
+            // A refused switch click is the one failure that keeps a drag
+            // held, so the pointer still shows it.
+            return (self.stage == Stage::Mouse && self.mouse.dragging)
+                .then_some(PointerFeedback::Drag);
         }
         match self.stage {
             Stage::MouseMoving => Some(PointerFeedback::RepeatMove {
@@ -3781,6 +3784,10 @@ mod tests {
         workflow.switch_click_refused();
         assert!(workflow.mouse.error);
         assert!(workflow.mouse.dragging);
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::Drag)
+        );
         assert!(workflow.mouse_open());
     }
     #[test]
