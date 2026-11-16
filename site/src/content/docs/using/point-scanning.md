@@ -29,6 +29,8 @@ Line speed runs from very slow to very fast, and you can change it from Home whi
 
 With **Auto select** on, a countdown starts at the chosen point and a left click happens when it ends. The delay can be anything from 0.1 to 100 seconds. Press a switch during the countdown to open the action menu instead. A few switches keep their own press action: one that opens a panel or menu opens it, **Stop scanning** and **Pause / resume** stop or pause the countdown, and **Move in blocks on / off** changes that setting while the countdown carries on.
 
+To turn Auto select on or off without opening settings, give a switch the **Auto select on / off** action, under **Scanning** in the switch action list. It saves the change, and scanning keeps its place. Pressing it during a countdown opens the action menu, as any other switch does.
+
 ## The action menu
 
 | Action | What it does |

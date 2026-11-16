@@ -97,6 +97,8 @@ export function useScanning() {
     pending: 0,
     supported: false,
     latestRuntime: null as PointScanState | null,
+    /** The config of the save in flight, so its echo is not taken for a switch change. */
+    inFlight: null as PointScanConfig | null,
   });
   const queue = useRef(Promise.resolve());
   const runtimeRevision = useRef(0);
@@ -105,6 +107,7 @@ export function useScanning() {
     let stop: (() => void) | undefined;
     const receive = (next: PointScanState) => {
       if (!alive) return;
+      const previous = model.current.latestRuntime;
       model.current.supported = next.supported;
       model.current.latestRuntime = next;
       setState(next);
@@ -114,6 +117,16 @@ export function useScanning() {
       ) {
         model.current.config = next.config;
         setConfig(next.config);
+      } else if (
+        previous &&
+        next.config.autoSelectEnabled !== previous.config.autoSelectEnabled &&
+        next.config.autoSelectEnabled !== model.current.inFlight?.autoSelectEnabled
+      ) {
+        // A switch can turn Auto select on or off outside this form. An
+        // unsaved form takes that change, so its next save does not undo it.
+        const merged = { ...model.current.config, autoSelectEnabled: next.config.autoSelectEnabled };
+        model.current.config = merged;
+        setConfig(merged);
       }
     };
     if (!("__TAURI_INTERNALS__" in window)) {
@@ -163,14 +176,23 @@ export function useScanning() {
         }
       });
   };
-  const save = (revision: number, next: PointScanConfig) =>
+  const save = (revision: number) =>
     enqueue(async () => {
       if (revision !== model.current.revision) return;
       setError(null);
       const runtime = runtimeRevision.current;
-      const result = await invoke<PointScanState>("configure_point_scan", {
-        config: next,
-      });
+      // The form as it is now: the edit plus any Auto select change a switch
+      // made while this save waited in the queue.
+      const next = model.current.config;
+      model.current.inFlight = next;
+      let result: PointScanState;
+      try {
+        result = await invoke<PointScanState>("configure_point_scan", {
+          config: next,
+        });
+      } finally {
+        model.current.inFlight = null;
+      }
       model.current.saved = revision;
       if (runtime === runtimeRevision.current) {
         setState(result);
@@ -192,11 +214,11 @@ export function useScanning() {
     m.revision++;
     setConfig(next);
     setError(null);
-    if (validSwitches(next)) save(m.revision, next);
+    if (validSwitches(next)) save(m.revision);
   };
   const retry = () => {
     if (validSwitches(model.current.config))
-      save(model.current.revision, model.current.config);
+      save(model.current.revision);
   };
   const chooseKeyboardLayout = (layout: KeyboardLayout) => {
     enqueue(async () => {

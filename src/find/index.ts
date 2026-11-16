@@ -101,7 +101,7 @@ const catalogue = [
     value: (c) => c.config ? (selectOpensHome(c.config) ? "Home menu" : `Last mode used, ${lastModeName(c.config).toLowerCase()}`) : null, related: ["movement", "builtin-menus"] },
   { id: "point-method", label: "Point scanning method", words: ["line", "grid", "line only", "grid then line", "grid size", "line speed", "point"], page: "scanning", section: "areas", area: "point",
     value: (c) => c.config ? `${c.config.mode === "grid" ? `Grid then line, ${c.config.gridSize} by ${c.config.gridSize}` : "Line only"}, speed ${c.config.speed + 1} of 5` : null, related: ["auto-select", "scan-rate"] },
-  { id: "auto-select", label: "Auto select", words: ["click options", "auto click", "automatic click", "delay", "dwell"], page: "scanning", section: "areas", area: "point",
+  { id: "auto-select", label: "Auto select", words: ["click options", "auto click", "automatic click", "delay", "dwell", "toggle auto select"], page: "scanning", section: "areas", area: "point",
     value: (c) => c.config ? (c.config.autoSelectEnabled ? `On, after ${seconds(c.config.autoSelectDelayMs)}` : "Off") : null, related: ["point-method", "dwell"] },
   { id: "radar", label: "Radar speed", words: ["mouse scanning", "radar", "beam", "pointer ring"], page: "scanning", section: "areas", area: "mouse",
     value: (c) => c.config ? (c.config.radarSpeed == null ? "Follows line speed" : `${c.config.radarSpeed + 1} of 5`) : null, related: ["pointer-speed", "repeat"] },

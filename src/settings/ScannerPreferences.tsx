@@ -178,7 +178,7 @@ export function ScannerPreferences({ controller, requestedArea, onAreaOpened, po
 
         
       </SettingGroup>
-      <MoreOptions label="Click options"><SettingGroup setting="auto-select" title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu.">
+      <MoreOptions label="Click options"><SettingGroup setting="auto-select" title="Auto selection" description="Automatically left-click the chosen point after a delay. Press a switch again during the delay to open the action menu. A switch set to Auto select on / off turns this on or off.">
         <Toggle label="Auto select" checked={config.autoSelectEnabled} disabled={disabled} onChange={(value) => update("autoSelectEnabled", value)} />
         {config.autoSelectEnabled && <label className="exact-speed">
           <span>Auto select delay (seconds)</span>
