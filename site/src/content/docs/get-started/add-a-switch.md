@@ -32,13 +32,17 @@ Each key belongs to one switch, but several switches can run the same action.
 
 ## Choose what a press does
 
-Give the switch one of these actions for a **press and release**:
+The action list is split under four headings, so related actions sit together. Give the switch one of these actions for a **press and release**:
 
-- **Select** chooses the highlighted item. Automatic scanning needs one switch set to Select.
-- **Next** and **Previous** step through items. Manual scanning needs Select, Next and Previous.
-- **Reverse direction**, **Stop scanning**, **Pause / resume**.
-- **Open keyboard**, **Open point**, **Open mouse** jump straight to that mode.
-- Open a built-in menu, such as **Open Home** or **Open Editing**, or one of your saved custom panels. The same choices are available for hold actions and forwarded switches.
+- **Scanning**
+  - **Select** chooses the highlighted item. Automatic scanning needs one switch set to Select.
+  - **Next** and **Previous** step through items. Manual scanning needs Select, Next and Previous.
+  - **Reverse direction**, **Pause / resume**, **Stop scanning**.
+- **Open a panel**: **Keyboard**, **Point** or **Mouse** jumps straight to that mode.
+- **Open a menu**: a built-in menu, such as **Home** or **Editing**. **Scanning settings** opens the Scanning menu.
+- **My panels**: your saved custom panels. This heading appears once you have saved one.
+
+The same choices are available for hold actions and forwarded switches. Elsewhere, such as the switch list, an action shows its full name, like *Open Home* or *Open keyboard*.
 
 The action runs when you release. Scanning movement freezes while any switch is held, so a slow release never selects the wrong thing.
 
@@ -48,7 +52,7 @@ To change a saved switch later, choose **Edit** next to it on the Switches page.
 
 A switch can also have an ordered list of **hold actions**. Keep the switch down and each action is offered in turn on screen, one per interval. Release while an action is offered to run it. The interval is 1 second by default and can be anything from 250 milliseconds to 5 seconds. Holding on its own never runs anything; only the release does.
 
-To open a panel with a hold, choose **Add hold action** and choose **Open** followed by the panel name. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
+To open a panel with a hold, choose **Add hold action** and pick the panel under **Open a panel**, **Open a menu** or **My panels**. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
 
 Choose **Add hold action** to add one, and use the arrows to change the order. The editor spells out the timing, such as *Hold 1s for Open keyboard, 2s for Pause / resume*.
 

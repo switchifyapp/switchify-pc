@@ -17,6 +17,11 @@ export const panelMenus = {
   home: "Home", mouse: "More clicks", editing: "Editing", windows: "Apps and windows",
   browser: "Browser", tabs: "Tabs", zoom: "Zoom", media: "Media", displays: "Displays", scanning: "Scanning",
 } as const;
+/** The switch action picker's groups. Names under a heading drop the "Open" the heading already says. */
+export const scanningActions = ["select", "next", "back", "reverse", "pause", "stop"] as const satisfies readonly (keyof typeof actions)[];
+export const panelActions = { openKeyboard: "Keyboard", openPoint: "Point", openMouse: "Mouse" } as const satisfies Partial<Record<keyof typeof actions, string>>;
+/** The Scanning menu reads as settings in the picker so it is not mistaken for Stop scanning. */
+export const menuPickerNames: Record<keyof typeof panelMenus, string> = { ...panelMenus, scanning: "Scanning settings" };
 /** Menus a switch may still be assigned from before they were retired, and what they open now. */
 export const retiredMenus: Record<string, keyof typeof panelMenus> = { more: "home" };
 export function menuName(menu: string): string {

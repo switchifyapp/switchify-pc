@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
-import { useSwitches, type SwitchState } from "./scanning/useSwitches";
+import { actionLabel, actions, useSwitches, type SwitchState } from "./scanning/useSwitches";
 import { useScanning, defaultPointScanConfig } from "./scanning/useScanning";
 import { SwitchesSection } from "./settings/SwitchesSection";
 import { ScanningSection } from "./settings/ScanningSection";
@@ -677,12 +677,43 @@ it("assigns built-in and custom panels to local presses and holds", async () => 
   render(<Shell />);
   fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
   const press = screen.getByLabelText("Normal action for Head switch");
-  await within(press).findByRole("option", { name: "Open Greetings" });
+  await within(press).findByRole("option", { name: "Greetings" });
   fireEvent.change(press, { target: { value: JSON.stringify({ openCustomPanel: "greetings" }) } });
   await waitFor(() => expect(current.settings.bindings[0].pressAction).toEqual({ openCustomPanel: "greetings" }));
   fireEvent.change(screen.getByLabelText("Hold action 1 for Head switch"), { target: { value: JSON.stringify({ openMenu: "editing" }) } });
   await waitFor(() => expect(current.settings.bindings[0].holdActions[0]).toEqual({ openMenu: "editing" }));
   expect(press).toHaveValue(JSON.stringify({ openCustomPanel: "greetings" }));
+});
+
+it("groups the switch actions under headings with every action listed once", async () => {
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  const press = screen.getByLabelText("Normal action for Head switch");
+  await within(press).findByRole("option", { name: "Greetings" });
+  const groups = Array.from(press.querySelectorAll("optgroup")).map((group) => [group.label, Array.from(group.querySelectorAll("option")).map((o) => o.textContent)]);
+  expect(groups).toEqual([
+    ["Scanning", ["Select", "Next", "Previous", "Reverse direction", "Pause / resume", "Stop scanning"]],
+    ["Open a panel", ["Keyboard", "Point", "Mouse"]],
+    ["Open a menu", ["Home", "More clicks", "Editing", "Apps and windows", "Browser", "Tabs", "Zoom", "Media", "Displays", "Scanning settings"]],
+    ["My panels", expect.arrayContaining(["Greetings"])],
+  ]);
+  const builtIn = Array.from(press.querySelectorAll("option")).map((o) => o.value).filter((v) => !v.startsWith("{"));
+  expect(builtIn.sort()).toEqual(Object.keys(actions).sort());
+  // Summaries outside the picker keep the full names.
+  fireEvent.change(press, { target: { value: JSON.stringify({ openMenu: "scanning" }) } });
+  await waitFor(() => expect(current.settings.bindings[0].pressAction).toEqual({ openMenu: "scanning" }));
+  expect(actionLabel({ openMenu: "scanning" })).toBe("Open Scanning");
+});
+
+it("leaves out the My panels heading when there are no custom panels", async () => {
+  const base = mocks.invoke.getMockImplementation()!;
+  mocks.invoke.mockImplementation(async (command, args) => (command === "list_custom_panels" ? [] : base(command, args)));
+  render(<Shell />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
+  await waitFor(() => expect(mocks.invoke.mock.calls.some(([command]) => command === "list_custom_panels")).toBe(true));
+  await act(async () => {});
+  const press = screen.getByLabelText("Normal action for Head switch");
+  expect(Array.from(press.querySelectorAll("optgroup")).map((g) => g.label)).toEqual(["Scanning", "Open a panel", "Open a menu"]);
 });
 
 it("keeps a deleted panel assignment visible for replacement", async () => {
@@ -700,11 +731,11 @@ it("keeps a switch assigned to the retired More menu, which opens Home", async (
   render(<Shell />);
   fireEvent.click(await screen.findByRole("button", { name: "Edit Head switch" }));
   const press = screen.getByLabelText("Normal action for Head switch");
-  const kept = within(press).getAllByRole("option", { name: "Open Home" });
+  const kept = within(press).getAllByRole("option", { name: "Home" });
   expect(kept).toHaveLength(2);
   expect((kept[1] as HTMLOptionElement).selected).toBe(true);
-  expect(within(press).queryByRole("option", { name: "Open More" })).not.toBeInTheDocument();
-  expect(within(press).getByRole("option", { name: "Open More clicks" })).toBeInTheDocument();
+  expect(within(press).queryByRole("option", { name: "More" })).not.toBeInTheDocument();
+  expect(within(press).getByRole("option", { name: "More clicks" })).toBeInTheDocument();
 });
 
 it("assigns panel actions to forwarded switch presses and holds", async () => {
@@ -712,7 +743,7 @@ it("assigns panel actions to forwarded switch presses and holds", async () => {
   await revealMobile();
   fireEvent.click(screen.getByRole("button", { name: "Edit Remote switch 1" }));
   const press = screen.getByLabelText("Normal action for Remote switch 1");
-  await within(press).findByRole("option", { name: "Open Greetings" });
+  await within(press).findByRole("option", { name: "Greetings" });
   fireEvent.change(press, { target: { value: JSON.stringify({ openMenu: "home" }) } });
   await waitFor(() => expect(remote.slots[0].pressAction).toEqual({ openMenu: "home" }));
   fireEvent.click(screen.getByRole("button", { name: "Add hold action for Remote switch 1" }));
