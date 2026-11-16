@@ -751,23 +751,53 @@ fn render_countdown(countdown: Option<&crate::scanning::Countdown>) -> Result<()
 }
 
 /// Shows each cell of the sketch in a window of its own and hides the rest.
-fn render_sketch(sketch: Option<&crate::scan_sketch::Sketch>) -> Result<(), String> {
+fn render_sketch(
+    sketch: Option<&crate::scan_sketch::Sketch>,
+    under: &[crate::scanning::PaintedRect],
+) -> Result<(), String> {
     SKETCH.with(|slot| {
         let mut slot = slot.borrow_mut();
-        if slot.1.as_ref() == sketch {
+        let (hosts, last) = &mut *slot;
+        // The highlight's fill is presented first and can end up above cells
+        // that are not redrawn: macOS orders its panels front on every
+        // presentation, and Windows puts a window it shows again on top.
+        let raise = !under.is_empty() && (cfg!(target_os = "macos") || hosts.under != under);
+        hosts.under.clear();
+        hosts.under.extend_from_slice(under);
+        if last.as_ref() == sketch {
+            if raise {
+                hosts.raise_all();
+            }
             return Ok(());
         }
+        // Forgotten while drawing, so a failure part way never leaves a
+        // half-drawn sketch to compare the next one against.
+        let previous = last.take();
         let cells = sketch.map_or_else(Vec::new, crate::scan_sketch::Sketch::cells);
-        let hosts = &mut slot.0;
         hosts.retire(|place| cells.iter().any(|&cell| SketchHosts::place(cell) == place));
         if let Some(sketch) = sketch {
             for &cell in &cells {
+                let place = SketchHosts::place(cell);
+                // A shown cell whose shapes have not changed already has its
+                // pixels, so it is neither drawn nor compared again. The
+                // display's scale is not part of this: a display that changes
+                // scale changes the bounds Radar is drawn in.
+                if hosts.shows(place)
+                    && previous
+                        .as_ref()
+                        .is_some_and(|previous| sketch.draws_alike(previous, cell))
+                {
+                    continue;
+                }
                 hosts
-                    .at(SketchHosts::place(cell))?
+                    .at(place)?
                     .picture(cell, |ratio| sketch.draw(cell, ratio))?;
             }
         }
-        slot.1 = sketch.cloned();
+        if raise {
+            hosts.raise_all();
+        }
+        *last = sketch.cloned();
         Ok(())
     })
 }
@@ -778,12 +808,23 @@ fn render_sketch(sketch: Option<&crate::scan_sketch::Sketch>) -> Result<(), Stri
 struct SketchHosts {
     shown: Vec<((i64, i64), Host)>,
     spare: Vec<Host>,
+    /// What the scan host last presented under the sketch.
+    under: Vec<crate::scanning::PaintedRect>,
 }
 impl SketchHosts {
     const fn new() -> Self {
         Self {
             shown: Vec::new(),
             spare: Vec::new(),
+            under: Vec::new(),
+        }
+    }
+    fn shows(&self, place: (i64, i64)) -> bool {
+        self.shown.iter().any(|(p, _)| *p == place)
+    }
+    fn raise_all(&self) {
+        for (_, host) in &self.shown {
+            host.raise();
         }
     }
     fn place(cell: crate::scanning::Rect) -> (i64, i64) {
@@ -803,6 +844,7 @@ impl SketchHosts {
         }
     }
     fn hide_all(&mut self) {
+        self.under.clear();
         self.retire(|_| false);
         for host in &mut self.spare {
             host.hide();
@@ -968,15 +1010,16 @@ fn render<A: Adapter>(
         .engine
         .as_ref()
         .map_or_else(Default::default, Session::frame);
+    let rectangles = frame.rectangles();
     HOST.with(|host| {
         if let Some(host) = host.borrow_mut().as_mut() {
-            host.render(&frame.rectangles())
+            host.render(&rectangles)
         } else {
             Ok(())
         }
     })?;
     render_tiles(&frame.tiles)?;
-    render_sketch(frame.sketch.as_ref())?;
+    render_sketch(frame.sketch.as_ref(), &rectangles)?;
     render_countdown(frame.countdown.as_ref())?;
     render_label(frame.label_for_prompt(prompt.is_some()))?;
     show_prompt(app, prompt)?;

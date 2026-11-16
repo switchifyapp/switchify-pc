@@ -362,8 +362,15 @@ impl Radar {
             });
         } else {
             let tip = self.at(self.distance);
-            if reach - self.distance > 0.5 {
-                shapes.push(Shape::Dotted { from: tip, to: end });
+            // The dots are counted from the centre, so they stay still as
+            // the tip passes over them instead of crawling along with it.
+            let spacing = crate::scan_sketch::dot_spacing(width);
+            let first = (self.distance / spacing).ceil() * spacing;
+            if reach - first > 0.5 {
+                shapes.push(Shape::Dotted {
+                    from: self.at(first),
+                    to: end,
+                });
             }
             if self.distance > 0.5 {
                 shapes.push(Shape::Line {
@@ -815,19 +822,28 @@ mod tests {
             "the beam starts at the centre, under the pointer, with the way ahead dotted"
         );
 
-        // It grows to the pointer, which is its tip.
-        r.distance = r.reach() / 2.0;
+        // It grows to the pointer, which is its tip. The way ahead starts
+        // at the next dot counted from the centre.
+        let spacing = crate::scan_sketch::dot_spacing(r.frame().sketch.unwrap().width);
+        r.distance = spacing * 10.5;
         let tip = r.at(r.distance);
         assert_eq!(
             shapes(&r.frame())[..2],
             [
-                Shape::Dotted { from: tip, to: end },
+                Shape::Dotted {
+                    from: r.at(spacing * 11.0),
+                    to: end
+                },
                 Shape::Line {
                     from: r.origin,
                     to: tip
                 },
             ]
         );
+        // Moving the tip by less than a dot leaves the dots where they are.
+        let dots = shapes(&r.frame())[0];
+        r.distance = spacing * 10.9;
+        assert_eq!(shapes(&r.frame())[0], dots, "the dots do not crawl");
         r.distance = r.reach();
         assert!(
             !shapes(&r.frame())

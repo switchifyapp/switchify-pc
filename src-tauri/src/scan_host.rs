@@ -285,6 +285,25 @@ mod platform {
             self.last_picture = Some((rect, pixels.take()));
             Ok(())
         }
+        /// Puts a shown picture back above overlay windows shown after it,
+        /// without moving or redrawing it.
+        pub fn raise(&self) {
+            if self.last_picture.is_some() {
+                if let Some(window) = self.windows.first() {
+                    unsafe {
+                        let _ = SetWindowPos(
+                            *window,
+                            Some(HWND_TOPMOST),
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                        );
+                    }
+                }
+            }
+        }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             self.ensure_windows(1)?;
             self.last_picture = None;
@@ -696,6 +715,15 @@ mod platform {
             self.last_picture = Some((rect, pixels.take()));
             Ok(())
         }
+        /// Puts a shown picture back above overlay panels ordered front after
+        /// it, without moving or redrawing it.
+        pub fn raise(&self) {
+            if self.last_picture.is_some() {
+                if let Some(panel) = self.panels.first() {
+                    panel.orderFrontRegardless();
+                }
+            }
+        }
         pub fn hide(&mut self) {
             self.last_title = None;
             self.last_picture = None;
@@ -1067,6 +1095,7 @@ mod platform {
         ) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
+        pub fn raise(&self) {}
         pub fn tile(&mut self, _: &crate::scanning::FrameTile) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }

@@ -12,6 +12,15 @@ use tiny_skia::{
 const EDGE: [u8; 3] = [10, 12, 18];
 /// Device pixels drawn beyond each side of a cell and then cropped away.
 const MARGIN: u32 = 4;
+/// Length of the near-invisible dash that round caps turn into a dot.
+const DOT_ON: f32 = 0.01;
+
+/// Distance from one dot to the next on a dotted line of solid-line width
+/// `width`. A dotted line starts with a dot, so a caller can keep its dots
+/// still while its start moves by starting it on a whole number of spacings.
+pub fn dot_spacing(width: f64) -> f64 {
+    width * 2.0 + f64::from(DOT_ON)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Shape {
@@ -211,7 +220,7 @@ impl Shape {
                 alpha: 210,
                 edge_alpha: 190,
                 // A dash too short to see, with round caps, is a dot.
-                dash: Some((0.01, w * 2.0)),
+                dash: Some((DOT_ON, dot_spacing(f64::from(w)) as f32 - DOT_ON)),
                 edge_width: w,
                 ..solid(segment(from, to)?, w * 0.6)
             },
@@ -260,6 +269,24 @@ impl Sketch {
         }
         cells
     }
+    /// The shapes whose ink can land in `cell`. A cell whose shapes, colour,
+    /// width and bounds are unchanged draws the same pixels.
+    pub fn touching(&self, cell: Rect) -> Vec<Shape> {
+        let pad = self.pad();
+        self.shapes
+            .iter()
+            .filter(|shape| shape.touches(cell, pad))
+            .copied()
+            .collect()
+    }
+    /// Whether `cell` draws the same pixels in this sketch as in `other`.
+    pub fn draws_alike(&self, other: &Self, cell: Rect) -> bool {
+        self.color == other.color
+            && self.width == other.width
+            && self.bounds == other.bounds
+            && self.cell == other.cell
+            && self.touching(cell) == other.touching(cell)
+    }
     /// One cell's pixels, premultiplied RGBA, at `ratio` device pixels per
     /// display unit.
     pub fn draw(&self, cell: Rect, ratio: f64) -> Result<Pixmap, String> {
@@ -277,11 +304,9 @@ impl Sketch {
         let transform = Transform::from_translate(MARGIN as f32, MARGIN as f32)
             .pre_scale(ratio as f32, ratio as f32)
             .pre_translate(-cell.x as f32, -cell.y as f32);
-        let pad = self.pad();
         let styles: Vec<Style> = self
-            .shapes
+            .touching(cell)
             .iter()
-            .filter(|shape| shape.touches(cell, pad))
             .filter_map(|shape| shape.style(self.color, self.width))
             .collect();
         // Every dark edge goes down first, so a line meeting a ring reads as
@@ -345,6 +370,41 @@ mod tests {
             width: 4.0,
             bounds: DISPLAY,
             cell: 100.0,
+        }
+    }
+
+    #[test]
+    fn only_cells_a_moving_line_passes_through_draw_differently() {
+        let side = Shape::Divider {
+            from: (DISPLAY.x, DISPLAY.y + 50.0),
+            to: (DISPLAY.x + DISPLAY.width, DISPLAY.y + 50.0),
+        };
+        let beam = |to: (f64, f64)| Shape::Line {
+            from: (DISPLAY.x + 50.0, DISPLAY.y + 350.0),
+            to,
+        };
+        let before = sketch(vec![side, beam((DISPLAY.x + 50.0, DISPLAY.y + 250.0))]);
+        let after = sketch(vec![side, beam((DISPLAY.x + 50.0, DISPLAY.y + 260.0))]);
+        let cell = |column: f64, row: f64| Rect {
+            x: DISPLAY.x + column * 100.0,
+            y: DISPLAY.y + row * 100.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        assert!(after.draws_alike(&before, cell(3.0, 0.0)), "the side alone");
+        assert!(
+            !after.draws_alike(&before, cell(0.0, 2.0)),
+            "the beam's tip"
+        );
+        let recoloured = Sketch {
+            color: [255, 0, 0],
+            ..before.clone()
+        };
+        assert!(!recoloured.draws_alike(&before, cell(3.0, 0.0)));
+        for c in after.cells() {
+            if after.draws_alike(&before, c) {
+                assert_eq!(after.draw(c, 2.0), before.draw(c, 2.0));
+            }
         }
     }
 
