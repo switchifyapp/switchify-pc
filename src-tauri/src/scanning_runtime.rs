@@ -566,6 +566,16 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         reset_scanner_for_capture::<A>(app, "Switch capture stopped.", true);
         return;
     }
+    if action == Action::ToggleMouseBlocks {
+        // A saved preference, not a scan step: the scan keeps its place and
+        // the next tick reads the new movement into an open mouse panel.
+        let model = app.state::<crate::state::AppModel>();
+        match model.toggle_mouse_movement() {
+            Ok(_) => crate::state::emit_state(app, &model.shared),
+            Err(_) => eprintln!("Switchify could not save the mouse movement."),
+        }
+        return;
+    }
     if matches!(action, Action::Cancel | Action::Stop) {
         // Escape resets the scan; the next tick re-arms the keys.
         disable::<A>(app, "Escape pressed. Scanning reset.");

@@ -32,12 +32,13 @@ Each key belongs to one switch, but several switches can run the same action.
 
 ## Choose what a press does
 
-The action list is split under four headings, so related actions sit together. Give the switch one of these actions for a **press and release**:
+The action list is split under headings, so related actions sit together. Give the switch one of these actions for a **press and release**:
 
 - **Scanning**
   - **Select** chooses the highlighted item. Automatic scanning needs one switch set to Select.
   - **Next** and **Previous** step through items. Manual scanning needs Select, Next and Previous.
   - **Reverse direction**, **Pause / resume**, **Stop scanning**.
+- **Mouse**: **Move in blocks on / off** turns the mouse panel's [Move in blocks](/using/mouse-panel/#move-in-blocks) on or off.
 - **Open a panel**: **Keyboard**, **Point** or **Mouse** jumps straight to that mode.
 - **Open a menu**: a built-in menu, such as **Home** or **Editing**. **Scanning settings** opens the Scanning menu.
 - **My panels**: your saved custom panels. This heading appears once you have saved one.
