@@ -584,6 +584,17 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         reset_scanner_for_capture::<A>(app, "Switch capture stopped.", true);
         return;
     }
+    // The gestures keep a press action whose switch also has a panel on
+    // hold, so a click arriving now still yields to the countdown.
+    let counting_down = c
+        .data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .engine
+        .as_ref()
+        .is_some_and(|engine| engine.technique.auto_selecting());
+    let runs_now = A::immediate_selection(&action).is_some();
+    let action = during_countdown(action, runs_now, counting_down);
     if action == Action::ToggleMouseBlocks {
         // A saved preference, not a scan step: the scan keeps its place and
         // the next tick reads the new movement into an open mouse panel.
@@ -709,6 +720,15 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
         disable::<A>(app, &error);
     } else {
         publish::<A>(app);
+    }
+}
+/// During an Auto select countdown every switch opens the action menu, so a
+/// click that would run outside the scan becomes Select there.
+fn during_countdown(action: Action, immediate: bool, counting_down: bool) -> Action {
+    if immediate && counting_down {
+        Action::Select
+    } else {
+        action
     }
 }
 /// Runs a request outside the scan: the technique is neither told nor moved,
@@ -1997,6 +2017,23 @@ mod repeat_stop_tests {
         assert!(!stop.held());
     }
 
+    #[test]
+    fn a_switch_click_yields_to_an_auto_select_countdown() {
+        use super::during_countdown;
+        assert_eq!(
+            during_countdown(Action::ClickAtPointer, true, true),
+            Action::Select
+        );
+        assert_eq!(
+            during_countdown(Action::ClickAtPointer, true, false),
+            Action::ClickAtPointer
+        );
+        assert_eq!(
+            during_countdown(Action::OpenKeyboard, false, true),
+            Action::OpenKeyboard
+        );
+        assert_eq!(during_countdown(Action::Next, false, true), Action::Next);
+    }
     #[test]
     fn ending_repeat_while_held_still_consumes_pending_releases() {
         // Settings, a failure or a display change can end the technique's
