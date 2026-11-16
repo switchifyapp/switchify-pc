@@ -31,6 +31,16 @@ pub trait Adapter: Send + Sync + 'static {
     fn carry_over(_previous: &Self::Technique, _next: &mut Self::Technique) {}
     /// Carries state the runtime owns, such as the saved mode, into settings saved by the UI.
     fn keep_runtime_config(_next: &mut Self::Config, _current: &Self::Config) {}
+    /// Applies a switch action that only flips a saved scanning setting, such as
+    /// Auto select on / off, to the config and the running technique. Returns
+    /// whether the action was one; the runtime then saves the config.
+    fn apply_setting_action(
+        _action: &Action,
+        _config: &mut Self::Config,
+        _technique: Option<&mut Self::Technique>,
+    ) -> bool {
+        false
+    }
     /// Saves local, unsynced state an action changed, such as the panel position.
     fn remember(_app: &AppHandle, _technique: &mut Self::Technique) {}
     fn cursor_action_feedback(
@@ -575,6 +585,29 @@ fn switch<A: Adapter>(app: &AppHandle, action: Action, input_generation: u64, re
             Err(_) => eprintln!("Switchify could not save the mouse movement."),
         }
         return;
+    }
+    {
+        let mut d = c.data.lock().unwrap_or_else(|p| p.into_inner());
+        let Data { config, engine, .. } = &mut *d;
+        let mut next = config.clone();
+        if A::apply_setting_action(
+            &action,
+            &mut next,
+            engine.as_mut().map(|e| &mut e.technique),
+        ) {
+            // Like the saved mode, the change holds in memory if the file
+            // cannot be written, and the next save persists it.
+            if config_path::<A>(app)
+                .and_then(|path| write_config(&path, &next))
+                .is_err()
+            {
+                eprintln!("Switchify could not save the scanning settings.");
+            }
+            *config = next;
+            drop(d);
+            publish::<A>(app);
+            return;
+        }
     }
     if matches!(action, Action::Cancel | Action::Stop) {
         // Escape resets the scan; the next tick re-arms the keys.

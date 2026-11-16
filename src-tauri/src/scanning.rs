@@ -21,6 +21,8 @@ pub enum Action {
     OpenCustomPanel(String),
     /// Flips the mouse panel's Move in blocks setting. Techniques never see it.
     ToggleMouseBlocks,
+    /// Flips point scanning's Auto select. Techniques never see it.
+    ToggleAutoSelect,
 }
 impl Action {
     pub fn opens_panel(&self) -> bool {
@@ -56,6 +58,7 @@ impl Action {
             Self::Stop => "Stop scanning",
             Self::Cancel => "Disable scanning",
             Self::ToggleMouseBlocks => "Move in blocks on / off",
+            Self::ToggleAutoSelect => "Auto select on / off",
         }
     }
 }

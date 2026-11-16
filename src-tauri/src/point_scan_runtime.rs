@@ -186,6 +186,20 @@ impl Adapter for PointScan {
             }
         }
     }
+    fn apply_setting_action(
+        action: &crate::scanning::Action,
+        config: &mut Config,
+        technique: Option<&mut Workflow>,
+    ) -> bool {
+        if *action != crate::scanning::Action::ToggleAutoSelect {
+            return false;
+        }
+        config.auto_select_enabled = !config.auto_select_enabled;
+        if let Some(technique) = technique {
+            technique.set_auto_select(config.auto_select_enabled);
+        }
+        true
+    }
     fn carry_over(previous: &Workflow, next: &mut Workflow) {
         next.resume_from(previous);
     }
@@ -665,6 +679,46 @@ mod tests {
         assert_eq!(restored.speed, 4);
     }
 
+    #[test]
+    fn the_auto_select_action_flips_only_that_setting() {
+        use crate::scanning::Action;
+        let before = Config {
+            speed: 3,
+            ..Config::default()
+        };
+        let mut config = before.clone();
+        assert!(!PointScan::apply_setting_action(
+            &Action::Next,
+            &mut config,
+            None
+        ));
+        assert!(!PointScan::apply_setting_action(
+            &Action::ToggleMouseBlocks,
+            &mut config,
+            None
+        ));
+        assert!(PointScan::apply_setting_action(
+            &Action::ToggleAutoSelect,
+            &mut config,
+            None
+        ));
+        assert!(config.auto_select_enabled);
+        let restored: Config =
+            serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
+        assert_eq!(
+            restored,
+            Config {
+                auto_select_enabled: true,
+                ..before.clone()
+            }
+        );
+        assert!(PointScan::apply_setting_action(
+            &Action::ToggleAutoSelect,
+            &mut config,
+            None
+        ));
+        assert_eq!(config, before);
+    }
     #[test]
     fn settings_saves_keep_the_runtime_mode() {
         let current = Config {

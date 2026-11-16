@@ -355,7 +355,8 @@ impl Engine {
             | Action::OpenMouse
             | Action::OpenMenu(_)
             | Action::OpenCustomPanel(_)
-            | Action::ToggleMouseBlocks => {}
+            | Action::ToggleMouseBlocks
+            | Action::ToggleAutoSelect => {}
         }
         None
     }

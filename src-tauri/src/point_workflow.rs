@@ -604,6 +604,15 @@ impl Workflow {
     /// Whether the arrows glide or jump a block, and how big a block is.
     /// A change ends a move in flight, as other mouse settings do; a scroll
     /// carries on.
+    /// Takes a new Auto select setting without moving the scan. A countdown
+    /// already under way gives way to the action menu when it is turned off.
+    pub fn set_auto_select(&mut self, enabled: bool) {
+        self.point.config.auto_select_enabled = enabled;
+        if !enabled && self.stage == Stage::Countdown {
+            self.elapsed = 0;
+            self.open(Kind::Actions);
+        }
+    }
     pub fn set_mouse_movement(
         &mut self,
         movement: crate::mouse_repeat::MouseMovement,
@@ -3746,6 +3755,45 @@ mod tests {
                 assert_eq!(s.technique.phase(), mouse);
             }
         }
+    }
+    #[test]
+    fn turning_auto_select_off_mid_countdown_opens_the_action_menu() {
+        let config = Config {
+            auto_select_enabled: true,
+            auto_select_delay_ms: 500,
+            ..last_mode()
+        };
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+        for _ in 0..3 {
+            s.action(Action::Select);
+        }
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::AutoSelecting)
+        );
+        s.technique.set_auto_select(false);
+        assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+        // No click follows once the countdown would have ended.
+        for _ in 0..30 {
+            s.tick(33, false);
+            assert!(!matches!(s.take_selection(), Some(Request::Click { .. })));
+        }
+        // Turned back on, the next chosen point counts down again.
+        s.technique.set_auto_select(true);
+        s.action(Action::Cancel);
+        for _ in 0..3 {
+            s.action(Action::Select);
+        }
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::AutoSelecting)
+        );
     }
     #[test]
     fn the_next_point_scan_starts_by_itself_where_the_user_chose_to() {
