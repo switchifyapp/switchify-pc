@@ -48,7 +48,7 @@ export function PointerSection({ settings, update, children, title = "Movement",
       <div className="block-movement" data-setting="move-in-blocks">
         <Toggle label="Move in blocks" checked={settings.mouseMovement === "blocks"} onChange={(value) => update("mouseMovement", value ? "blocks" : "smooth")} />
         <p className="setting-note">The mouse panel's arrows jump the pointer a block at a time instead of gliding. You can also switch this with the Blocks tile on the panel's Speed and more page.</p>
-        {settings.mouseMovement === "blocks" && <OptionGroup<AppSettings["mouseBlockSize"]> legend="Block size" columns="three" disabled={false} options={blockSizeOptions} value={settings.mouseBlockSize} onChange={(next) => update("mouseBlockSize", next)} />}
+        <OptionGroup<AppSettings["mouseBlockSize"]> legend="Block size" columns="three" disabled={false} options={blockSizeOptions} value={settings.mouseBlockSize} onChange={(next) => update("mouseBlockSize", next)} />
       </div>
       <div className="repeat-settings" data-setting="repeat">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
