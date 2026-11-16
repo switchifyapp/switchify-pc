@@ -14,7 +14,9 @@ import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitche
 import {
   actionLabel,
   actions,
-  panelMenus,
+  menuPickerNames,
+  panelActions,
+  scanningActions,
   retiredMenus,
   menuName,
   type Binding,
@@ -66,21 +68,29 @@ function ActionSelect({
   value: SwitchAction;
   onChange: (value: SwitchAction) => void;
 }) {
+  const missingPanel = typeof value !== "string" && "openCustomPanel" in value && !panels.some((p) => p.id === value.openCustomPanel);
   return (
     <Select
       aria-label={label}
       value={typeof value === "string" ? value : JSON.stringify(value)}
       onChange={(e) => onChange((e.target.value.startsWith("{") ? JSON.parse(e.target.value) : e.target.value) as SwitchAction)}
     >
-      {Object.entries(actions).map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-      {Object.entries(panelMenus).map(([menu, name]) => <option key={menu} value={JSON.stringify({ openMenu: menu })}>Open {name}</option>)}
-      {typeof value !== "string" && "openMenu" in value && value.openMenu in retiredMenus && <option value={JSON.stringify(value)}>Open {menuName(value.openMenu)}</option>}
-      {panels.map((panel) => <option key={panel.id} value={JSON.stringify({ openCustomPanel: panel.id })}>Open {panel.name}</option>)}
-      {typeof value !== "string" && "openCustomPanel" in value && !panels.some((p) => p.id === value.openCustomPanel) && <option value={JSON.stringify(value)}>Custom panel unavailable</option>}
+      <optgroup label="Scanning">
+        {scanningActions.map((action) => <option key={action} value={action}>{actions[action]}</option>)}
+      </optgroup>
+      <optgroup label="Open a panel">
+        {Object.entries(panelActions).map(([action, name]) => <option key={action} value={action}>{name}</option>)}
+      </optgroup>
+      <optgroup label="Open a menu">
+        {Object.entries(menuPickerNames).map(([menu, name]) => <option key={menu} value={JSON.stringify({ openMenu: menu })}>{name}</option>)}
+        {typeof value !== "string" && "openMenu" in value && value.openMenu in retiredMenus && <option value={JSON.stringify(value)}>{menuName(value.openMenu)}</option>}
+      </optgroup>
+      {(panels.length > 0 || missingPanel) && (
+        <optgroup label="My panels">
+          {panels.map((panel) => <option key={panel.id} value={JSON.stringify({ openCustomPanel: panel.id })}>{panel.name}</option>)}
+          {missingPanel && <option value={JSON.stringify(value)}>Custom panel unavailable</option>}
+        </optgroup>
+      )}
     </Select>
   );
 }
