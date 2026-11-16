@@ -279,13 +279,60 @@ it("keeps a switch's Auto select change when an unsaved form retries", async () 
   await screen.findByText("Disk is full.");
   const event = mocks.listen.mock.calls[0][1];
   act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
-  // An event that does not change Auto select leaves the unsaved form alone.
-  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
+  // Anything else the event carries leaves the unsaved form alone.
+  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true, speed: 4 } } }));
   fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
   await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
     config: { ...initial.config, mode: "grid", autoSelectEnabled: true },
   }));
   await screen.findByText("Saved automatically.");
+});
+
+it("sends a switch's Auto select change with a save queued behind another", async () => {
+  let resolveFirst!: (value: PointScanState) => void;
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  mocks.invoke.mockImplementationOnce(
+    () => new Promise<PointScanState>((resolve) => { resolveFirst = resolve; }),
+  );
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
+  fireEvent.click(screen.getByRole("button", { name: "Grid then line" }));
+  await waitFor(() => expect(resolveFirst).toBeTypeOf("function"));
+  fireEvent.change(screen.getByLabelText("Grid size"), { target: { value: "7" } });
+  const event = mocks.listen.mock.calls[0][1];
+  act(() => event({ payload: { ...initial, config: { ...initial.config, autoSelectEnabled: true } } }));
+  await act(async () => resolveFirst({ ...initial, config: { ...initial.config, mode: "grid" } }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...initial.config, mode: "grid", gridSize: 7, autoSelectEnabled: true },
+  }));
+});
+
+it("does not take its own save's echo for a switch's Auto select change", async () => {
+  let resolveFirst!: (value: PointScanState) => void;
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  mocks.invoke.mockImplementationOnce(
+    () => new Promise<PointScanState>((resolve) => { resolveFirst = resolve; }),
+  );
+  more();
+  fireEvent.click(screen.getByRole("button", { name: "Customise point scanning" }));
+  fireEvent.click(screen.getByRole("button", { name: "Click options" }));
+  const toggle = screen.getByRole("checkbox", { name: "Auto select" });
+  fireEvent.click(toggle);
+  await waitFor(() => expect(resolveFirst).toBeTypeOf("function"));
+  mocks.invoke.mockRejectedValueOnce("Disk is full.");
+  fireEvent.click(toggle);
+  const echo = { ...initial, config: { ...initial.config, autoSelectEnabled: true } };
+  const event = mocks.listen.mock.calls[0][1];
+  act(() => event({ payload: echo }));
+  await act(async () => resolveFirst(echo));
+  await screen.findByText("Disk is full.");
+  expect(screen.getByRole("checkbox", { name: "Auto select" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: { ...initial.config, autoSelectEnabled: false },
+  }));
 });
 
 it("saves auto selection separately from scan movement and validates its delay", async () => {
