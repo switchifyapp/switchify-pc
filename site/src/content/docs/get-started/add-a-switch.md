@@ -32,7 +32,7 @@ Each key belongs to one switch, but several switches can run the same action.
 
 ## Choose what a press does
 
-The action list is split under four headings, so related actions sit together. Give the switch one of these actions for a **press and release**:
+The action list is split under headings, so related actions sit together. Give the switch one of these actions for a **press and release**:
 
 - **Scanning**
   - **Select** chooses the highlighted item. Automatic scanning needs one switch set to Select.
