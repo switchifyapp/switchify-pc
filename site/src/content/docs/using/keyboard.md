@@ -5,7 +5,7 @@ description: Switchify PC's own scanning keyboard, with three layouts, modifier 
 
 Switchify PC has its own on-screen keyboard that scans with your switches. It is not the operating system's on-screen keyboard, it never takes focus, and it does not accept mouse clicks.
 
-Open it from [Home](/using/home-menu/), from the point scan action menu, from the mouse panel, or with a switch set to **Open keyboard**. The text goes wherever the cursor already is.
+Open it from [Home](/using/home-menu/), from the point scan action menu, from the mouse panel, or with a switch set to **Keyboard** under **Open a panel**. The text goes wherever the cursor already is.
 
 ## Typing
 
