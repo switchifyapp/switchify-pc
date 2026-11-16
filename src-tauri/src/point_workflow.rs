@@ -2193,6 +2193,9 @@ impl Technique for Workflow {
             tile.color = frame.color;
             tile.thickness = preferences.thickness;
         }
+        if let Some(sketch) = &mut frame.sketch {
+            sketch.color = frame.color.rgb();
+        }
         frame
     }
 }
@@ -2238,6 +2241,18 @@ fn crosshair(point: Point, screen: Rect, s: f64) -> Vec<Rect> {
 mod tests {
     use super::*;
     use crate::{point_scan::Config, scanning::Session};
+
+    /// The area Radar highlights. Its fill sits just inside, under the rounded outline.
+    fn radar_highlight(frame: &Frame) -> Rect {
+        let fill = frame.fills[0];
+        let by = frame.sketch.as_ref().unwrap().width * 1.5;
+        Rect {
+            x: fill.x - by,
+            y: fill.y - by,
+            width: fill.width + by * 2.0,
+            height: fill.height + by * 2.0,
+        }
+    }
 
     /// Select starts the last mode, as these scans were written for.
     fn last_mode() -> Config {
@@ -3124,14 +3139,14 @@ mod tests {
         let frame = workflow.frame();
         assert_eq!(frame.color, crate::scanning::ScannerColor::Yellow);
         assert!(frame.tiles.is_empty(), "the panel is hidden");
-        assert_eq!(frame.label.unwrap().text, "Radar · Select an area");
+        assert_eq!(frame.label.as_ref().unwrap().text, "Radar · Select an area");
         assert_eq!(
-            frame.fills,
-            [Rect {
+            radar_highlight(&frame),
+            Rect {
                 width: 640.0,
                 height: 360.0,
                 ..screen
-            }],
+            },
             "the top left quarter is highlighted first"
         );
         // A pointer moving the panel out of its way does not move the radar.
@@ -3203,10 +3218,13 @@ mod tests {
         assert_eq!(workflow.handle(Action::OpenMouse), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
         let frame = workflow.frame();
-        assert_eq!(frame.label.unwrap().text, "Radar · Select an area");
+        assert_eq!(frame.label.as_ref().unwrap().text, "Radar · Select an area");
         // On the display the pointer moved to, from the top left quarter again.
         assert_eq!(
-            (frame.fills[0].x, frame.fills[0].width),
+            {
+                let highlight = radar_highlight(&frame);
+                (highlight.x, highlight.width)
+            },
             (1280.0, 640.0),
             "areas are highlighted from the start"
         );
@@ -3237,15 +3255,16 @@ mod tests {
         workflow.mouse_key(Key::Radar);
         let frame = workflow.frame();
         assert_eq!(
-            frame.fills,
-            [Rect {
+            radar_highlight(&frame),
+            Rect {
                 width: 1280.0,
                 height: 720.0,
                 ..left
-            }]
+            }
         );
-        assert!(frame
-            .grid
+        let cells = frame.sketch.as_ref().unwrap().cells();
+        assert!(!cells.is_empty());
+        assert!(cells
             .iter()
             .all(|rect| rect.x >= left.x && rect.x + rect.width <= left.x + left.width));
 
@@ -3292,14 +3311,14 @@ mod tests {
         assert_eq!(s.action(Action::OpenMouse), None);
         assert!(!s.paused());
         assert!(s.active());
-        let first = s.frame().fills;
-        assert_eq!(first[0].x, 0.0, "the top left quarter is highlighted");
+        let first = radar_highlight(&s.frame());
+        assert_eq!(first.x, 0.0, "the top left quarter is highlighted");
         for _ in 0..10 {
             s.tick(100, false);
         }
-        let next = s.frame().fills;
+        let next = radar_highlight(&s.frame());
         assert_eq!(
-            (next[0].x, next[0].y),
+            (next.x, next.y),
             (640.0, 0.0),
             "the highlight moves on to the top right quarter"
         );

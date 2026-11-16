@@ -46,8 +46,8 @@ Every scanning panel has a slim bar along its top, with the Switchify PC name on
 
 Radar sits in the middle of the panel's arrows and reaches any point in three presses:
 
-1. The display is divided into quarters. They highlight in turn, then the whole display. Press Select to choose one; the pointer moves to its centre.
-2. A dotted beam sweeps clockwise round that centre. Press Select to fix the direction.
-3. The beam grows out along that direction towards the edge of the area, and the pointer travels with its tip so you can see what it is over. Press Select to leave the pointer there.
+1. Dashed lines divide the display into quarters. They highlight in turn with a rounded outline, then the whole display. Press Select to choose one; the pointer moves to its centre.
+2. A coloured line sweeps clockwise from a ring at that centre. It has a dark edge so it shows on light and dark windows, and it gets thicker or thinner with the mouse panel's **Highlight thickness**. Press Select to fix the direction.
+3. The line grows out along that direction towards the edge of the area, and the pointer travels with its tip so you can see what it is over. A faint dotted line shows how much further it can go. Press Select to leave the pointer there.
 
 The panel then comes back. A drag in progress stays held, so Radar can drop something a long way away.

@@ -190,6 +190,8 @@ pub struct Frame {
     pub tiles: Vec<FrameTile>,
     pub label: Option<FrameLabel>,
     pub countdown: Option<Countdown>,
+    /// Smooth lines and outlines drawn over everything but the label.
+    pub sketch: Option<crate::scan_sketch::Sketch>,
 }
 impl Frame {
     pub fn rectangles(&self) -> Vec<PaintedRect> {

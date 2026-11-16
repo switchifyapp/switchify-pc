@@ -136,6 +136,8 @@ mod platform {
     pub struct Host {
         windows: Vec<HWND>,
         last_rects: Vec<crate::scanning::PaintedRect>,
+        /// The last bitmap shown by `picture`, so an unchanged one is not sent again.
+        last_picture: Option<(Rect, Vec<u8>)>,
         /// The host shows a menu bar, so it takes mouse clicks instead of passing them through.
         clickable: bool,
     }
@@ -144,6 +146,7 @@ mod platform {
             Ok(Self {
                 windows: vec![],
                 last_rects: vec![],
+                last_picture: None,
                 clickable: false,
             })
         }
@@ -202,6 +205,7 @@ mod platform {
             if self.last_rects == rects {
                 return Ok(());
             }
+            self.last_picture = None;
             self.ensure_windows(rects.len())?;
             unsafe {
                 for (index, window) in self.windows.iter().enumerate() {
@@ -226,6 +230,7 @@ mod platform {
         }
         pub fn prompt(&mut self, text: &str, rect: Rect, scale: f64) -> Result<(), String> {
             self.ensure_windows(1)?;
+            self.last_picture = None;
             crate::modifier_overlay::windows_backend::present_scan_prompt(
                 self.windows[0],
                 text,
@@ -250,9 +255,25 @@ mod platform {
             }
         }
         pub fn countdown(&mut self, countdown: &crate::scanning::Countdown) -> Result<(), String> {
+            self.picture(countdown.rect(), |ratio| countdown.bitmap(ratio))
+        }
+        /// Shows a bitmap at `rect`. `draw` gets the device pixels per display
+        /// unit, which on Windows is always one.
+        pub fn picture(
+            &mut self,
+            rect: Rect,
+            draw: impl FnOnce(f64) -> Result<tiny_skia::Pixmap, String>,
+        ) -> Result<(), String> {
             self.ensure_windows(1)?;
-            let rect = countdown.rect();
-            let pixels = countdown.bitmap(1.0)?;
+            let pixels = draw(1.0)?;
+            if self
+                .last_picture
+                .as_ref()
+                .is_some_and(|(old, data)| *old == rect && data == pixels.data())
+            {
+                return Ok(());
+            }
+            self.last_picture = None;
             crate::overlay::platform::present_rgba(
                 self.windows[0],
                 rect.x.round() as i32,
@@ -260,15 +281,38 @@ mod platform {
                 pixels.width() as i32,
                 pixels.height() as i32,
                 pixels.data(),
-            )
+            )?;
+            self.last_picture = Some((rect, pixels.take()));
+            Ok(())
+        }
+        /// Puts a shown picture back above overlay windows shown after it,
+        /// without moving or redrawing it.
+        pub fn raise(&self) {
+            if self.last_picture.is_some() {
+                if let Some(window) = self.windows.first() {
+                    unsafe {
+                        let _ = SetWindowPos(
+                            *window,
+                            Some(HWND_TOPMOST),
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                        );
+                    }
+                }
+            }
         }
         pub fn tile(&mut self, tile: &crate::scanning::FrameTile) -> Result<(), String> {
             self.ensure_windows(1)?;
+            self.last_picture = None;
             self.set_clickable(tile.is_menu_bar());
             crate::modifier_overlay::windows_backend::present_scan_tile(self.windows[0], tile)
         }
         pub fn hide(&mut self) {
             self.last_rects.clear();
+            self.last_picture = None;
             if self.clickable {
                 crate::scan_menu_bar::cancelled();
             }
@@ -450,7 +494,9 @@ mod platform {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     pub struct Host {
         panels: Vec<Retained<NSPanel>>,
-        countdown_view: Option<Retained<objc2_app_kit::NSImageView>>,
+        image_view: Option<Retained<objc2_app_kit::NSImageView>>,
+        /// The last bitmap shown by `picture`, so an unchanged one is not sent again.
+        last_picture: Option<(Rect, Vec<u8>)>,
         last_rects: Vec<crate::scanning::PaintedRect>,
         last_title: Option<(String, Rect, f64, Option<Rect>)>,
         title: Option<(
@@ -462,7 +508,8 @@ mod platform {
         pub fn new() -> Result<Self, String> {
             Ok(Self {
                 panels: vec![],
-                countdown_view: None,
+                image_view: None,
+                last_picture: None,
                 last_rects: vec![],
                 title: None,
                 last_title: None,
@@ -472,6 +519,8 @@ mod platform {
             let mtm =
                 MainThreadMarker::new().ok_or("Point scan requires the AppKit main thread.")?;
             if self.last_rects != rects {
+                // The panel moves, so a picture skipped as unchanged would be in the wrong place.
+                self.last_picture = None;
                 let screens = NSScreen::screens(mtm);
                 let primary = screens
                     .firstObject()
@@ -612,36 +661,72 @@ mod platform {
             self.text_panel(text, rect, scale, None)
         }
         pub fn countdown(&mut self, countdown: &crate::scanning::Countdown) -> Result<(), String> {
+            self.picture(countdown.rect(), |ratio| countdown.bitmap(ratio))
+        }
+        /// Shows a bitmap at `rect`. `draw` gets the device pixels per point
+        /// of the display the panel is on.
+        pub fn picture(
+            &mut self,
+            rect: Rect,
+            draw: impl FnOnce(f64) -> Result<tiny_skia::Pixmap, String>,
+        ) -> Result<(), String> {
             use objc2_app_kit::NSImageView;
-            let mtm = MainThreadMarker::new().ok_or("Countdown requires the main thread.")?;
-            let rect = countdown.rect();
-            self.render(&[crate::scanning::PaintedRect {
-                rect,
-                color: [0, 0, 0],
-                opacity: 0,
-                role: crate::scanning::VisualRole::Accent,
-            }])?;
+            let mtm = MainThreadMarker::new().ok_or("Overlay drawing requires the main thread.")?;
+            // A picture already showing at this rect needs no move or reorder;
+            // `hide` forgets it, so a hidden panel is always shown again.
+            if self.last_picture.as_ref().map(|(old, _)| *old) != Some(rect) {
+                self.render(&[crate::scanning::PaintedRect {
+                    rect,
+                    color: [0, 0, 0],
+                    opacity: 0,
+                    role: crate::scanning::VisualRole::Accent,
+                }])?;
+            }
             let ratio = self.panels[0].backingScaleFactor();
-            let pixels = countdown.bitmap(ratio)?;
-            let image = crate::overlay::platform::image_from_rgba(
+            let pixels = draw(ratio)?;
+            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
+            if self.image_view.is_none() {
+                let view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+                self.image_view = Some(view);
+            }
+            let view = self.image_view.clone().unwrap();
+            let shown = self.panels[0].contentView().as_deref() == Some(view.as_ref());
+            if shown
+                && self
+                    .last_picture
+                    .as_ref()
+                    .is_some_and(|(old, data)| *old == rect && data == pixels.data())
+            {
+                return Ok(());
+            }
+            self.last_picture = None;
+            let image = crate::overlay::platform::image_from_rgba_rect(
                 pixels.data(),
                 pixels.width() as usize,
                 pixels.height() as usize,
                 rect.width,
+                rect.height,
             )?;
-            let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(rect.width, rect.height));
-            if self.countdown_view.is_none() {
-                let view = NSImageView::initWithFrame(NSImageView::alloc(mtm), bounds);
+            if !shown {
                 self.panels[0].setContentView(Some(&view));
-                self.countdown_view = Some(view);
             }
-            let view = self.countdown_view.as_ref().unwrap();
             view.setFrame(bounds);
             view.setImage(Some(&image));
+            self.last_picture = Some((rect, pixels.take()));
             Ok(())
+        }
+        /// Puts a shown picture back above overlay panels ordered front after
+        /// it, without moving or redrawing it.
+        pub fn raise(&self) {
+            if self.last_picture.is_some() {
+                if let Some(panel) = self.panels.first() {
+                    panel.orderFrontRegardless();
+                }
+            }
         }
         pub fn hide(&mut self) {
             self.last_title = None;
+            self.last_picture = None;
             self.last_rects.clear();
             for panel in &self.panels {
                 panel.orderOut(None);
@@ -1003,6 +1088,14 @@ mod platform {
         pub fn countdown(&mut self, _: &crate::scanning::Countdown) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
+        pub fn picture(
+            &mut self,
+            _: Rect,
+            _: impl FnOnce(f64) -> Result<tiny_skia::Pixmap, String>,
+        ) -> Result<(), String> {
+            Err("Scanning is unavailable.".into())
+        }
+        pub fn raise(&self) {}
         pub fn tile(&mut self, _: &crate::scanning::FrameTile) -> Result<(), String> {
             Err("Scanning is unavailable.".into())
         }
