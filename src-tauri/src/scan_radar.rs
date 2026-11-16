@@ -3,8 +3,8 @@
 //! and the pointer follows a marker out along it to the area's edge. Pure
 //! geometry; no OS input: it only says where the pointer should go.
 use crate::{
-    point_scan::outline,
     scan_preferences::{Direction, Resolved},
+    scan_sketch::{Shape, Sketch},
     scanning::{Action, Frame, FrameLabel, HudPresentation, Rect},
 };
 use std::f64::consts::TAU;
@@ -14,9 +14,9 @@ const SWEEP_RADIUS: f64 = 300.0;
 /// Manual steps, in degrees and logical pixels.
 const ANGLE_STEP: f64 = 5.0;
 const DISTANCE_STEP: f64 = 20.0;
-/// The beam is drawn as separate squares, each its own native strip.
-const MAX_DOTS: usize = 32;
-const DOT_SPACING: f64 = 16.0;
+/// The drawing is cut into squares this many logical pixels wide, so a
+/// turning beam only redraws the squares it passes through.
+const CELL: f64 = 160.0;
 /// Top left, top right, bottom left, bottom right, then the whole display.
 const AREAS: usize = 5;
 const WHOLE: usize = AREAS - 1;
@@ -51,6 +51,16 @@ fn area(screen: Rect, index: usize) -> Rect {
         y,
         width,
         height,
+    }
+}
+
+fn inset(rect: Rect, by: f64) -> Rect {
+    let by = by.min(rect.width / 2.0).min(rect.height / 2.0);
+    Rect {
+        x: rect.x + by,
+        y: rect.y + by,
+        width: rect.width - by * 2.0,
+        height: rect.height - by * 2.0,
     }
 }
 
@@ -293,73 +303,101 @@ impl Radar {
             false
         }
     }
-    fn square(&self, (x, y): (f64, f64), size: f64) -> Rect {
-        Rect {
-            x: x - size / 2.0,
-            y: y - size / 2.0,
-            width: size,
-            height: size,
-        }
+    /// The dashed sides of `rect`, showing how far the marker can go.
+    fn sides(rect: Rect) -> [Shape; 4] {
+        let (l, t) = (rect.x, rect.y);
+        let (r, b) = (rect.x + rect.width, rect.y + rect.height);
+        [
+            ((l, t), (r, t)),
+            ((r, t), (r, b)),
+            ((r, b), (l, b)),
+            ((l, b), (l, t)),
+        ]
+        .map(|(from, to)| Shape::Divider { from, to })
     }
-    /// The display split into quarters, like point scanning's grid, with the
-    /// highlighted area filled and outlined.
-    fn area_frame(&self, t: f64) -> Frame {
+    /// Dashed lines split the display into quarters, and the highlighted
+    /// area is filled and outlined with rounded corners.
+    fn area_shapes(&self, width: f64, fills: &mut Vec<Rect>) -> Vec<Shape> {
         let s = self.screen;
         let quarter = area(s, 0);
-        let mut grid = outline(s, t).to_vec();
-        grid.push(Rect {
-            x: (s.x + quarter.width - t / 2.0).max(s.x),
-            width: t,
-            ..s
-        });
-        grid.push(Rect {
-            y: (s.y + quarter.height - t / 2.0).max(s.y),
-            height: t,
-            ..s
-        });
-        let highlighted = area(s, self.index);
-        Frame {
-            fills: vec![highlighted],
-            grid,
-            strips: outline(highlighted, t * 2.0).to_vec(),
-            ..Frame::default()
-        }
+        let (x, y) = (s.x + quarter.width, s.y + quarter.height);
+        let highlighted = inset(area(s, self.index), width * 1.5);
+        fills.push(highlighted);
+        vec![
+            Shape::Divider {
+                from: (x, s.y),
+                to: (x, s.y + s.height),
+            },
+            Shape::Divider {
+                from: (s.x, y),
+                to: (s.x + s.width, y),
+            },
+            Shape::Outline {
+                rect: highlighted,
+                radius: width * 2.0,
+            },
+        ]
     }
-    fn beam(&self, t: f64) -> Vec<Rect> {
-        let reach = self.reach();
-        let dots = ((reach / (DOT_SPACING * self.units)).ceil() as usize).clamp(1, MAX_DOTS);
-        let spacing = reach / dots as f64;
+    /// A solid line from a ring at the centre. While the direction is chosen
+    /// it reaches the edge of the area and ends in a dot. While the distance
+    /// is chosen it stops at the pointer, which is its tip, and the rest of
+    /// the way is dotted.
+    fn beam_shapes(&self, width: f64) -> Vec<Shape> {
         // A chosen quarter stays outlined, showing how far the marker can go.
-        let mut strips = if self.area == self.screen {
+        let mut shapes = if self.area == self.screen {
             vec![]
         } else {
-            outline(self.area, t).to_vec()
+            Self::sides(self.area).to_vec()
         };
-        strips.push(self.square(self.origin, t * 4.0));
+        let reach = self.reach();
+        let end = self.at(reach);
         if self.phase == Phase::Angle {
-            strips
-                .extend((1..=dots).map(|dot| self.square(self.at(spacing * dot as f64), t * 2.0)));
+            shapes.push(Shape::Line {
+                from: self.origin,
+                to: end,
+            });
+            shapes.push(Shape::Dot {
+                centre: end,
+                radius: width * 1.25,
+            });
         } else {
-            // The beam grows out from the centre to the pointer, which is its tip.
-            strips.extend(
-                (1..=dots)
-                    .map(|dot| spacing * dot as f64)
-                    // Leave room so no dot sits under the pointer.
-                    .take_while(|&along| along < self.distance - spacing / 2.0)
-                    .map(|along| self.square(self.at(along), t * 2.0)),
-            );
+            let tip = self.at(self.distance);
+            if reach - self.distance > 0.5 {
+                shapes.push(Shape::Dotted { from: tip, to: end });
+            }
+            if self.distance > 0.5 {
+                shapes.push(Shape::Line {
+                    from: self.origin,
+                    to: tip,
+                });
+            }
         }
-        strips
+        shapes.push(Shape::Ring {
+            centre: self.origin,
+            radius: width * 2.25,
+        });
+        shapes
     }
     pub fn frame(&self) -> Frame {
         let t = 2.0 * self.units * self.options.thickness.scale();
-        let mut frame = if self.phase == Phase::Area {
-            self.area_frame(t)
+        let width = t * 3.0;
+        let mut fills = vec![];
+        let shapes = if self.phase == Phase::Area {
+            self.area_shapes(width, &mut fills)
         } else {
-            Frame {
-                strips: self.beam(t),
-                ..Frame::default()
-            }
+            self.beam_shapes(width)
+        };
+        let mut frame = Frame {
+            fills,
+            sketch: Some(Sketch {
+                shapes,
+                // The scan workflow sets the cursor overlay's colour.
+                color: [255, 255, 255],
+                width,
+                bounds: self.screen,
+                cell: CELL * self.units,
+            }),
+            ..Frame::default()
         };
         let width = (480.0 * self.units).min(self.screen.width);
         frame.label = Some(FrameLabel {
@@ -689,27 +727,41 @@ mod tests {
         assert!(r.distance < r.reach());
     }
 
+    fn shapes(frame: &Frame) -> &[Shape] {
+        &frame.sketch.as_ref().expect("radar draws a sketch").shapes
+    }
+
     #[test]
     fn choosing_an_area_draws_the_quarters_and_highlights_one() {
         let mut r = Radar::new(Resolved::default(), 2, SCALED, 1.5);
         let frame = r.frame();
         assert_eq!(frame.label.as_ref().unwrap().text, "Radar · Select an area");
-        assert_eq!(frame.fills, [area(SCALED, 0)]);
-        assert_eq!(frame.strips.len(), 4, "the highlight is outlined");
-        assert_eq!(
-            frame.grid.len(),
-            6,
-            "the display edges and the cross between quarters"
-        );
-        for rect in frame.grid.iter().chain(&frame.strips) {
-            assert!(rect.x >= SCALED.x && rect.y >= SCALED.y);
-            assert!(rect.x + rect.width <= SCALED.x + SCALED.width + 1e-9);
-            assert!(rect.y + rect.height <= SCALED.y + SCALED.height + 1e-9);
-        }
+        assert!(frame.strips.is_empty() && frame.grid.is_empty());
+        let sketch = frame.sketch.as_ref().unwrap();
+        assert_eq!(sketch.bounds, SCALED);
+        let dividers = |frame: &Frame| {
+            shapes(frame)
+                .iter()
+                .filter(|s| matches!(s, Shape::Divider { .. }))
+                .count()
+        };
+        assert_eq!(dividers(&frame), 2, "the cross between quarters");
+        // The highlight is filled and outlined just inside its quarter.
+        let quarter = area(SCALED, 0);
+        let [fill] = frame.fills[..] else {
+            panic!("one highlighted area")
+        };
+        assert!(fill.x > quarter.x && fill.y > quarter.y);
+        assert!(fill.x + fill.width < quarter.x + quarter.width);
+        assert!(fill.y + fill.height < quarter.y + quarter.height);
+        assert!(shapes(&frame)
+            .iter()
+            .any(|s| matches!(s, Shape::Outline { rect, .. } if *rect == fill)));
         for _ in 0..4 {
             r.handle(Action::Next);
         }
-        assert_eq!(r.frame().fills, [SCALED]);
+        let whole = r.frame().fills[0];
+        assert!(whole.width > SCALED.width * 0.95 && whole.height > SCALED.height * 0.95);
     }
 
     #[test]
@@ -717,44 +769,88 @@ mod tests {
         let mut r = chosen(SCREEN, 1.0, 4);
         r.angle = TAU / 8.0;
         let frame = r.frame();
-        assert!(frame.strips.len() <= MAX_DOTS + 1);
-        assert!(frame.fills.is_empty() && frame.grid.is_empty());
+        assert!(frame.fills.is_empty() && frame.grid.is_empty() && frame.strips.is_empty());
         assert_eq!(
             frame.label.as_ref().unwrap().text,
             "Radar · Select a direction"
         );
-        let full = frame.strips.len();
+        let end = r.at(r.reach());
+        // A line from the centre to the edge, a dot at the end and a ring
+        // around the centre.
+        assert_eq!(
+            shapes(&frame),
+            [
+                Shape::Line {
+                    from: r.origin,
+                    to: end
+                },
+                Shape::Dot {
+                    centre: end,
+                    radius: 7.5
+                },
+                Shape::Ring {
+                    centre: r.origin,
+                    radius: 13.5
+                },
+            ]
+        );
         r.handle(Action::Select);
         let frame = r.frame();
         assert_eq!(
-            frame.strips.len(),
-            1,
-            "the beam starts as the origin, under the pointer"
+            frame.label.as_ref().unwrap().text,
+            "Radar · Select a distance"
         );
-        assert!(frame.fills.is_empty());
-        assert_eq!(frame.label.unwrap().text, "Radar · Select a distance");
-
-        // It grows with the distance up to the pointer, which is its tip,
-        // and draws no marker of its own there.
-        r.distance = r.reach() / 2.0;
-        let half = r.frame();
-        assert!(half.strips.len() > 2 && half.strips.len() < full);
-        let (x, y) = r.target();
-        for dot in &half.strips {
-            let gap = (dot.x + dot.width / 2.0 - f64::from(x))
-                .hypot(dot.y + dot.height / 2.0 - f64::from(y));
-            assert!(gap > dot.width, "nothing is drawn under the pointer");
-        }
-        r.distance = r.reach();
         assert_eq!(
-            r.frame().strips.len(),
-            full - 1,
-            "the full beam stops short of the pointer at its tip"
+            shapes(&frame),
+            [
+                Shape::Dotted {
+                    from: r.origin,
+                    to: end
+                },
+                Shape::Ring {
+                    centre: r.origin,
+                    radius: 13.5
+                },
+            ],
+            "the beam starts at the centre, under the pointer, with the way ahead dotted"
         );
-        for rect in &r.frame().strips {
-            assert!(rect.x + rect.width / 2.0 >= SCREEN.x - 1e-6);
-            assert!(rect.y + rect.height / 2.0 >= SCREEN.y - 1e-6);
+
+        // It grows to the pointer, which is its tip.
+        r.distance = r.reach() / 2.0;
+        let tip = r.at(r.distance);
+        assert_eq!(
+            shapes(&r.frame())[..2],
+            [
+                Shape::Dotted { from: tip, to: end },
+                Shape::Line {
+                    from: r.origin,
+                    to: tip
+                },
+            ]
+        );
+        r.distance = r.reach();
+        assert!(
+            !shapes(&r.frame())
+                .iter()
+                .any(|s| matches!(s, Shape::Dotted { .. })),
+            "nothing is left to go"
+        );
+        for cell in r.frame().sketch.unwrap().cells() {
+            assert!(cell.x >= SCREEN.x && cell.y >= SCREEN.y);
+            assert!(cell.x + cell.width <= SCREEN.x + SCREEN.width + 1e-9);
+            assert!(cell.y + cell.height <= SCREEN.y + SCREEN.height + 1e-9);
         }
+    }
+
+    #[test]
+    fn the_beam_follows_the_thickness_setting() {
+        let thick = Resolved {
+            thickness: crate::scan_preferences::Thickness::Thick,
+            ..Resolved::default()
+        };
+        let mut r = Radar::new(thick, 2, SCALED, 1.5);
+        r.handle(Action::Select);
+        assert_eq!(r.frame().sketch.unwrap().width, 2.0 * 1.5 * 2.0 * 3.0);
     }
 
     #[test]
@@ -805,7 +901,10 @@ mod tests {
     fn a_chosen_quarter_stays_outlined_around_the_beam() {
         let r = chosen(SCREEN, 1.0, 3);
         let frame = r.frame();
-        assert_eq!(&frame.strips[..4], &outline(area(SCREEN, 3), 2.0));
-        assert!(frame.strips.len() <= MAX_DOTS + 5);
+        assert_eq!(shapes(&frame)[..4], Radar::sides(area(SCREEN, 3)));
+        let whole = chosen(SCREEN, 1.0, 4);
+        assert!(!shapes(&whole.frame())
+            .iter()
+            .any(|s| matches!(s, Shape::Divider { .. })));
     }
 }

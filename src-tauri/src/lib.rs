@@ -51,6 +51,7 @@ mod scan_mouse;
 mod scan_panel;
 mod scan_preferences;
 mod scan_radar;
+mod scan_sketch;
 mod scan_tile;
 mod scan_tree;
 mod scanning;

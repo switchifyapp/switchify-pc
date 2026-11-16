@@ -78,7 +78,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
-thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(TileHosts,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((NO_TILE_HOSTS,vec![]))};}
+thread_local! {static COUNTDOWN: RefCell<(Option<Host>, Option<crate::scanning::Countdown>)> = const { RefCell::new((None, None)) }; static HOST:RefCell<Option<Host>>=const{RefCell::new(None)}; static PROMPT:RefCell<Option<Host>>=const{RefCell::new(None)}; static LABEL:RefCell<Option<Host>>=const{RefCell::new(None)}; static TILES:RefCell<(TileHosts,Vec<crate::scanning::FrameTile>)>=const{RefCell::new((NO_TILE_HOSTS,vec![]))}; static SKETCH: RefCell<(Vec<Host>, Option<crate::scan_sketch::Sketch>)> = const { RefCell::new((Vec::new(), None)) };}
 // macOS shows every tile in one panel, so each frame reaches the screen at
 // once rather than one key window at a time. Other platforms give each tile
 // its own window.
@@ -750,6 +750,30 @@ fn render_countdown(countdown: Option<&crate::scanning::Countdown>) -> Result<()
     })
 }
 
+/// Shows each cell of the sketch in a window of its own and hides the rest.
+fn render_sketch(sketch: Option<&crate::scan_sketch::Sketch>) -> Result<(), String> {
+    SKETCH.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.1.as_ref() == sketch {
+            return Ok(());
+        }
+        let cells = sketch.map_or_else(Vec::new, crate::scan_sketch::Sketch::cells);
+        while slot.0.len() < cells.len() {
+            slot.0.push(Host::new()?);
+        }
+        for (index, host) in slot.0.iter_mut().enumerate() {
+            match (sketch, cells.get(index)) {
+                (Some(sketch), Some(&cell)) => {
+                    host.picture(cell, |ratio| sketch.draw(cell, ratio))?
+                }
+                _ => host.hide(),
+            }
+        }
+        slot.1 = sketch.cloned();
+        Ok(())
+    })
+}
+
 // Rendering can fail after a native window is shown but before its cache is
 // committed. Cleanup must never rely on that cache to decide whether to hide.
 fn clear_cached_visual<H, C: Default>(state: &mut (H, C), hide: impl FnOnce(&mut H)) {
@@ -775,6 +799,13 @@ fn hide_scan_visuals() {
     COUNTDOWN.with(|slot| {
         clear_cached_visual(&mut slot.borrow_mut(), |host| {
             if let Some(host) = host {
+                host.hide();
+            }
+        })
+    });
+    SKETCH.with(|slot| {
+        clear_cached_visual(&mut slot.borrow_mut(), |hosts| {
+            for host in hosts.iter_mut() {
                 host.hide();
             }
         })
@@ -901,6 +932,7 @@ fn render<A: Adapter>(
         }
     })?;
     render_tiles(&frame.tiles)?;
+    render_sketch(frame.sketch.as_ref())?;
     render_countdown(frame.countdown.as_ref())?;
     render_label(frame.label_for_prompt(prompt.is_some()))?;
     show_prompt(app, prompt)?;
