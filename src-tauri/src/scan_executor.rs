@@ -47,9 +47,10 @@ pub fn execute<I: InputInjector>(
                 Err("Mouse drag requires the scan controller.".into())
             }
         }
-        Request::MouseSpeed(_) | Request::MouseMonitor(..) | Request::MouseCycleDisplay(_) => {
-            Err("Mouse action requires the scan controller.".into())
-        }
+        Request::MouseSpeed(_)
+        | Request::MouseMovementToggle
+        | Request::MouseMonitor(..)
+        | Request::MouseCycleDisplay(_) => Err("Mouse action requires the scan controller.".into()),
         Request::Keyboard(stroke) => {
             if input.has_active_drag() {
                 return Err("End the active drag before typing.".into());

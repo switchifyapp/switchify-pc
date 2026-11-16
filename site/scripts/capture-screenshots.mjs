@@ -21,7 +21,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const bridge = (platform) => {
   const settings = {
     startWithSystem: false, pointerScalePercent: 100, mouseRepeatEnabled: true,
-    moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250, mouseRepeatAccelerationDurationMs: 1000,
+    moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250, mouseMovement: "smooth", mouseBlockSize: "medium", mouseRepeatAccelerationDurationMs: 1000,
     keyRepeatEnabled: true, keyRepeatIntervalMs: 250, keyRepeatInitialDelayMs: 500, scanKeyRepeatEnabled: false,
     dwellClickEnabled: false, dwellClickDelayMs: 1000, cursorOverlayEnabled: true, cursorOverlaySize: "medium",
     cursorOverlayColor: "red", cursorOverlayVisibility: "whileControlling", cursorCrosshairs: false,

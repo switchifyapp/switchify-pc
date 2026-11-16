@@ -62,6 +62,11 @@ pub struct AppSettings {
     pub mouse_repeat_enabled: bool,
     pub move_repeat_interval_ms: u32,
     pub scroll_repeat_interval_ms: u32,
+    /// Whether the scanned mouse panel's arrows glide or jump in blocks.
+    #[serde(default)]
+    pub mouse_movement: crate::mouse_repeat::MouseMovement,
+    #[serde(default)]
+    pub mouse_block_size: crate::mouse_repeat::BlockSize,
     #[serde(default = "default_mouse_repeat_acceleration")]
     pub mouse_repeat_acceleration_duration_ms: u32,
     #[serde(default = "default_key_repeat_enabled")]
@@ -99,6 +104,8 @@ impl Default for AppSettings {
             mouse_repeat_enabled: true,
             move_repeat_interval_ms: 250,
             scroll_repeat_interval_ms: 250,
+            mouse_movement: Default::default(),
+            mouse_block_size: Default::default(),
             mouse_repeat_acceleration_duration_ms: default_mouse_repeat_acceleration(),
             key_repeat_enabled: default_key_repeat_enabled(),
             key_repeat_interval_ms: default_key_repeat_interval(),
@@ -605,12 +612,29 @@ impl AppModel {
             .save(&self.persisted_state(Some(settings), consent, None))
     }
     pub fn apply_pointer_scale_percent(&self, scale_percent: u16) -> Result<(), String> {
+        self.apply_setting(|settings| settings.pointer_scale_percent = scale_percent)
+    }
+    /// Flips the mouse panel between smooth and block movement, as its
+    /// Blocks tile does, and returns the new choice.
+    pub fn toggle_mouse_movement(&self) -> Result<crate::mouse_repeat::MouseMovement, String> {
+        use crate::mouse_repeat::MouseMovement;
+        let mut next = MouseMovement::Smooth;
+        self.apply_setting(|settings| {
+            next = match settings.mouse_movement {
+                MouseMovement::Smooth => MouseMovement::Blocks,
+                MouseMovement::Blocks => MouseMovement::Smooth,
+            };
+            settings.mouse_movement = next;
+        })?;
+        Ok(next)
+    }
+    fn apply_setting(&self, change: impl FnOnce(&mut AppSettings)) -> Result<(), String> {
         let _transaction = self
             .persistence_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut settings = self.snapshot().settings;
-        settings.pointer_scale_percent = scale_percent;
+        change(&mut settings);
         let settings = settings.normalized()?;
         self.persist_settings_unlocked(&settings, None)?;
         self.shared
@@ -1282,6 +1306,38 @@ mod tests {
         assert!(state.settings.cursor_crosshairs);
         let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
         assert_eq!(restored.snapshot().settings, state.settings);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn the_blocks_tile_flips_and_persists_only_the_mouse_movement() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        let root =
+            std::env::temp_dir().join(format!("switchify-mouse-movement-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let mut settings = model.snapshot().settings;
+        settings.mouse_block_size = BlockSize::Large;
+        settings.cursor_crosshairs = true;
+        let consent = model.snapshot().telemetry.consent;
+        model
+            .apply_settings_with_telemetry(settings.clone(), consent)
+            .unwrap();
+
+        assert_eq!(model.toggle_mouse_movement(), Ok(MouseMovement::Blocks));
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path.clone()));
+        let saved = restored.snapshot().settings;
+        assert_eq!(saved.mouse_movement, MouseMovement::Blocks);
+        assert_eq!(
+            saved,
+            AppSettings {
+                mouse_movement: MouseMovement::Blocks,
+                ..settings.clone()
+            }
+        );
+
+        assert_eq!(model.toggle_mouse_movement(), Ok(MouseMovement::Smooth));
+        let restored = AppModel::with_storage_for_test(AppStorage::at(state_path));
+        assert_eq!(restored.snapshot().settings, settings);
         let _ = fs::remove_dir_all(root);
     }
     #[test]

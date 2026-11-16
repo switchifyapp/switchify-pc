@@ -302,6 +302,12 @@ impl Adapter for PointScan {
                 crate::state::emit_state(app, &model.shared);
                 return Ok(None);
             }
+            Request::MouseMovementToggle => {
+                let model = app.state::<crate::state::AppModel>();
+                model.toggle_mouse_movement()?;
+                crate::state::emit_state(app, &model.shared);
+                return Ok(None);
+            }
             Request::MouseMonitor(dx, dy) => {
                 let (cursor, displays) =
                     display_navigation::displays(app).map_err(|e| e.message)?;
@@ -399,6 +405,7 @@ impl Adapter for PointScan {
                     settings.scroll_repeat_interval_ms,
                     settings.mouse_repeat_enabled,
                 );
+                technique.set_mouse_movement(settings.mouse_movement, settings.mouse_block_size);
                 technique.set_cursor_color(crate::scanning::ScannerColor::from_cursor_overlay(
                     &settings.cursor_overlay_color,
                 ));

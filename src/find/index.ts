@@ -139,6 +139,8 @@ const catalogue = [
     value: (c) => c.config ? (c.config.panelAvoidsPointer ? "On" : "Off") : null, related: ["panel-size"] },
   { id: "pointer-speed", label: "Pointer speed", words: ["mouse", "cursor speed", "how far the pointer moves", "slow pointer", "fast pointer", "fine tune"], page: "scanning", section: "pointer",
     value: (c) => c.settings ? `Level ${speedLevelLabel(c.settings.pointerScalePercent)} of 10` : null, related: ["repeat", "radar"] },
+  { id: "move-in-blocks", label: "Move in blocks", words: ["block", "blocks", "block size", "move in steps", "big moves", "smooth movement"], page: "scanning", section: "pointer",
+    value: (c) => c.settings ? (c.settings.mouseMovement === "blocks" ? `On, ${c.settings.mouseBlockSize} blocks` : "Off") : null, related: ["pointer-speed", "repeat"] },
   { id: "repeat", label: "Repeat mouse movement and scrolling", words: ["keep moving", "scrolling", "hold to move", "repeat timing", "stop repeating", "release", "press", "acceleration"], page: "scanning", section: "pointer",
     value: (c) => c.settings && c.config ? (c.settings.mouseRepeatEnabled ? `On, every ${seconds(c.settings.moveRepeatIntervalMs)}, stops on switch ${c.config.mouseRepeatStopEdge}` : "Off") : null, related: ["pointer-speed", "hold-interval", "key-repeat"] },
   // Panels

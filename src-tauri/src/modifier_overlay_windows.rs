@@ -1037,11 +1037,14 @@ mod tests {
             let numbers_frame = page(crate::scan_keyboard::Page::Numbers);
             let symbols_frame = page(crate::scan_keyboard::Page::Symbols);
             keyboard.fixture_page(crate::scan_keyboard::Key::Dock);
+            let mouse_frame = mouse.frame(screen, 1.0, ScannerColor::default(), false);
+            // The Speed and more page, with Blocks on.
+            mouse.choose(crate::scan_mouse::Key::More);
+            mouse.blocks = true;
+            let mouse_more_frame = mouse.frame(screen, 1.0, ScannerColor::default(), false);
             for (name, frame) in [
-                (
-                    "mouse",
-                    mouse.frame(screen, 1.0, ScannerColor::default(), false),
-                ),
+                ("mouse", mouse_frame),
+                ("mouse-more", mouse_more_frame),
                 ("keyboard", keyboard_frame),
                 ("keyboard-predictions", predictions_frame),
                 ("keyboard-predictions-columns", columns_frame),
