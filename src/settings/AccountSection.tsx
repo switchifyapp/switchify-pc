@@ -244,7 +244,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
         </div>
       </form>
     </div>
-    <div className="status-list sync-card"><SyncDetails /></div>
+    <div className="status-list sync-card"><SyncDetails syncSwitches={settings?.syncSwitches ?? true} /></div>
   </div>;
 }
 

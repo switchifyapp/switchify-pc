@@ -139,6 +139,8 @@ pub trait Host: Send + Sync {
     /// settings the merge was computed from), returning the resulting local
     /// document, which can differ (e.g. profile versions). `Ok(None)` means
     /// the user changed something meanwhile; the sync re-reads and retries.
+    /// Switch sync is checked again at the moment of applying (see
+    /// `to_apply`), since it may have been turned off since the sync began.
     fn apply(
         &self,
         expected: Document,
@@ -258,6 +260,16 @@ fn with_switches_of(mut document: Document, from: &Document) -> Document {
     document.switches = from.switches.clone();
     document.remote_switches = from.remote_switches.clone();
     document
+}
+
+/// What applying `document` over `expected` writes, given whether switch
+/// sync is on right now: with it off, this install's switches stay.
+fn to_apply(document: Document, expected: &Document, sync_switches: bool) -> Document {
+    if sync_switches {
+        document
+    } else {
+        with_switches_of(document, expected)
+    }
 }
 
 /// Picks between this install's and the account's version of one value.
@@ -542,6 +554,9 @@ impl Engine {
                     self.record(&mut state, auth, row.revision, cloud.clone(), local)?;
                     true
                 }
+                // Switch sync was turned off since this attempt began, so the
+                // document may hold this computer's switches: start over.
+                Step::Create(_) | Step::Upload { .. } if self.turned_off(sync_switches) => false,
                 Step::Create(document) => {
                     match self
                         .remote
@@ -573,16 +588,16 @@ impl Engine {
                         return Err(TOO_MANY_PANELS.into());
                     }
                     // This computer's own switches stay as they are.
-                    let document = if sync_switches {
-                        document
-                    } else {
-                        with_switches_of(document, &own)
-                    };
+                    let document = to_apply(document, &own, sync_switches);
                     let applied = if document == own {
                         Some(own.clone())
                     } else {
                         self.host.apply(own.clone(), document).await?
                     };
+                    // Read again: switch sync may have been turned off during
+                    // the apply, and then this computer's switches must not
+                    // upload.
+                    let sync_switches = sync_switches && self.host.sync_switches();
                     let applied = applied.map(|applied| shared(&applied, sync_switches, cloud));
                     match applied {
                         // The user changed something meanwhile: start over.
@@ -616,6 +631,11 @@ impl Engine {
             // re-read and merge again.
         }
         Err("Settings changed on another computer at the same time. They will sync shortly.".into())
+    }
+
+    /// Whether switch sync was on (`was`) and has since been turned off.
+    fn turned_off(&self, was: bool) -> bool {
+        was && !self.host.sync_switches()
     }
 
     async fn upload(
@@ -921,7 +941,10 @@ impl Host for AppHost {
                     // so no edit can slip in between the check and the apply.
                     // The result is read here too, before any later command
                     // can change settings and have its edit taken as synced.
-                    let result = if Local::read(&handle).document() == expected {
+                    let current = Local::read(&handle);
+                    let result = if current.document() == expected {
+                        let document =
+                            to_apply(document, &expected, current.settings.sync_switches);
                         portable_settings::apply(&handle, document)
                             .map(|applied| Some((applied, Local::read(&handle).document())))
                     } else {
@@ -1180,6 +1203,8 @@ mod tests {
         /// before the next apply.
         edits: Mutex<VecDeque<Document>>,
         sync_switches: Mutex<bool>,
+        /// Turns switch sync off just before the next apply.
+        switch_sync_off_on_apply: Mutex<bool>,
     }
 
     impl FakeHost {
@@ -1193,6 +1218,7 @@ mod tests {
                 transform: Mutex::default(),
                 edits: Mutex::default(),
                 sync_switches: Mutex::new(true),
+                switch_sync_off_on_apply: Mutex::default(),
             }
         }
         fn local_now(&self) -> Document {
@@ -1222,9 +1248,13 @@ mod tests {
                 if let Some(edit) = self.edits.lock().unwrap().pop_front() {
                     self.set_local(edit);
                 }
+                if std::mem::take(&mut *self.switch_sync_off_on_apply.lock().unwrap()) {
+                    *self.sync_switches.lock().unwrap() = false;
+                }
                 if self.local_now() != expected {
                     return Ok(None);
                 }
+                let document = to_apply(document, &expected, self.sync_switches());
                 self.applied.lock().unwrap().push(document.clone());
                 // Profiles are stored the way the app stores them (version
                 // rules included), which is what can make computers drift.
@@ -1395,6 +1425,41 @@ mod tests {
         engine.sync(None).await;
         assert_eq!(remote.document(), Some(local.clone()));
         assert_eq!(host.local_now(), local);
+    }
+
+    #[tokio::test]
+    async fn turning_switch_sync_off_during_a_sync_keeps_and_never_uploads_switches() {
+        // Both sides changed since the last sync, so the merge applies the
+        // account's settings here and uploads the result.
+        let cloud = with_speed(with_switches(untouched(), 3000), 4);
+        let remote = Arc::new(FakeRemote::holding(&cloud, 5));
+        let host = Arc::new(FakeHost::new(with_dwell(
+            with_switches(untouched(), 2000),
+            true,
+        )));
+        host.state.lock().unwrap().base = Some(Base {
+            revision: 4,
+            ..base_of(&untouched())
+        });
+        *host.switch_sync_off_on_apply.lock().unwrap() = true;
+        let engine = engine(&remote, &host);
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        assert_eq!(
+            host.local_now(),
+            with_speed(with_dwell(with_switches(untouched(), 2000), true), 4)
+        );
+        assert_eq!(remote.document(), Some(with_dwell(cloud, true)));
+    }
+
+    #[tokio::test]
+    async fn turning_switch_sync_off_is_noticed_before_an_upload() {
+        let remote = Arc::new(FakeRemote::holding(&untouched(), 1));
+        let host = Arc::new(FakeHost::new(untouched()));
+        let engine = engine(&remote, &host);
+        assert!(!engine.turned_off(true));
+        *host.sync_switches.lock().unwrap() = false;
+        assert!(engine.turned_off(true));
+        assert!(!engine.turned_off(false));
     }
 
     #[tokio::test]

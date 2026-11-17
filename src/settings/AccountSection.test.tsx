@@ -334,4 +334,13 @@ describe("AccountSection", () => {
     expect(screen.queryByRole("checkbox", { name: "Sync switches" })).not.toBeInTheDocument();
   });
 
+  it("lists switches as staying here when signed out with switch sync off", async () => {
+    vi.spyOn(api, "account").mockResolvedValue(signedOut);
+    vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+    render(<AccountSection settings={{ ...browserState.settings, syncSwitches: false }} onSettingsChange={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(screen.queryByText(/your switches and their keys/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Your switches, their keys and timing, and remote switches;/)).toBeInTheDocument();
+  });
+
 });
