@@ -52,7 +52,9 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   const [requestedStep, setStep] = useState<Step>(() => inputAccessRequired ? "access" : "connect");
   // Permission can arrive while this guide is open. Move straight on without
   // losing saved choices.
-  const step = requestedStep === "access" && !inputAccessRequired ? "connect" : requestedStep;
+  // A step can also leave the list, such as the phone step when Bluetooth stops
+  // working; the guide then asks again how the person will connect.
+  const step = requestedStep === "access" && !inputAccessRequired ? "connect" : steps.includes(requestedStep) ? requestedStep : "connect";
   const index = steps.indexOf(step);
   useEffect(() => {
     if (!inputAccessRequired && requestedStep === "access") setStep("connect");

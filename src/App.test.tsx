@@ -642,6 +642,23 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" })).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("asks again how to connect when Bluetooth fails on the phone step", async () => {
+    browserState.bluetooth = "advertising";
+    let receive: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
+    act(() => receive?.({ ...structuredClone(browserState), bluetooth: "error" }));
+    expect(await screen.findByRole("dialog", { name: "How will you connect?" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Step 1 of/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" })).toBeDisabled();
+  });
+
   it("continues without pairing when the phone is set up later", async () => {
     browserState.bluetooth = "advertising";
     render(<App />);
