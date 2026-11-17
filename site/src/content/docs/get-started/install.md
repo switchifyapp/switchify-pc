@@ -62,7 +62,7 @@ The first time Switchify PC opens, a guide walks you through:
 
      ![The Connect your phone step, showing Ready to connect, the QR code for Switchify on Google Play and the three pairing steps.](../../../assets/screenshots/setup-connect-phone.png)
 
-4. **Scanning pace.** Choose how fast scanning moves: **Very slow** (2.5 seconds on each item), **Slow** (1.5 seconds), **Medium** (1 second, the usual pace) or **Fast** (0.7 seconds). A preview below the choices moves a highlight at the chosen pace; **Pause preview** stops it. Each pace also sets **Line speed** for Point scanning to the same level. Change either at any time in **Scanning**. This step is left out if you chose to connect a phone, because Switchify on Android has its own pace.
+4. **Scanning pace.** Choose how fast scanning moves: **Very slow** (2.5 seconds on each item), **Slow** (1.5 seconds), **Medium** (1 second, the usual pace) or **Fast** (0.7 seconds). A preview below the choices moves a highlight at the chosen pace; **Pause preview** stops it. Each pace also sets **Line speed** for Point scanning to the same level. Change either at any time in **Scanning**, where other timing settings, such as extra time on the first item, also apply. If the Home menu, Point scanning, the keyboard or the mouse panel has its own scan rate in Scanning, the step says so: a pace here does not change it. If your computer prefers reduced motion, the preview starts paused; choose **Play preview** to watch it. This step is left out if you chose to connect a phone, because Switchify on Android has its own pace.
 
    ![The Scanning pace step with Medium chosen, and a preview row of six numbered items with the first highlighted.](../../../assets/screenshots/setup-pace.png)
 
