@@ -628,6 +628,20 @@ describe("Switchify PC shell", () => {
     expect(within(screen.getByRole("dialog", { name: "Add your switch" })).getByText(/Mouse-click modes cannot be learned/)).toBeInTheDocument();
   });
 
+  it("drops a phone choice when Bluetooth stops being usable", async () => {
+    browserState.bluetooth = "advertising";
+    let receive: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    act(() => receive?.({ ...structuredClone(browserState), bluetooth: "error" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("continues without pairing when the phone is set up later", async () => {
     browserState.bluetooth = "advertising";
     render(<App />);

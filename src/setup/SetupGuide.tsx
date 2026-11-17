@@ -42,8 +42,10 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   const inputAccessRequired = needsInputAccess(state);
   const phoneUnavailable = bluetoothUnavailable(state.bluetooth);
   // Reopened after setup, the guide starts from what is already there.
-  const [connection, setConnection] = useState<Connection | null>(() =>
+  const [chosen, setConnection] = useState<Connection | null>(() =>
     switches.state?.settings.bindings.length ? "computer" : state.pairedDevices.length && !phoneUnavailable ? "phone" : null);
+  // A phone choice no longer counts once Bluetooth cannot be used.
+  const connection = chosen === "phone" && phoneUnavailable ? null : chosen;
   const savedSwitches = !!switches.state?.settings.bindings.length;
   useEffect(() => { if (savedSwitches) setConnection(current => current ?? "computer"); }, [savedSwitches]);
   const steps: Step[] = [...(inputAccessRequired ? ["access" as const] : []), "connect", connection === "phone" ? "phone" : "switch", "basics", "startup", "diagnostics"];
