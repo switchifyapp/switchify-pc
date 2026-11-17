@@ -23,7 +23,7 @@ Signing in is optional. It uses the same Switchify account as the Android app: e
 
 Each computer can have its own switch interface. If this computer uses a different one from your other computers, turn off **Sync switches** in the Settings sync card. This computer then keeps its own switches, their keys and timing, and its remote switch slots. It doesn't send them to your account, and switches from your other computers don't replace them. Everything else keeps syncing.
 
-**Sync switches** is on until you turn it off, and the choice applies only to this computer. If you turn it back on, this computer's switches sync again like any other change. Switches you changed while it was off replace the ones on your other computers that sync switches, unless those were also changed since the last sync. In that case the account's copy wins.
+**Sync switches** is on until you turn it off, and the choice applies only to this computer. If you turn it back on and this computer's switches differ from your account's, one set replaces the other. Usually this computer's switches go to your account and to your other computers that sync switches. If the account's switches changed since this computer last synced, the account's switches replace this computer's instead.
 
 Changes upload a few seconds after they settle. If two computers change the same thing, the account's copy wins, but an edit is never lost to a deletion. The first sync on a computer whose settings differ asks which to keep. Some updates change how settings are saved. After a computer with one of those updates saves a change to your account, computers on your account running an older version ask you to update Switchify PC before they sync again.
 
