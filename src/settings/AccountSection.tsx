@@ -7,8 +7,11 @@ import { Button, Input, StatusIcon } from "../ui/controls";
 import type { AccountView, AppSettings, SyncView } from "../types";
 import { Toggle } from "./controls";
 
-const syncs = "Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; remote switches; and your panels, including changes to the built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.";
+const panels = "and your panels, including changes to the built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.";
+const syncs = `Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; remote switches; ${panels}`;
+const syncsWithoutSwitches = `Pointer, repeat, dwell and cursor settings; scanning and keyboard layout; your switch profiles; ${panels}`;
 const staysHere = "Phone pairings, phone approval, diagnostics sharing, setup progress and starting with your computer.";
+const staysHereWithSwitches = "Your switches, their keys and timing, and remote switches; phone pairings, phone approval, diagnostics sharing, setup progress and starting with your computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";
@@ -33,11 +36,22 @@ function Band({ tone, ok, icon, title, children, action }: { tone: "ready" | "at
 
 // What sync carries and what stays put, read as two short rows under the
 // sync status so the explanation sits beside the control it explains.
-function SyncDetails() {
+function SyncDetails({ syncSwitches = true }: { syncSwitches?: boolean }) {
   return <dl className="sync-details">
-    <div><dt>Syncs</dt><dd>{syncs}</dd></div>
-    <div><dt>Stays on this computer</dt><dd>{staysHere}</dd></div>
+    <div><dt>Syncs</dt><dd>{syncSwitches ? syncs : syncsWithoutSwitches}</dd></div>
+    <div><dt>Stays on this computer</dt><dd>{syncSwitches ? staysHere : staysHereWithSwitches}</dd></div>
   </dl>;
+}
+
+/** Leaves this computer's switches out of sync, for a computer with its own switch interface. */
+function SyncSwitchesRow({ settings, onChange }: { settings: AppSettings; onChange: (next: AppSettings) => void }) {
+  const headingId = useId();
+  const noteId = useId();
+  return <article data-setting="sync-switches">
+    <StatusIcon><PageIcon page="switches" size={19} /></StatusIcon>
+    <div><h3 id={headingId}>Sync switches</h3><p id={noteId}>Turn this off if this computer uses a different switch interface from your other computers. Its switches stay as they are here and are not sent to your account.</p></div>
+    <Toggle labelledBy={headingId} describedBy={noteId} checked={settings.syncSwitches} onChange={(value) => onChange({ ...settings, syncSwitches: value })} />
+  </article>;
 }
 
 /** Approves pairing from phones that prove they are signed into this account. */
@@ -172,7 +186,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
         <p role="status">Signed in.</p>
         {errorAt("signOut")}
       </Band>
-      <div className="status-list sync-card"><SyncRow /><SyncDetails /></div>
+      <div className="status-list sync-card"><SyncRow />{settings && onSettingsChange && <SyncSwitchesRow settings={settings} onChange={onSettingsChange} />}<SyncDetails syncSwitches={settings?.syncSwitches ?? true} /></div>
       {settings && onSettingsChange && <div className="status-list"><AccountPairingRow settings={settings} onChange={onSettingsChange} /></div>}
       <section className="account-remove" aria-labelledby={removeHeadingId}>
         <h3 id={removeHeadingId}>Remove account</h3>
@@ -230,7 +244,7 @@ export function AccountSection({ settings, onSettingsChange }: { settings?: AppS
         </div>
       </form>
     </div>
-    <div className="status-list sync-card"><SyncDetails /></div>
+    <div className="status-list sync-card"><SyncDetails syncSwitches={settings?.syncSwitches ?? true} /></div>
   </div>;
 }
 

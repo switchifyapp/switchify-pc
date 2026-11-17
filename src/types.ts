@@ -43,6 +43,7 @@ export type AppSettings = {
   cursorCrosshairs: boolean;
   shareDiagnostics: boolean;
   autoApproveAccountDevices: boolean;
+  syncSwitches: boolean;
 };
 
 export type PlatformCapabilities = {

@@ -292,6 +292,25 @@ describe("AccountSection", () => {
     expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, autoApproveAccountDevices: false });
   });
 
+  it("lets a computer with its own switch interface keep its switches out of sync", async () => {
+    vi.spyOn(api, "account").mockResolvedValue(signedIn);
+    vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+    vi.spyOn(api, "settingsSync").mockResolvedValue({ status: "upToDate", lastSyncedAt: null, message: null });
+    vi.spyOn(api, "onSettingsSync").mockResolvedValue(() => undefined);
+    const onSettingsChange = vi.fn();
+    const { rerender } = render(<AccountSection settings={browserState.settings} onSettingsChange={onSettingsChange} />);
+    const toggle = await screen.findByRole("checkbox", { name: "Sync switches" });
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/different switch interface/);
+    expect(screen.getByText(/your switches and their keys/)).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(onSettingsChange).toHaveBeenCalledWith({ ...browserState.settings, syncSwitches: false });
+    rerender(<AccountSection settings={{ ...browserState.settings, syncSwitches: false }} onSettingsChange={onSettingsChange} />);
+    expect(screen.getByRole("checkbox", { name: "Sync switches" })).not.toBeChecked();
+    expect(screen.queryByText(/your switches and their keys/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Your switches, their keys and timing, and remote switches; phone pairings/)).toBeInTheDocument();
+  });
+
   it("lists what syncs and what stays on this computer, signed in or out", async () => {
     start(signedIn);
     await screen.findByRole("button", { name: "Sync now" });
@@ -312,6 +331,16 @@ describe("AccountSection", () => {
     render(<AccountSection settings={browserState.settings} onSettingsChange={vi.fn()} />);
     await screen.findByLabelText("Email");
     expect(screen.queryByRole("checkbox", { name: "Approve phones on this account automatically" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Sync switches" })).not.toBeInTheDocument();
+  });
+
+  it("lists switches as staying here when signed out with switch sync off", async () => {
+    vi.spyOn(api, "account").mockResolvedValue(signedOut);
+    vi.spyOn(api, "onAccount").mockResolvedValue(() => undefined);
+    render(<AccountSection settings={{ ...browserState.settings, syncSwitches: false }} onSettingsChange={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(screen.queryByText(/your switches and their keys/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Your switches, their keys and timing, and remote switches;/)).toBeInTheDocument();
   });
 
 });
