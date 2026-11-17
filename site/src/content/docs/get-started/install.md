@@ -16,6 +16,8 @@ Linux is not supported.
 
 Download the latest release from [GitHub releases](https://github.com/switchifyapp/switchify-pc/releases).
 
+Already installed? Update from **Settings**, **Updates**, **Check for updates**.
+
 - On Windows, run the installer. There are two, so pick the one for your PC's processor:
   - The file ending in `x64-setup.exe` is for PCs with an Intel or AMD processor. Most Windows PCs have one of these.
   - The file ending in `arm64-setup.exe` is for PCs with an ARM processor, such as Snapdragon.
