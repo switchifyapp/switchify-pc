@@ -24,10 +24,21 @@ describe("setup pace step", () => {
 
   it("shows a failed save with a way to retry", () => {
     const retry = vi.fn();
-    render(<PaceStep scanning={controller({}, { error: "Disk full", retry })} />);
+    render(<PaceStep scanning={controller({}, { error: "Disk full", unsaved: true, retry })} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Your pace was not saved. Disk full");
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     expect(retry).toHaveBeenCalled();
+  });
+
+  it("offers no retry for an error that left nothing unsaved", () => {
+    render(<PaceStep scanning={controller({}, { error: "Could not load scanning", unsaved: false })} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load scanning");
+    expect(screen.queryByRole("button", { name: "Retry save" })).not.toBeInTheDocument();
+  });
+
+  it("waits for a save in flight before retrying", () => {
+    render(<PaceStep scanning={controller({}, { error: "Disk full", unsaved: true, pending: 1 })} />);
+    expect(screen.getByRole("button", { name: "Retry save" })).toBeDisabled();
   });
 
   it("names the line speed when only it differs from a pace", () => {

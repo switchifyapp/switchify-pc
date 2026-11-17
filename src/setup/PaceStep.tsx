@@ -3,7 +3,7 @@ import { Pause, Play } from "lucide-react";
 import { Button } from "../ui/controls";
 import { FeedbackMessage } from "../ui/patterns";
 import { useReducedMotion } from "../help/Demonstration";
-import type { ScanningController } from "../scanning/useScanning";
+import { validSwitches, type ScanningController } from "../scanning/useScanning";
 import type { ScanArea } from "../scanning/preferences";
 
 /** A scan rate and line speed chosen together. Medium is the app's default pace. */
@@ -55,7 +55,9 @@ export function PaceStep({ scanning, suspended = false }: { scanning: ScanningCo
         <span><strong>{pace.label}</strong><small id={`${id}-${pace.id}`}>{seconds(pace.intervalMs)} on each item</small></span>
       </Button>)}
     </div>
-    {scanning.error && <FeedbackMessage className="switch-error"><span>Your pace was not saved. {scanning.error}</span><Button type="button" className="secondary" onClick={scanning.retry}>Retry save</Button></FeedbackMessage>}
+    {/* Only an unsaved change can be retried; a failed load has nothing of the person's to save. */}
+    {scanning.error && scanning.unsaved && <FeedbackMessage className="switch-error"><span>Your pace was not saved. {scanning.error}</span><Button type="button" className="secondary" disabled={!!scanning.pending || !validSwitches(scanning.config)} onClick={scanning.retry}>Retry save</Button></FeedbackMessage>}
+    {scanning.error && !scanning.unsaved && <FeedbackMessage>{scanning.error}</FeedbackMessage>}
     {supported && !current && <p className="setting-note">Your scanning uses its own pace: {seconds(blockIntervalMs)} on each item, with Line speed {lineSpeeds[speed] ?? speed}. Choose one of these to change it.</p>}
     {ownRates.length > 0 && <p className="setting-note">{list(ownRates.map(area => areaNames[area])).replace(/^./, c => c.toUpperCase())} {ownRates.length === 1 ? "keeps its" : "keep their"} own scan rate, which a pace here does not change. Change {ownRates.length === 1 ? "it" : "them"} in Scanning.</p>}
     <div className="setup-pace-preview">
@@ -63,7 +65,7 @@ export function PaceStep({ scanning, suspended = false }: { scanning: ScanningCo
         <h4>Preview</h4>
         <Button type="button" className="secondary" onClick={() => setPlaying(!playing)}>{playing ? <Pause size={16} /> : <Play size={16} />}{playing ? "Pause preview" : "Play preview"}</Button>
       </div>
-      <ul aria-label={`Preview: the highlight moves every ${seconds(blockIntervalMs)}`}>
+      <ul aria-label={`Preview: the highlight moves every ${seconds(blockIntervalMs)}${moving ? "" : ", paused"}`}>
         {Array.from({ length: previewItems }, (_, index) => <li key={index} data-selected={index === item}>{index + 1}</li>)}
       </ul>
       <p>The pace also sets Line speed, how fast lines cross the screen in Point scanning, to the same level.</p>
