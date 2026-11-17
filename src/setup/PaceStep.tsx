@@ -19,7 +19,7 @@ const lineSpeeds = ["Very slow", "Slow", "Medium", "Fast", "Very fast"];
 /** Scanners that can keep their own rate in Scanning, which a pace leaves alone. */
 const areaNames: Record<ScanArea, string> = { menu: "the Home menu", point: "Point scanning", keyboard: "the keyboard", mouse: "the mouse panel" };
 
-const previewItems = 6;
+const demoItems = 6;
 const seconds = (ms: number) => `${ms / 1000} s`;
 const list = (names: string[]) => names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
@@ -38,7 +38,7 @@ export function PaceStep({ scanning, suspended = false }: { scanning: ScanningCo
   const moving = playing && !suspended;
   useEffect(() => {
     if (!moving) return;
-    const timer = window.setInterval(() => setItem(index => (index + 1) % previewItems), blockIntervalMs);
+    const timer = window.setInterval(() => setItem(index => (index + 1) % demoItems), blockIntervalMs);
     return () => window.clearInterval(timer);
   }, [moving, blockIntervalMs]);
   const choose = (pace: typeof paces[number]) => {
@@ -60,13 +60,13 @@ export function PaceStep({ scanning, suspended = false }: { scanning: ScanningCo
     {scanning.error && !scanning.unsaved && <FeedbackMessage>{scanning.error}</FeedbackMessage>}
     {supported && !current && <p className="setting-note">Your scanning uses its own pace: {seconds(blockIntervalMs)} on each item, with Line speed {lineSpeeds[speed] ?? speed}. Choose one of these to change it.</p>}
     {ownRates.length > 0 && <p className="setting-note">{list(ownRates.map(area => areaNames[area])).replace(/^./, c => c.toUpperCase())} {ownRates.length === 1 ? "keeps its" : "keep their"} own scan rate, which a pace here does not change. Change {ownRates.length === 1 ? "it" : "them"} in Scanning.</p>}
-    <div className="setup-pace-preview">
-      <div className="setup-pace-preview-head">
-        <h4>Preview</h4>
-        <Button type="button" className="secondary" onClick={() => setPlaying(!playing)}>{playing ? <Pause size={16} /> : <Play size={16} />}{playing ? "Pause preview" : "Play preview"}</Button>
+    <div className="setup-pace-demo">
+      <div className="setup-pace-demo-head">
+        <h4>Demo</h4>
+        <Button type="button" className="secondary" onClick={() => setPlaying(!playing)}>{playing ? <Pause size={16} /> : <Play size={16} />}{playing ? "Pause demo" : "Play demo"}</Button>
       </div>
-      <ul aria-label={`Preview: the highlight moves every ${seconds(blockIntervalMs)}${moving ? "" : ", paused"}`}>
-        {Array.from({ length: previewItems }, (_, index) => <li key={index} data-selected={index === item}>{index + 1}</li>)}
+      <ul aria-label={`Demo: the highlight moves every ${seconds(blockIntervalMs)}${moving ? "" : ", paused"}`}>
+        {Array.from({ length: demoItems }, (_, index) => <li key={index} data-selected={index === item}>{index + 1}</li>)}
       </ul>
       <p>The pace also sets Line speed, how fast lines cross the screen in Point scanning, to the same level.</p>
     </div>

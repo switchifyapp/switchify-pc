@@ -577,8 +577,8 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Slow" }));
     expect(update).toHaveBeenCalledWith("blockIntervalMs", 1500);
     expect(update).toHaveBeenCalledWith("speed", 1);
-    fireEvent.click(screen.getByRole("button", { name: "Pause preview" }));
-    expect(screen.getByRole("button", { name: "Play preview" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause demo" }));
+    expect(screen.getByRole("button", { name: "Play demo" })).toBeInTheDocument();
   });
 
   it("says when scanning already uses a pace that is not listed", async () => {

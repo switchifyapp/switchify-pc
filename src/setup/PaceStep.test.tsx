@@ -54,13 +54,13 @@ describe("setup pace step", () => {
     expect(screen.getByText("Open the desktop app to use point scan.")).toBeInTheDocument();
   });
 
-  it("starts the preview paused when reduced motion is preferred", () => {
+  it("starts the demo paused when reduced motion is preferred", () => {
     reduceMotion(true);
     render(<PaceStep scanning={controller()} />);
-    expect(screen.getByRole("button", { name: "Play preview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play demo" })).toBeInTheDocument();
   });
 
-  it("holds the preview while the guide is suspended", () => {
+  it("holds the demo while the guide is suspended", () => {
     vi.useFakeTimers();
     const { rerender } = render(<PaceStep scanning={controller()} suspended />);
     const highlighted = () => screen.getAllByRole("listitem").findIndex((item) => item.dataset.selected === "true");

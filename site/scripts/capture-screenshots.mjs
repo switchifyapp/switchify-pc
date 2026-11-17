@@ -255,7 +255,7 @@ for (const platform of ["windows", "macos"]) {
     await fake(page, (s) => { window.__fake.switches.settings.bindings = [s]; window.__fake.pushSwitches(); }, headSwitch);
     await shot(page, "setup-add-switch-saved", ".setup-dialog");
     await click(page, "Next");
-    // Reduced motion is emulated, so the preview starts paused on the first item.
+    // Reduced motion is emulated, so the demo starts paused on the first item.
     await shot(page, "setup-pace", ".setup-dialog");
     await click(page, "Next");
     await click(page, "Next");
