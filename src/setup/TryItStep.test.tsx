@@ -64,6 +64,15 @@ describe("setup Try it step", () => {
     expect(screen.getByText("Practice ended. Choose Start practice to try again.")).toBeInTheDocument();
   });
 
+  it("says the scan stopped even after a missed choice", async () => {
+    step();
+    fireEvent.click(screen.getByRole("button", { name: "Start practice" }));
+    await screen.findByRole("list", { name: "Practice blocks" });
+    current = { ...view, lastChoice: "Block 2", completed: 1, stopped: true, message: "The highlight stopped after its passes, as the menu does. Use Select to start again.", blocks: blocks(0) } as typeof view;
+    expect(await screen.findByText(/The highlight stopped after its passes/)).toBeInTheDocument();
+    expect(screen.getByText("Highlighted: none")).toBeInTheDocument();
+  });
+
   it("ends practice when a pairing request suspends the guide", async () => {
     const { rerender } = step();
     fireEvent.click(screen.getByRole("button", { name: "Start practice" }));

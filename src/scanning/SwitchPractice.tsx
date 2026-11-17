@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { actionLabel, type SwitchAction } from "./useSwitches";
 
 type Block = { id: string; label: string; selected: boolean };
-export type PracticeView = { active: boolean; source: string; message: string; input: string; action: SwitchAction | null; completed: number; lastChoice?: string | null; automatic?: boolean; blocks: Block[] };
+export type PracticeView = { active: boolean; source: string; message: string; input: string; action: SwitchAction | null; completed: number; lastChoice?: string | null; automatic?: boolean; stopped?: boolean; blocks: Block[] };
 
 /** Whether this window can run practice, which needs the Tauri backend. */
 export const practiceAvailable = () => "__TAURI_INTERNALS__" in window;

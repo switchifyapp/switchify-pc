@@ -59,11 +59,10 @@ export function TryItStep({ hasSwitch, phone, automatic, escapeSeconds, suspende
           </li>)}
         </ul>
         <p aria-live="polite">Highlighted: {highlighted ?? "none"}</p>
-        <p role="status" aria-live="polite">{reached ? `You chose ${goalBlock}. Your switch is working.` : missed ? `You chose ${view?.lastChoice}. Press Select to try again for ${goalBlock}.` : view?.message ?? "Starting practice…"}</p>
+        <p role="status" aria-live="polite">{reached ? `You chose ${goalBlock}. Your switch is working.` : view?.stopped ? view.message : missed ? `You chose ${view?.lastChoice}. Press Select to try again for ${goalBlock}.` : view?.message ?? "Starting practice…"}</p>
         <Button ref={stopRef} type="button" className="secondary" disabled={pending} onClick={() => void close()}>Stop practice</Button>
       </div>}
-      {!open && succeeded && <p className="setup-try-done" role="status"><CircleCheck size={20} />You chose {goalBlock}. Your switch is working.</p>}
-      {!open && ended && !succeeded && <p role="status">Practice ended. Choose Start practice to try again.</p>}
+      {!open && <p className={succeeded ? "setup-try-done" : undefined} role="status">{succeeded ? <><CircleCheck size={20} aria-hidden="true" />You chose {goalBlock}. Your switch is working.</> : ended ? "Practice ended. Choose Start practice to try again." : null}</p>}
       {error && <FeedbackMessage>{error}</FeedbackMessage>}
     </>}
     <AfterSetup escapeSeconds={escapeSeconds} />

@@ -16,6 +16,9 @@ use tauri::{AppHandle, Manager};
 const PRACTICE_BLOCKS: [&str; 6] = [
     "Block 1", "Block 2", "Block 3", "Block 4", "Block 5", "Block 6",
 ];
+const STOPPED_MESSAGE: &str =
+    "The highlight stopped after its passes, as the menu does. Use Select to start again.";
+
 /// Used when the scanning settings cannot be read, as before practice followed them.
 const PRACTICE_INTERVAL_MS: u64 = 1000;
 
@@ -42,6 +45,8 @@ pub struct View {
     pub last_choice: Option<String>,
     /// Whether the highlight moves by itself.
     pub automatic: bool,
+    /// The scan ran out of passes and waits for Select, as the menu does.
+    pub stopped: bool,
     pub blocks: Vec<BlockView>,
 }
 #[derive(Clone, Serialize)]
@@ -161,6 +166,7 @@ impl Practice {
     }
     fn sync_blocks(&mut self) {
         let scanning = self.engine.active();
+        self.view.stopped = scanning && self.engine.technique.stopped();
         self.view.blocks = self.engine.technique.views(scanning);
     }
     fn edge(&mut self, id: &str, pressed: bool, now: u64) {
@@ -197,6 +203,13 @@ impl Practice {
             return;
         }
         let was_idle = !self.engine.active();
+        let was_stopped = self.engine.active() && self.engine.technique.stopped();
+        if was_stopped && matches!(action, Action::Next | Action::Back) {
+            // A stopped scan does not move; only Select starts it again.
+            self.view.message = STOPPED_MESSAGE.into();
+            self.sync_blocks();
+            return;
+        }
         if let Some(block) = self.engine.action(action.clone()) {
             self.complete(&block);
         } else if was_idle && matches!(action, Action::Next | Action::Back) {
@@ -218,9 +231,7 @@ impl Practice {
     }
     fn note_stopped(&mut self, was_stopped: bool) {
         if !was_stopped && self.engine.active() && self.engine.technique.stopped() {
-            self.view.message =
-                "The highlight stopped after its passes, as the menu does. Use Select to start again."
-                    .into();
+            self.view.message = STOPPED_MESSAGE.into();
         }
     }
     fn complete(&mut self, block: &Block) {
@@ -549,9 +560,15 @@ mod tests {
         assert!(p.engine.technique.stopped());
         assert!(p.view.blocks.iter().all(|b| !b.selected));
         assert!(p.view.message.contains("Use Select to start again"));
+        assert!(p.view.stopped);
+        // Next does not pretend to move a stopped scan.
+        p.action(Action::Next);
+        assert!(p.view.message.contains("Use Select to start again"));
+        assert!(p.view.blocks.iter().all(|b| !b.selected));
         // Select starts the scan again rather than choosing an unseen block.
         p.action(Action::Select);
         assert!(p.view.last_choice.is_none());
+        assert!(!p.view.stopped);
         assert_eq!(p.view.blocks.iter().filter(|b| b.selected).count(), 1);
     }
     #[test]
