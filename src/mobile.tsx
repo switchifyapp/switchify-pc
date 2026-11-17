@@ -27,13 +27,15 @@ export function bluetoothUnavailable(bluetooth: AppState["bluetooth"]) {
 }
 
 /** Getting Switchify for mobile and pairing it, shared by the Mobile page and the setup guide. */
-export function MobileInstallCards({ attributes = true }: { attributes?: boolean }) {
+export function MobileInstallCards({ attributes = true, nested = false }: { attributes?: boolean; nested?: boolean }) {
+  // Inside the setup guide, the cards sit under the step's own heading.
+  const Heading = nested ? "h3" : "h2";
   return <div className="mobile-cards" {...(attributes ? { "data-section": "pairing", "data-setting": "pairing" } : {})}>
     <div className="mobile-download">
-      <h2>Install Switchify for mobile</h2><p>Scan to get the app.</p>
+      <Heading>Install Switchify for mobile</Heading><p>Scan to get the app.</p>
       <figure><img src={mobileQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Get Switchify</figcaption></figure>
       <a className="secondary" href={mobileDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a>
     </div>
-    <section className="mobile-pairing"><h2>Connect your mobile</h2><ol><li>Open Switchify on your mobile device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol><Demonstration kind="pair" /></section>
+    <section className="mobile-pairing"><Heading>Connect your mobile</Heading><ol><li>Open Switchify on your mobile device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol><Demonstration kind="pair" /></section>
   </div>;
 }

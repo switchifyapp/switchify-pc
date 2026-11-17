@@ -582,6 +582,52 @@ describe("Switchify PC shell", () => {
     expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
   });
 
+  it("does not hold the phone path on an earlier failed switch save", async () => {
+    browserState.bluetooth = "advertising";
+    const switches = localSwitches();
+    switches.settings.bindings = [];
+    switches.state!.settings.bindings = [];
+    switches.unsaved = true;
+    switches.error = "Save failed";
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    expect(await screen.findByRole("button", { name: "Skip setup for now" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pair later" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Back" })).toBeEnabled();
+    // On the switch step the same failure is shown and holds the guide until retried.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "A switch on this computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription("Your switch changes have not saved. Retry saving before continuing.");
+  });
+
+  it("preselects a switch on this computer when saved switches load after the guide opens", async () => {
+    const switches = localSwitches();
+    const loading = { ...switches, state: null };
+    const hook = vi.spyOn(switchHooks, "useSwitches").mockReturnValue(loading);
+    const { rerender } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    expect(await screen.findByRole("button", { name: "A switch on this computer" })).toHaveAttribute("aria-pressed", "false");
+    hook.mockReturnValue(switches);
+    rerender(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "A switch on this computer" })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("keeps switch interface advice on the guide's switch step", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "A switch on this computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(within(screen.getByRole("dialog", { name: "Add your switch" })).getByText(/Mouse-click modes cannot be learned/)).toBeInTheDocument();
+  });
+
   it("continues without pairing when the phone is set up later", async () => {
     browserState.bluetooth = "advertising";
     render(<App />);

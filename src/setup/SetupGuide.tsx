@@ -44,6 +44,8 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   // Reopened after setup, the guide starts from what is already there.
   const [connection, setConnection] = useState<Connection | null>(() =>
     switches.state?.settings.bindings.length ? "computer" : state.pairedDevices.length && !phoneUnavailable ? "phone" : null);
+  const savedSwitches = !!switches.state?.settings.bindings.length;
+  useEffect(() => { if (savedSwitches) setConnection(current => current ?? "computer"); }, [savedSwitches]);
   const steps: Step[] = [...(inputAccessRequired ? ["access" as const] : []), "connect", connection === "phone" ? "phone" : "switch", "basics", "startup", "diagnostics"];
   const [requestedStep, setStep] = useState<Step>(() => inputAccessRequired ? "access" : "connect");
   // Permission can arrive while this guide is open. Move straight on without
@@ -58,7 +60,9 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   const dialogRef = useRef<HTMLElement>(null);
   const [switchDraft, setSwitchDraft] = useState(false);
   const capturing = switches.capturing || !!switches.state?.capture.active;
-  const switchBusy = capturing || !!switches.pending || switches.unsaved || switchDraft;
+  // Switch saving holds the guide only on the switch step, where it can be retried;
+  // elsewhere, an earlier failed save must not trap someone in the guide.
+  const switchBusy = step === "switch" && (capturing || !!switches.pending || switches.unsaved || switchDraft);
   const paired = state.pairedDevices.length > 0;
   const hasSwitch = !!switches.state?.settings.bindings.length;
   const canContinue = step === "connect" ? connection !== null
@@ -69,15 +73,14 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   const last = index === steps.length - 1;
   const next = () => last ? void finish(startupChoice!, diagnosticsChoice!) : setStep(steps[index + 1]);
   const guidanceId = useId();
-  const navigationGuidance = capturing
+  const navigationGuidance = !switchBusy ? null : capturing
     ? "Finish capturing a switch or cancel capture before continuing."
     : switches.pending
       ? "Wait for your switch changes to finish saving before continuing."
       : switches.unsaved
         ? "Your switch changes have not saved. Retry saving before continuing."
-        : switchDraft
-          ? "Save or cancel the new switch before continuing."
-          : busy
+        : "Save or cancel the new switch before continuing.";
+  const stepGuidance = busy
             ? "Please wait while setup saves your changes."
             : step === "connect" && connection === null
               ? "Choose how you will connect to enable Next."
@@ -90,6 +93,8 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
                     : step === "diagnostics" && diagnosticsChoice === null
                       ? "Choose whether to share diagnostics to enable Finish."
                       : null;
+
+  const guidance = navigationGuidance ?? stepGuidance;
 
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
 
@@ -119,20 +124,20 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
           <h3>{paired ? `Paired with ${state.pairedDevices[0].deviceName}` : bluetoothLabels[state.bluetooth]}</h3>
           <p>{paired ? "You can pair more devices later from Mobile." : bluetoothDescriptions[state.bluetooth]}</p>
         </div></div>
-        <MobileInstallCards attributes={false} />
+        <MobileInstallCards attributes={false} nested />
       </div>}
       {step === "basics" && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Scanning, Mouse pointer.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
       {step === "startup" && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><Button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</Button><Button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</Button></div><Demonstration kind="startup" /></div>}
       {step === "diagnostics" && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health, internal error reports and sanitized errors, sent to Sentry, help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><Button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</Button><Button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</Button></div><a className="setup-privacy" href="https://www.theswitchify.app/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
     </div>
-    <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
+    <p id={guidanceId} className="setup-navigation-guidance" role="status">{guidance}</p>
     <footer>
       <Button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</Button>
       {step === "switch" && !hasSwitch && <Button className="secondary" disabled={busy || switchBusy} onClick={next}>Set up switches later</Button>}
       {step === "phone" && !paired && <Button className="secondary" disabled={busy} onClick={next}>Pair later</Button>}
       <span />
       <Button className="secondary" disabled={busy || switchBusy || index === 0} onClick={() => setStep(steps[index - 1])}>Back</Button>
-      <Button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={next}>{last ? "Finish" : "Next"}</Button>
+      <Button className="primary" aria-describedby={guidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={next}>{last ? "Finish" : "Next"}</Button>
     </footer>
   </Dialog>;
 }

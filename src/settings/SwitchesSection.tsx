@@ -941,6 +941,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         )}
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
       </SettingGroup>
+      {compact && <SettingNote about="switch interfaces" summary={interfaceModeAdvice} detail={reservedKeyAdvice(platform)} />}
       {!compact && <MoreOptions label="More options">
       <SettingGroup
         section="timing"

@@ -49,7 +49,7 @@ The first time Switchify PC opens, a guide walks you through:
 
    ![The Input access step of the setup guide on a Mac, with an Open Accessibility Settings button and a Show me how demonstration.](../../../assets/screenshots/setup-input-access-macos.png)
 
-2. **How will you connect?** Choose **A switch on this computer** if your switch is plugged in through a switch interface or a USB switch, or **Switchify on my Android phone or tablet** if you control the computer from Switchify on Android. You can set up the other one later. The phone choice is unavailable on a computer without the Bluetooth features Switchify PC needs, and it says so.
+2. **How will you connect?** Choose **A switch on this computer** if your switch is plugged in through a switch interface or a USB switch, or **Switchify on my Android phone or tablet** if you control the computer from Switchify on Android. You can set up the other one later. The phone choice is unavailable, and says why, on a computer without the Bluetooth features Switchify PC needs or when Bluetooth could not start.
 
    ![The How will you connect step, with A switch on this computer chosen and Switchify on my Android phone or tablet beside it.](../../../assets/screenshots/setup-connect.png)
 
