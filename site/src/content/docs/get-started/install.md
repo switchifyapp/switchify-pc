@@ -66,9 +66,9 @@ The first time Switchify PC opens, a guide walks you through:
 
    ![The Scanning pace step with Medium chosen, and a demo row of six numbered items with the first highlighted.](../../../assets/screenshots/setup-pace.png)
 
-5. **Try it.** Choose **Start practice**, press **Select**, and choose **Block 3** with your switch. The practice blocks scan the way the Home menu will: with automatic scanning the highlight moves by itself at your pace, and with manual scanning you move it with **Next** and **Previous**. Nothing in practice clicks or types. The guide tells you when you have chosen Block 3, or which block you chose instead so you can try again. Below the practice, a short list says how to open Home after setup and how to stop scanning. If you chose to connect a phone, this step says how to start PC control from the phone instead.
+5. **Try it.** Choose **Start practice**, press **Select**, and choose **Block 3** with your switch. The practice blocks scan the way the Home menu will: with automatic scanning the highlight moves by itself at your pace, and with manual scanning you move it with **Next** and **Previous**, which then need switches of their own. Like the menu, the highlight stops after its passes; press **Select** to start it again. Block 3 is marked **Goal**. Nothing in practice clicks or types. To stop, choose **Stop practice**, press **Escape**, or hold any switch; practice also ends after two minutes, or when a pairing request appears. The guide tells you when you have chosen Block 3, or which block you chose instead so you can try again. Below the practice, a short list says how to open Home after setup and how to stop scanning. If you chose to connect a phone, this step says how to start PC control from the phone instead.
 
-   ![The Try it step during practice, with six blocks, Block 2 highlighted and Block 3 outlined as the goal, and a Stop practice button.](../../../assets/screenshots/setup-try.png)
+   ![The Try it step during practice, with six blocks, Block 2 highlighted, Block 3 marked Goal, and a Stop practice button.](../../../assets/screenshots/setup-try.png)
 
 6. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
 

@@ -51,6 +51,36 @@ describe("setup Try it step", () => {
     expect(invoke).toHaveBeenCalledWith("end_switch_practice");
   });
 
+  it("moves focus with practice and says where the highlight is", async () => {
+    current = { ...view, blocks: blocks(2) };
+    step();
+    fireEvent.click(screen.getByRole("button", { name: "Start practice" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop practice" })).toHaveFocus());
+    expect(screen.getByText("Highlighted: Block 2")).toBeInTheDocument();
+    // The goal is in the text, not only in its outline.
+    expect(screen.getByText("Block 3").closest("li")).toHaveTextContent("Block 3Goal");
+    fireEvent.click(screen.getByRole("button", { name: "Stop practice" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start practice" })).toHaveFocus());
+    expect(screen.getByText("Practice ended. Choose Start practice to try again.")).toBeInTheDocument();
+  });
+
+  it("ends practice when a pairing request suspends the guide", async () => {
+    const { rerender } = step();
+    fireEvent.click(screen.getByRole("button", { name: "Start practice" }));
+    await screen.findByRole("list", { name: "Practice blocks" });
+    invoke.mockClear();
+    rerender(<TryItStep hasSwitch phone={false} automatic escapeSeconds={4} suspended />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("end_switch_practice"));
+    expect(screen.getByRole("button", { name: "Start practice" })).toBeDisabled();
+  });
+
+  it("shows why practice could not start", async () => {
+    invoke.mockImplementation(async (command: string) => { if (command === "begin_switch_practice") throw new Error("Manual scanning starts once switches cover Select, Next and Previous."); });
+    step({ automatic: false });
+    fireEvent.click(screen.getByRole("button", { name: "Start practice" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Manual scanning starts once switches cover Select, Next and Previous.");
+  });
+
   it("asks for a switch first when none is saved", () => {
     step({ hasSwitch: false });
     expect(screen.queryByRole("button", { name: "Start practice" })).not.toBeInTheDocument();
@@ -65,6 +95,7 @@ describe("setup Try it step", () => {
 
   it("says how to open Home and stop scanning", () => {
     step({ escapeSeconds: 3 });
-    expect(screen.getByText(/hold any switch for 3 seconds/)).toBeInTheDocument();
+    expect(screen.getByText(/To stop scanning, press/)).toHaveTextContent("hold any switch for 3 seconds");
+    expect(screen.getByText(/To stop, choose/)).toHaveTextContent("hold any switch for 3 seconds");
   });
 });

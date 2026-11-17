@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
 import { Button } from "../ui/controls";
 import { FeedbackMessage } from "../ui/patterns";
@@ -27,25 +27,43 @@ export function TryItStep({ hasSwitch, phone, automatic, escapeSeconds, suspende
   // Practice clears its view when it ends; the success stays.
   const [succeeded, setSucceeded] = useState(false);
   useEffect(() => { if (reached) setSucceeded(true); }, [reached]);
+  // A pairing request covers the guide, so practice must not keep the switches meanwhile.
+  useEffect(() => { if (suspended && open) void close(); }, [suspended, open]);
+  // Focus follows the control that replaces the one just used, so nobody is left on the page body.
+  const startRef = useRef<HTMLButtonElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+  const [ended, setEnded] = useState(false);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) { setEnded(false); stopRef.current?.focus(); }
+    else if (wasOpen.current) { setEnded(true); if (!suspended) startRef.current?.focus(); }
+    wasOpen.current = open;
+  }, [open]);
   if (phone) return <div className="setup-try">
     <h3>Try it from your phone</h3>
     <p>On your phone, open Switchify, choose <strong>PC control</strong>, and pick this computer. Its Mouse, Typing and Window controls then work this computer. Scanning on this computer pauses while the phone is connected.</p>
     <AfterSetup escapeSeconds={escapeSeconds} />
   </div>;
   const missed = !!view?.lastChoice && !reached;
+  const highlighted = view?.blocks.find(block => block.selected)?.label;
   return <div className="setup-try">
     <h3>Choose {goalBlock} with your switch</h3>
     {!hasSwitch ? <p>Add a switch first to try it here. You can also practise later from <strong>Switches</strong>.</p> : <>
       <p>{practiceInstructions(view?.automatic ?? automatic)} Nothing here clicks or types.</p>
-      {!open && <Button type="button" className="primary" disabled={pending || suspended || !practiceAvailable()} onClick={() => void begin(false)}>Start practice</Button>}
+      <p>To stop, choose <strong>Stop practice</strong>, press <strong>Escape</strong>, or hold any switch for {escapeSeconds} seconds. Practice also ends by itself after two minutes.</p>
+      {!open && <Button ref={startRef} type="button" className="primary" disabled={pending || suspended || !practiceAvailable()} onClick={() => void begin(false)}>Start practice</Button>}
       {open && <div className="setup-try-practice">
         <ul className="switch-practice-blocks" aria-label="Practice blocks">
-          {(view?.blocks ?? []).map(block => <li key={block.id} data-selected={block.selected} data-goal={block.label === goalBlock || undefined}>{block.label}</li>)}
+          {(view?.blocks ?? []).map(block => <li key={block.id} data-selected={block.selected} aria-current={block.selected || undefined} data-goal={block.label === goalBlock || undefined}>
+            {block.label}{block.label === goalBlock && <small className="setup-try-goal">Goal</small>}
+          </li>)}
         </ul>
+        <p aria-live="polite">Highlighted: {highlighted ?? "none"}</p>
         <p role="status" aria-live="polite">{reached ? `You chose ${goalBlock}. Your switch is working.` : missed ? `You chose ${view?.lastChoice}. Press Select to try again for ${goalBlock}.` : view?.message ?? "Starting practice…"}</p>
-        <Button type="button" className="secondary" disabled={pending} onClick={() => void close()}>Stop practice</Button>
+        <Button ref={stopRef} type="button" className="secondary" disabled={pending} onClick={() => void close()}>Stop practice</Button>
       </div>}
-      {succeeded && !open && <p className="setup-try-done" role="status"><CircleCheck size={20} />You chose {goalBlock}. Your switch is working.</p>}
+      {!open && succeeded && <p className="setup-try-done" role="status"><CircleCheck size={20} />You chose {goalBlock}. Your switch is working.</p>}
+      {!open && ended && !succeeded && <p role="status">Practice ended. Choose Start practice to try again.</p>}
       {error && <FeedbackMessage>{error}</FeedbackMessage>}
     </>}
     <AfterSetup escapeSeconds={escapeSeconds} />
