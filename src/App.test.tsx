@@ -582,9 +582,37 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     await screen.findByRole("dialog", { name: "You’re ready" });
     expect(screen.getByText("Press and release Select to open Home.")).toBeInTheDocument();
+    // The instruction describes the dialog, and the next steps are labelled by their heading.
+    expect(screen.getByRole("dialog", { name: "You’re ready" })).toHaveAccessibleDescription("Press and release Select to open Home.");
+    expect(screen.getByRole("group", { name: "Next steps" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Make a panel", level: 4 })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Panels" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Panels", level: 1 })).toBeInTheDocument();
+    // Focus lands on the new page's place in the sidebar, not on the page body.
+    await waitFor(() => expect(within(screen.getByRole("navigation", { name: "Pages" })).getByRole("button", { name: "Panels" })).toHaveFocus());
+  });
+
+  it("closes the ready screen with Escape, keeping setup saved", async () => {
+    const complete = vi.spyOn(api, "completeSetup").mockImplementation(async () => ({ ...structuredClone(browserState), setup: { shown: true, completed: true, autoOpenEligible: false } }));
+    browserState.bluetooth = "advertising";
+    browserState.pairedDevices = [{ deviceId: "phone", deviceName: "Pixel", pairedAt: 1, lastSeenAt: 1 }];
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    // A paired phone already answers how this person connects.
+    for (const step of ["How will you connect?", "Connect your phone", "Try it"]) {
+      expect(await screen.findByRole("dialog", { name: step })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Start manually" }));
+    fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    const ready = await screen.findByRole("dialog", { name: "You’re ready" });
+    expect(ready).toHaveAccessibleDescription("Open PC control in Switchify on your phone to start.");
+    fireEvent.keyDown(ready, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 
   it("stays on the last choices when saving setup fails", async () => {

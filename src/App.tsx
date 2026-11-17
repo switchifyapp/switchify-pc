@@ -564,7 +564,11 @@ export function App() {
   };
   const closeSetup = (page?: View) => {
     setSetupOpen(false);
-    if (page) selectView(page);
+    if (!page) return;
+    selectView(page);
+    // The page that opened the guide may be gone, so focus lands on the new page's
+    // place in the sidebar rather than on the page body.
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('nav[aria-label="Pages"] [aria-current="page"]')?.focus());
   };
 
   const skipSetup = async () => {

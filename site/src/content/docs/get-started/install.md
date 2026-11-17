@@ -76,9 +76,9 @@ The first time Switchify PC opens, a guide walks you through:
 
    ![The Last choices step, with Start with system chosen and Don’t share chosen.](../../../assets/screenshots/setup-last-choices.png)
 
-7. **You’re ready.** After **Finish** saves your choices, the guide says what to do next, such as pressing Select to open Home. It also offers shortcuts to **Scanning**, **Panels** and **Help**. Choose **Start using Switchify PC** to close the guide, or a shortcut to close it and open that page.
+7. **You’re ready.** After **Finish** saves your choices, the guide says what to do next, such as pressing Select to open Home. It also offers shortcuts to **Scanning**, **Panels** and **Help**. Choose **Start using Switchify PC**, or press **Escape**, to close the guide, or choose a shortcut to close it and open that page. Your choices are already saved.
 
-   ![The You're ready screen, saying Press and release Select to open Home, with Open Scanning, Open Panels and Open Help shortcuts and a Start using Switchify PC button.](../../../assets/screenshots/setup-ready.png)
+   ![The You’re ready screen, saying Press and release Select to open Home, with Open Scanning, Open Panels and Open Help shortcuts and a Start using Switchify PC button.](../../../assets/screenshots/setup-ready.png)
 
 You can skip the guide with **Skip setup for now** and reopen it later from Help.
 

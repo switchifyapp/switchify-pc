@@ -114,18 +114,18 @@ export function SetupGuide({ state, switches, scanning, suspended, busy, error, 
 
   useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, ready, suspended]);
 
-  if (ready) return <Dialog dialogRef={dialogRef} className="setup-dialog" backdropClassName="setup-backdrop" suspended={suspended} aria-labelledby="setup-title">
+  if (ready) return <Dialog dialogRef={dialogRef} className="setup-dialog" backdropClassName="setup-backdrop" suspended={suspended} onEscape={() => close()} aria-labelledby="setup-title" aria-describedby={`${guidanceId}-ready`}>
     <header><div><span>Setup guide</span><h2 id="setup-title">You’re ready</h2></div></header>
     <div className="setup-progress" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${steps.length}, 1fr)` }}>{steps.map(id => <span key={id} data-active />)}</div>
     <div className="setup-content setup-ready">
-      <p className="setup-ready-lead"><CircleCheck size={28} />{connection === "phone"
+      <p className="setup-ready-lead" id={`${guidanceId}-ready`}><CircleCheck size={28} aria-hidden="true" />{connection === "phone"
         ? paired ? "Open PC control in Switchify on your phone to start." : "Pair your phone from Mobile when you are ready, then open PC control in Switchify."
         : hasSwitch ? "Press and release Select to open Home." : "Add a switch in Switches when you are ready, then press Select to open Home."}</p>
-      <h3>Next steps</h3>
-      <div className="task-list" role="group" aria-label="Next steps">
-        <article><PageIcon page="scanning" size={24} /><div><h3>Adjust scanning</h3><p>Speed, colour, manual or automatic, and what Select opens.</p></div><Button className="secondary" onClick={() => close("scanning")}>Open Scanning</Button></article>
-        <article><PageIcon page="panels" size={24} /><div><h3>Make a panel</h3><p>Tiles that type a phrase, press keys or run an action.</p></div><Button className="secondary" onClick={() => close("panels")}>Open Panels</Button></article>
-        <article><PageIcon page="support" size={24} /><div><h3>Get help</h3><p>Fix common problems or open this guide again.</p></div><Button className="secondary" onClick={() => close("support")}>Open Help</Button></article>
+      <h3 id={`${guidanceId}-next`}>Next steps</h3>
+      <div className="task-list" role="group" aria-labelledby={`${guidanceId}-next`}>
+        <article><PageIcon page="scanning" size={24} /><div><h4>Adjust scanning</h4><p>Speed, colour, manual or automatic, and what Select opens.</p></div><Button className="secondary" onClick={() => close("scanning")}>Open Scanning</Button></article>
+        <article><PageIcon page="panels" size={24} /><div><h4>Make a panel</h4><p>Tiles that type a phrase, press keys or run an action.</p></div><Button className="secondary" onClick={() => close("panels")}>Open Panels</Button></article>
+        <article><PageIcon page="support" size={24} /><div><h4>Get help</h4><p>Fix common problems or open this guide again.</p></div><Button className="secondary" onClick={() => close("support")}>Open Help</Button></article>
       </div>
     </div>
     <footer><span /><Button className="primary" onClick={() => close()}>Start using Switchify PC</Button></footer>
