@@ -14,7 +14,7 @@ const chrome = process.env.CHROME_PATH ?? {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
-const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-connect", "setup-connect-phone", "setup-add-switch-saved", "setup-pace", "setup-try", "setup-start-with-system", "home",
+const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-connect", "setup-connect-phone", "setup-add-switch-saved", "setup-pace", "setup-try", "setup-last-choices", "setup-ready", "home",
   "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor", "find", "settings-categories"]);
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -265,9 +265,10 @@ for (const platform of ["windows", "macos"]) {
     await shot(page, "setup-try", ".setup-dialog");
     await click(page, "Next");
     await click(page, "Start with system");
-    await shot(page, "setup-start-with-system", ".setup-dialog");
-    await click(page, "Next");
-    await shot(page, "setup-diagnostics", ".setup-dialog");
+    await click(page, "Don’t share");
+    await shot(page, "setup-last-choices", ".setup-dialog");
+    await click(page, "Finish");
+    await shot(page, "setup-ready", ".setup-dialog");
   }
   await page.close();
 }

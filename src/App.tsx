@@ -553,13 +553,18 @@ export function App() {
     void perform(api.markSetupShown);
   };
 
+  // The guide stays open on its ready screen; closeSetup ends it.
   const finishSetup = async (startWithSystem: boolean, shareDiagnostics: boolean) => {
     setBusy(true); setError(null);
     try {
       syncState(await api.completeSetup(startWithSystem, shareDiagnostics));
-      setSetupOpen(false);
-    } catch (reason) { setError(String(reason)); }
+      return true;
+    } catch (reason) { setError(String(reason)); return false; }
     finally { setBusy(false); }
+  };
+  const closeSetup = (page?: View) => {
+    setSetupOpen(false);
+    if (page) selectView(page);
   };
 
   const skipSetup = async () => {
@@ -751,7 +756,7 @@ export function App() {
       profileEditorDirty.current = false; panelEditorDirty.current = false;
       setDiscard(null); proceed();
     }} />}
-    {setupOpen && <SetupGuide state={state} switches={switches} scanning={scanning} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
+    {setupOpen && <SetupGuide state={state} switches={switches} scanning={scanning} suspended={state.pendingPairings.length > 0} busy={busy} error={error} skip={skipSetup} finish={finishSetup} close={closeSetup} accessibility={() => perform(() => api.checkAccessibility(true))} />}
     {state.pendingPairings.length > 0 && <PairingDialog error={error} requests={state.pendingPairings} connectedDeviceName={state.connectedDeviceName} busy={busy} reject={(requestId) => perform(() => api.rejectPairing(requestId))} approve={(requestId) => perform(() => api.approvePairing(requestId))} />}
   </div></DemonstrationProvider>;
 }

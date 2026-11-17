@@ -456,7 +456,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryAllByRole("heading", { name: "Input access" }).length).toBe(visible ? 2 : 0);
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
     await screen.findByRole("dialog", { name: visible ? "Input access" : "How will you connect?" });
-    expect(screen.getByLabelText(`Step 1 of ${visible ? 7 : 6}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`Step 1 of ${visible ? 6 : 5}`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
   });
 
@@ -470,7 +470,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("dialog", { name: "Input access" });
     act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "How will you connect?" })).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 6")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
     // Saved switches already answer how this person connects.
     expect(screen.getByRole("button", { name: "A switch on this computer" })).toHaveAttribute("aria-pressed", "true");
@@ -498,7 +498,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     const guide = await screen.findByRole("dialog", { name: "Input access" });
     await waitFor(() => expect(guide).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 7")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 6")).toBeInTheDocument();
     await waitFor(() => expect(markShown).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Skip setup for now" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Input access" })).not.toBeInTheDocument());
@@ -548,15 +548,61 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("dialog", { name: "Try it" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription("Choose Start with system or Start manually to enable Next.");
-    fireEvent.click(screen.getByRole("button", { name: "Start manually" }));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Both last choices share one step, and each still needs an explicit answer.
+    expect(screen.getByRole("dialog", { name: "Last choices" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 5 of 5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Finish" })).toHaveAccessibleDescription("Choose whether to share diagnostics to enable Finish.");
+    expect(screen.getByRole("button", { name: "Finish" })).toHaveAccessibleDescription("Choose how Switchify starts and whether to share diagnostics to enable Finish.");
     fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
+    expect(screen.getByRole("button", { name: "Finish" })).toHaveAccessibleDescription("Choose Start with system or Start manually to enable Finish.");
+    fireEvent.click(screen.getByRole("button", { name: "Start manually" }));
+    expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     await waitFor(() => expect(complete).toHaveBeenCalledWith(false, false));
+    // Setup is saved, and the guide says what to do next before it closes.
+    const ready = await screen.findByRole("dialog", { name: "You’re ready" });
+    await waitFor(() => expect(ready).toHaveFocus());
+    expect(screen.getByText("Add a switch in Switches when you are ready, then press Select to open Home.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start using Switchify PC" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("opens a page from the ready screen", async () => {
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
+    vi.spyOn(api, "completeSetup").mockImplementation(async () => ({ ...structuredClone(browserState), setup: { shown: true, completed: true, autoOpenEligible: false } }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    for (const step of ["How will you connect?", "Add your switch", "Scanning pace", "Try it"]) {
+      expect(await screen.findByRole("dialog", { name: step })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Start with system" }));
+    fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await screen.findByRole("dialog", { name: "You’re ready" });
+    expect(screen.getByText("Press and release Select to open Home.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Panels" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Panels", level: 1 })).toBeInTheDocument();
+  });
+
+  it("stays on the last choices when saving setup fails", async () => {
+    vi.spyOn(api, "completeSetup").mockRejectedValue(new Error("Could not save setup"));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "A switch on this computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up switches later" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start manually" }));
+    fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect((await screen.findAllByText(/Could not save setup/)).length).toBeGreaterThan(0);
+    expect(screen.getByRole("dialog", { name: "Last choices" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "You’re ready" })).not.toBeInTheDocument();
   });
 
   it("sets the scan rate and line speed together from a pace", async () => {
@@ -600,7 +646,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
     fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
-    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 4")).toBeInTheDocument();
   });
 
   it("pairs a phone in setup instead of adding a switch", async () => {
@@ -613,7 +659,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Step 2 of 5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 2 of 4")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "QR code for Switchify on Google Play" })).toBeInTheDocument();
     expect(within(screen.getByRole("dialog", { name: "Connect your phone" })).getByText("Ready to connect")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();

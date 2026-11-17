@@ -826,6 +826,11 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .setup-after { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 20px; }
 .setup-after ul { margin: 8px 0 0; padding-left: 24px; color: var(--muted); line-height: 1.6; }
 .setup-after li + li { margin-top: 6px; }
+.setup-last-choices { display: grid; gap: 28px; }
+.setup-last-choices section + section { border-top: 1px solid var(--border); padding-top: 24px; }
+.setup-last-choices .setup-choices { margin-top: 16px; }
+.setup-content p.setup-ready-lead { display: flex; align-items: center; gap: 12px; margin: 0 0 24px; color: var(--text); font-size: 20px; font-weight: 700; }
+.setup-ready > h3 { margin-bottom: 12px; }
 .setup-privacy { margin-top: 16px; color: var(--brand-label); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-top: 12px; }
