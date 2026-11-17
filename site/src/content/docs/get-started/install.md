@@ -70,11 +70,15 @@ The first time Switchify PC opens, a guide walks you through:
 
    ![The Try it step during practice, with six blocks, Block 2 highlighted, Block 3 marked Goal, and a Stop practice button.](../../../assets/screenshots/setup-try.png)
 
-6. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
+6. **Last choices.** Two choices on one step, and **Finish** turns on once you have made both:
+   - **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
+   - **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
 
-   ![The Start with system step, with Start with system chosen and Start manually next to it.](../../../assets/screenshots/setup-start-with-system.png)
+   ![The Last choices step, with Start with system chosen and Don’t share chosen.](../../../assets/screenshots/setup-last-choices.png)
 
-7. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
+7. **You’re ready.** After **Finish** saves your choices, the guide says what to do next, such as pressing Select to open Home. It also offers shortcuts to **Scanning**, **Panels** and **Help**. Choose **Start using Switchify PC**, or press **Escape**, to close the guide, or choose a shortcut to close it and open that page. Your choices are already saved.
+
+   ![The You’re ready screen, saying Press and release Select to open Home, with Open Scanning, Open Panels and Open Help shortcuts and a Start using Switchify PC button.](../../../assets/screenshots/setup-ready.png)
 
 You can skip the guide with **Skip setup for now** and reopen it later from Help.
 
