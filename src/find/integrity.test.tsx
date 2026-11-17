@@ -79,6 +79,7 @@ describe("the index matches the rendered app", () => {
     await open("settings");
     openSettingsSection("account");
     await waitFor(() => expect(document.querySelector(`[data-setting="auto-approve"]`)).not.toBeNull());
+    expect(document.querySelector(`[data-setting="sync-switches"]`)).not.toBeNull();
   });
 
   it("gives every page in the nav an entry in the index", () => {

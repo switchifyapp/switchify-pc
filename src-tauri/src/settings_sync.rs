@@ -146,6 +146,9 @@ pub trait Host: Send + Sync {
     ) -> BoxFuture<'_, Result<Option<Document>, String>>;
     /// The document of an install whose settings were never changed.
     fn untouched(&self) -> Document;
+    /// Whether this install shares its switches. Off when this computer has
+    /// its own switch interface: its switches then neither upload nor change.
+    fn sync_switches(&self) -> bool;
     fn load_state(&self) -> State;
     fn save_state(&self, state: &State) -> Result<(), String>;
     fn publish(&self, view: &SyncView);
@@ -237,6 +240,24 @@ fn decide(
         },
         None => Step::NeedsChoice,
     }
+}
+
+/// The settings this install shares. With switch sync off, its own switches
+/// are left out and `account`'s stand in, so they never upload and never
+/// look like a change on either side.
+fn shared(own: &Document, sync_switches: bool, account: &Document) -> Document {
+    if sync_switches {
+        return own.clone();
+    }
+    with_switches_of(own.clone(), account)
+}
+
+/// `document` with `from`'s switches: the keys, actions and timing of this
+/// computer's own switches, and the remote switch slots.
+fn with_switches_of(mut document: Document, from: &Document) -> Document {
+    document.switches = from.switches.clone();
+    document.remote_switches = from.remote_switches.clone();
+    document
 }
 
 /// Picks between this install's and the account's version of one value.
@@ -486,7 +507,7 @@ impl Engine {
                 .base
                 .clone()
                 .filter(|base| base.user_id == auth.user_id);
-            let local = self.host.local().await?;
+            let own = self.host.local().await?;
             let row = self.remote.fetch(auth).await?;
             let cloud = match &row {
                 None => None,
@@ -500,9 +521,15 @@ impl Engine {
                 }
             };
             let remote = row.as_ref().zip(cloud.as_ref());
+            let untouched = self.host.untouched();
+            let sync_switches = self.host.sync_switches();
+            // Without an account copy, a computer that keeps its switches
+            // shares untouched ones.
+            let account = cloud.as_ref().unwrap_or(&untouched);
+            let local = shared(&own, sync_switches, account);
             let step = decide(
                 &local,
-                &self.host.untouched(),
+                &shared(&untouched, sync_switches, account),
                 base.as_ref(),
                 remote,
                 choice,
@@ -545,11 +572,18 @@ impl Engine {
                     if document.panels.len() > crate::custom_panels::MAX_PANELS {
                         return Err(TOO_MANY_PANELS.into());
                     }
-                    let applied = if document == local {
-                        Some(local.clone())
+                    // This computer's own switches stay as they are.
+                    let document = if sync_switches {
+                        document
                     } else {
-                        self.host.apply(local.clone(), document).await?
+                        with_switches_of(document, &own)
                     };
+                    let applied = if document == own {
+                        Some(own.clone())
+                    } else {
+                        self.host.apply(own.clone(), document).await?
+                    };
+                    let applied = applied.map(|applied| shared(&applied, sync_switches, cloud));
                     match applied {
                         // The user changed something meanwhile: start over.
                         None => false,
@@ -627,7 +661,11 @@ impl Engine {
         let Some(base) = self.state().base else {
             return false;
         };
-        matches!(self.host.local().await, Ok(local) if local != base.local)
+        let sync_switches = self.host.sync_switches();
+        matches!(
+            self.host.local().await,
+            Ok(local) if shared(&local, sync_switches, &base.cloud) != base.local
+        )
     }
 
     /// Background loop: syncs at start, after `wake`, when local settings
@@ -925,6 +963,15 @@ impl Host for AppHost {
         .document()
     }
 
+    fn sync_switches(&self) -> bool {
+        let model = self.app.state::<crate::state::AppModel>();
+        let data = model
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        data.state.settings.sync_switches
+    }
+
     fn load_state(&self) -> State {
         self.path
             .as_ref()
@@ -1132,6 +1179,7 @@ mod tests {
         /// Edits the user makes while a sync is in flight, landing just
         /// before the next apply.
         edits: Mutex<VecDeque<Document>>,
+        sync_switches: Mutex<bool>,
     }
 
     impl FakeHost {
@@ -1144,6 +1192,7 @@ mod tests {
                 published: Mutex::default(),
                 transform: Mutex::default(),
                 edits: Mutex::default(),
+                sync_switches: Mutex::new(true),
             }
         }
         fn local_now(&self) -> Document {
@@ -1227,6 +1276,9 @@ mod tests {
         fn untouched(&self) -> Document {
             untouched()
         }
+        fn sync_switches(&self) -> bool {
+            *self.sync_switches.lock().unwrap()
+        }
         fn load_state(&self) -> State {
             self.state.lock().unwrap().clone()
         }
@@ -1241,6 +1293,108 @@ mod tests {
 
     fn engine(remote: &Arc<FakeRemote>, host: &Arc<FakeHost>) -> Engine {
         Engine::new(remote.clone(), host.clone())
+    }
+
+    /// Switches of a different interface: other timing and a remote slot.
+    fn with_switches(mut document: Document, hold_interval_ms: u64) -> Document {
+        document.switches.hold_interval_ms = hold_interval_ms;
+        document.remote_switches = vec![crate::remote_scan::Slot {
+            press_action: None,
+            hold_actions: vec![],
+            name: Some(format!("Switch {hold_interval_ms}")),
+        }];
+        document
+    }
+
+    fn keeping_switches(local: Document) -> Arc<FakeHost> {
+        let host = Arc::new(FakeHost::new(local));
+        *host.sync_switches.lock().unwrap() = false;
+        host
+    }
+
+    #[tokio::test]
+    async fn kept_switches_are_not_uploaded_by_the_first_computer() {
+        let remote = Arc::new(FakeRemote::default());
+        let host = keeping_switches(with_dwell(with_switches(untouched(), 2000), true));
+        let view = engine(&remote, &host).sync(None).await;
+        assert_eq!(view.status, Status::UpToDate);
+        assert_eq!(remote.document(), Some(with_dwell(untouched(), true)));
+    }
+
+    #[tokio::test]
+    async fn kept_switches_survive_the_account_settings() {
+        let cloud = with_speed(with_switches(untouched(), 3000), 4);
+        let remote = Arc::new(FakeRemote::holding(&cloud, 4));
+        let local = with_switches(untouched(), 2000);
+        let host = keeping_switches(local.clone());
+        let engine = engine(&remote, &host);
+        // Only the switches differ, so this computer counts as untouched.
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        assert_eq!(host.local_now(), with_speed(local.clone(), 4));
+        assert_eq!(remote.document(), Some(cloud.clone()));
+        assert!(remote.writes.lock().unwrap().is_empty());
+
+        // Changing switches here is not a change to sync.
+        host.set_local(with_speed(with_switches(untouched(), 2500), 4));
+        assert!(!engine.changed_since_sync().await);
+        engine.sync(None).await;
+        assert!(remote.writes.lock().unwrap().is_empty());
+
+        // Other changes upload with the account's switches.
+        host.set_local(with_dwell(
+            with_speed(with_switches(untouched(), 2500), 4),
+            true,
+        ));
+        assert!(engine.changed_since_sync().await);
+        engine.sync(None).await;
+        assert_eq!(remote.document(), Some(with_dwell(cloud.clone(), true)));
+
+        // Another computer's change arrives, leaving these switches alone.
+        let elsewhere = with_speed(with_dwell(with_switches(untouched(), 4000), true), 1);
+        *remote.row.lock().unwrap() = Some(Row {
+            revision: 9,
+            schema_version: SCHEMA_VERSION,
+            payload: serde_json::to_value(&elsewhere).unwrap(),
+        });
+        assert_eq!(engine.sync(None).await.status, Status::UpToDate);
+        assert_eq!(
+            host.local_now(),
+            with_speed(with_dwell(with_switches(untouched(), 2500), true), 1)
+        );
+        assert_eq!(remote.document(), Some(elsewhere));
+        assert_eq!(remote.revision(), Some(9));
+    }
+
+    #[tokio::test]
+    async fn choosing_the_account_settings_keeps_this_computers_switches() {
+        let cloud = with_speed(with_switches(untouched(), 3000), 4);
+        let remote = Arc::new(FakeRemote::holding(&cloud, 4));
+        let local = with_dwell(with_switches(untouched(), 2000), true);
+        let host = keeping_switches(local);
+        let engine = engine(&remote, &host);
+        assert_eq!(engine.sync(None).await.status, Status::NeedsChoice);
+        engine.sync(Some(Choice::Cloud)).await;
+        assert_eq!(
+            host.local_now(),
+            with_speed(with_switches(untouched(), 2000), 4)
+        );
+        assert_eq!(remote.document(), Some(cloud));
+    }
+
+    #[tokio::test]
+    async fn turning_switch_sync_back_on_shares_this_computers_switches() {
+        let cloud = with_switches(untouched(), 3000);
+        let remote = Arc::new(FakeRemote::holding(&cloud, 4));
+        let local = with_switches(untouched(), 2000);
+        let host = keeping_switches(local.clone());
+        let engine = engine(&remote, &host);
+        engine.sync(None).await;
+        assert_eq!(remote.document(), Some(cloud));
+        *host.sync_switches.lock().unwrap() = true;
+        assert!(engine.changed_since_sync().await);
+        engine.sync(None).await;
+        assert_eq!(remote.document(), Some(local.clone()));
+        assert_eq!(host.local_now(), local);
     }
 
     #[tokio::test]

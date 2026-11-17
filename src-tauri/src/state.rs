@@ -94,6 +94,10 @@ pub struct AppSettings {
     /// into the same account. Local to this install, like pairing itself.
     #[serde(default = "default_auto_approve_account_devices")]
     pub auto_approve_account_devices: bool,
+    /// Whether settings sync carries this computer's switches. Off for a
+    /// computer with its own switch interface. Local to this install.
+    #[serde(default = "default_sync_switches")]
+    pub sync_switches: bool,
 }
 
 impl Default for AppSettings {
@@ -120,6 +124,7 @@ impl Default for AppSettings {
             cursor_crosshairs: false,
             share_diagnostics: false,
             auto_approve_account_devices: default_auto_approve_account_devices(),
+            sync_switches: default_sync_switches(),
         }
     }
 }
@@ -179,6 +184,10 @@ fn default_mouse_repeat_acceleration() -> u32 {
 }
 
 fn default_auto_approve_account_devices() -> bool {
+    true
+}
+
+fn default_sync_switches() -> bool {
     true
 }
 
@@ -1411,6 +1420,7 @@ mod tests {
         assert_eq!(settings.key_repeat_interval_ms, 250);
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
         assert!(settings.auto_approve_account_devices);
+        assert!(settings.sync_switches);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);

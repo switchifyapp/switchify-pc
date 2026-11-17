@@ -177,7 +177,9 @@ const catalogue = [
   { id: "about", label: "About Switchify PC", words: ["version", "source code", "credits", "open source", "guide", "licence"], page: "settings", section: "about", status: true,
     value: (c) => `Switchify PC ${c.state.version}`, related: ["updates"] },
   { id: "account", label: "Account and settings sync", words: ["sign in", "sign out", "email", "sync", "other computers", "cloud", "log in", "delete account"], page: "settings", section: "account", when: (c) => c.account?.available !== false,
-    value: (c) => c.account ? (c.account.signedIn ? `Signed in as ${c.account.email}` : c.account.pendingEmail ? "Waiting for your code" : "Not signed in") : null, related: ["auto-approve", "licence"] },
+    value: (c) => c.account ? (c.account.signedIn ? `Signed in as ${c.account.email}` : c.account.pendingEmail ? "Waiting for your code" : "Not signed in") : null, related: ["sync-switches", "auto-approve", "licence"] },
+  { id: "sync-switches", label: "Sync switches", words: ["sync switches", "different switch interface", "other computers", "keep switches", "switches on this computer"], page: "settings", section: "account", when: (c) => c.account?.signedIn === true,
+    value: (c) => c.settings ? (c.settings.syncSwitches ? "On" : "Off") : null, related: ["account", "switch-list"] },
   { id: "auto-approve", label: "Approve phones on this account automatically", words: ["auto approve", "pairing", "same account", "without codes"], page: "settings", section: "account", when: (c) => c.account?.signedIn === true,
     value: (c) => c.settings ? (c.settings.autoApproveAccountDevices ? "On" : "Off") : null, related: ["account", "pairing"] },
   // Help
