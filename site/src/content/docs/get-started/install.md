@@ -62,12 +62,16 @@ The first time Switchify PC opens, a guide walks you through:
 
      ![The Connect your phone step, showing Ready to connect, the QR code for Switchify on Google Play and the three pairing steps.](../../../assets/screenshots/setup-connect-phone.png)
 
-4. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
-5. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
+4. **Scanning pace.** Choose how fast scanning moves: **Very slow** (2.5 seconds on each item), **Slow** (1.5 seconds), **Medium** (1 second, the usual pace) or **Fast** (0.7 seconds). A demo below the choices moves a highlight at the chosen pace; **Pause demo** stops it. Each pace also sets **Line speed** for Point scanning to the same level. Change either at any time in **Scanning**, where other timing settings, such as extra time on the first item, also apply. If the Home menu, Point scanning, the keyboard or the mouse panel has its own scan rate in Scanning, the step says so: a pace here does not change it. If your computer prefers reduced motion, the demo starts paused; choose **Play demo** to watch it. This step is left out if you chose to connect a phone, because Switchify on Android has its own pace.
+
+   ![The Scanning pace step with Medium chosen, and a demo row of six numbered items with the first highlighted.](../../../assets/screenshots/setup-pace.png)
+
+5. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
+6. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
 
    ![The Start with system step, with Start with system chosen and Start manually next to it.](../../../assets/screenshots/setup-start-with-system.png)
 
-6. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
+7. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
 
 You can skip the guide with **Skip setup for now** and reopen it later from Help.
 

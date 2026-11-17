@@ -8,6 +8,8 @@ import { needsInputAccess } from "../inputAccess";
 import { Demonstration } from "../help/Demonstration";
 import { SwitchesSection } from "../settings/SwitchesSection";
 import type { SwitchController } from "../scanning/useSwitches";
+import type { ScanningController } from "../scanning/useScanning";
+import { PaceStep } from "./PaceStep";
 import { bluetoothDescriptions, bluetoothLabels, bluetoothUnavailable, MobileInstallCards } from "../mobile";
 import type { AppState } from "../types";
 
@@ -23,13 +25,13 @@ export function AccessibilityCopy({ state, detailed = false }: { state: AppState
 
 /** How the person reaches this computer: a switch plugged into it, or Switchify on a phone or tablet. */
 type Connection = "computer" | "phone";
-type Step = "access" | "connect" | "switch" | "phone" | "basics" | "startup" | "diagnostics";
+type Step = "access" | "connect" | "switch" | "phone" | "pace" | "basics" | "startup" | "diagnostics";
 const titles: Record<Step, string> = {
-  access: "Input access", connect: "How will you connect?", switch: "Add your switch", phone: "Connect your phone",
+  access: "Input access", connect: "How will you connect?", switch: "Add your switch", phone: "Connect your phone", pace: "Scanning pace",
   basics: "Scanning basics", startup: "Start with system", diagnostics: "Anonymous diagnostics",
 };
 
-export function SetupGuide({ state, switches, suspended, busy, error, skip, finish, accessibility }: {
+export function SetupGuide({ state, switches, scanning, suspended, busy, error, skip, finish, accessibility }: {
   state: AppState;
   busy: boolean;
   error: string | null;
@@ -37,6 +39,7 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   finish: (startWithSystem: boolean, shareDiagnostics: boolean) => Promise<void>;
   accessibility: () => Promise<void>;
   switches: SwitchController;
+  scanning: ScanningController;
   suspended: boolean;
 }) {
   const inputAccessRequired = needsInputAccess(state);
@@ -48,7 +51,7 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
   const connection = chosen === "phone" && phoneUnavailable ? null : chosen;
   const savedSwitches = !!switches.state?.settings.bindings.length;
   useEffect(() => { if (savedSwitches) setConnection(current => current ?? "computer"); }, [savedSwitches]);
-  const steps: Step[] = [...(inputAccessRequired ? ["access" as const] : []), "connect", connection === "phone" ? "phone" : "switch", "basics", "startup", "diagnostics"];
+  const steps: Step[] = [...(inputAccessRequired ? ["access" as const] : []), "connect", ...(connection === "phone" ? ["phone" as const] : ["switch" as const, "pace" as const]), "basics", "startup", "diagnostics"];
   const [requestedStep, setStep] = useState<Step>(() => inputAccessRequired ? "access" : "connect");
   // Permission can arrive while this guide is open. Move straight on without
   // losing saved choices.
@@ -130,6 +133,7 @@ export function SetupGuide({ state, switches, suspended, busy, error, skip, fini
         </div></div>
         <MobileInstallCards attributes={false} nested />
       </div>}
+      {step === "pace" && <PaceStep scanning={scanning} suspended={suspended} />}
       {step === "basics" && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Scanning, Mouse pointer.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
       {step === "startup" && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><Button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</Button><Button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</Button></div><Demonstration kind="startup" /></div>}
       {step === "diagnostics" && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health, internal error reports and sanitized errors, sent to Sentry, help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><Button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</Button><Button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</Button></div><a className="setup-privacy" href="https://www.theswitchify.app/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}

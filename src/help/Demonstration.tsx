@@ -10,7 +10,7 @@ export function DemonstrationProvider({ suspended, platform, children }: { suspe
   return <DemoContext.Provider value={{ suspended, platform }}>{children}</DemoContext.Provider>;
 }
 
-function useReducedMotion() {
+export function useReducedMotion() {
   const [reduced, setReduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   useEffect(() => {
     const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
