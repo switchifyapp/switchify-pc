@@ -800,6 +800,12 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .setup-content > div > p { max-width: 68ch; }
 .setup-content p { margin-top: 8px; color: var(--muted); }
 .setup-choices { margin-top: 24px; }
+.setup-connection .btn { justify-content: flex-start; gap: 16px; }
+.setup-connection .btn > span { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.setup-connection .btn small { color: var(--muted); font-size: 16px; font-weight: 500; line-height: 1.4; }
+.setup-phone { display: grid; gap: 16px; }
+.setup-phone-status { display: flex; align-items: center; gap: 12px; }
+.setup-phone-status p { margin-top: 2px; }
 .setup-privacy { margin-top: 16px; color: var(--brand-label); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-top: 12px; }

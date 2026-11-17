@@ -116,9 +116,10 @@ describe("Switchify PC shell", () => {
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
     const { rerender } = render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Skip switch configuration" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Set up switches later" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skip setup for now" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription("Save or cancel the new switch before continuing.");
     fireEvent.click(screen.getByRole("button", { name: "Cancel new switch" }));
@@ -141,13 +142,14 @@ describe("Switchify PC shell", () => {
     vi.spyOn(switchHooks, "useSwitches").mockReturnValue(switches);
     const { rerender } = render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     if (operation === "capture") switches.capturing = true;
     else switches.pending = 1;
     rerender(<App />);
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription(message);
     expect(screen.getByRole("button", { name: "Skip setup for now" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip switch configuration" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Set up switches later" })).not.toBeInTheDocument();
     switches.capturing = false;
     switches.pending = 0;
     rerender(<App />);
@@ -164,6 +166,7 @@ describe("Switchify PC shell", () => {
     vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const pending = { ...structuredClone(browserState), pendingPairings: [{ requestId: "one", deviceId: "phone", deviceName: "Phone", verificationCode: "123456", expiresAt: 100 }] };
     switches.state!.capture.active = true;
     act(() => receive?.(pending));
@@ -452,8 +455,8 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Help" }));
     expect(screen.queryAllByRole("heading", { name: "Input access" }).length).toBe(visible ? 2 : 0);
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
-    await screen.findByRole("dialog", { name: visible ? "Input access" : "Add your switch" });
-    expect(screen.getByLabelText(`Step 1 of ${visible ? 5 : 4}`)).toBeInTheDocument();
+    await screen.findByRole("dialog", { name: visible ? "Input access" : "How will you connect?" });
+    expect(screen.getByLabelText(`Step 1 of ${visible ? 6 : 5}`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
   });
 
@@ -466,9 +469,13 @@ describe("Switchify PC shell", () => {
     render(<App />);
     await screen.findByRole("dialog", { name: "Input access" });
     act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Add your switch" })).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 4")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "How will you connect?" })).toHaveFocus());
+    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    // Saved switches already answer how this person connects.
+    expect(screen.getByRole("button", { name: "A switch on this computer" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add switch" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel new switch" })).toBeInTheDocument());
     act(() => receive?.({ ...structuredClone(browserState), accessibility: "required" }));
@@ -491,7 +498,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     const guide = await screen.findByRole("dialog", { name: "Input access" });
     await waitFor(() => expect(guide).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 6")).toBeInTheDocument();
     await waitFor(() => expect(markShown).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Skip setup for now" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Input access" })).not.toBeInTheDocument());
@@ -521,11 +528,22 @@ describe("Switchify PC shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Help" }));
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    expect(await screen.findByRole("dialog", { name: "How will you connect?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription("Choose how you will connect to enable Next.");
+    // Without Bluetooth, pairing a phone is not possible, and the choice says why.
+    expect(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Switchify on my Android phone or tablet" })).toHaveAccessibleDescription(/Not available/);
+    fireEvent.click(screen.getByRole("button", { name: "A switch on this computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription(/If you use only remote switches/);
-    fireEvent.click(screen.getByRole("button", { name: "Skip switch configuration" }));
+    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription(/Set up switches later/);
+    // The guide shows only what a first switch needs.
+    expect(screen.queryByRole("button", { name: "Add remote switch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /More options/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Switch help/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Set up switches later" }));
     expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
@@ -537,6 +555,42 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     await waitFor(() => expect(complete).toHaveBeenCalledWith(false, false));
+  });
+
+  it("pairs a phone in setup instead of adding a switch", async () => {
+    browserState.bluetooth = "advertising";
+    let receive: ((state: typeof browserState) => void) | undefined;
+    vi.spyOn(api, "onState").mockImplementation(async (handler) => { receive = handler; return () => undefined; });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 2 of 5")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR code for Switchify on Google Play" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "Connect your phone" })).getByText("Ready to connect")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription(/Pair later/);
+    act(() => receive?.({ ...structuredClone(browserState), pairedDevices: [{ deviceId: "phone", deviceName: "Pixel", pairedAt: 1, lastSeenAt: 1 }] }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+    expect(screen.getByText("Paired with Pixel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pair later" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
+  });
+
+  it("continues without pairing when the phone is set up later", async () => {
+    browserState.bluetooth = "advertising";
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair later" }));
+    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
   });
 
   it("shows the compact diagnostic history in troubleshooting", async () => {
