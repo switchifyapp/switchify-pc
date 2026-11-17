@@ -14,7 +14,7 @@ const chrome = process.env.CHROME_PATH ?? {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
-const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-connect", "setup-connect-phone", "setup-add-switch-saved", "setup-pace", "setup-start-with-system", "home",
+const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-connect", "setup-connect-phone", "setup-add-switch-saved", "setup-pace", "setup-try", "setup-start-with-system", "home",
   "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor", "find", "settings-categories"]);
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -184,7 +184,10 @@ const bridge = (platform) => {
           return { available: true, signedIn: false, email: null, pendingEmail: null, keychainUnavailable: false };
         case "get_settings_sync": return { status: "off", lastSyncedAt: null, message: null };
         case "take_navigation_request": return null;
-        case "get_switch_practice": return null;
+        // Practice mid-scan, with the highlight on its way to the setup guide's goal.
+        case "begin_switch_practice": case "get_switch_practice":
+          return { active: true, source: "This computer", message: "Select received. Highlight moves among the practice blocks.", input: "Head switch", action: "select", completed: 0, lastChoice: null, automatic: true,
+            blocks: [1, 2, 3, 4, 5, 6].map((n) => ({ id: String(n - 1), label: `Block ${n}`, selected: n === 2 })) };
         default: return null;
       }
     },
@@ -258,6 +261,8 @@ for (const platform of ["windows", "macos"]) {
     // Reduced motion is emulated, so the demo starts paused on the first item.
     await shot(page, "setup-pace", ".setup-dialog");
     await click(page, "Next");
+    await click(page, "Start practice");
+    await shot(page, "setup-try", ".setup-dialog");
     await click(page, "Next");
     await click(page, "Start with system");
     await shot(page, "setup-start-with-system", ".setup-dialog");

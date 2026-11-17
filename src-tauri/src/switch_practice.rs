@@ -1,6 +1,7 @@
 //! Bounded switch practice: real gestures and a simple block scanner, no native execution.
 use crate::{
     scan_items::{ItemScanner, Policy},
+    scan_preferences::Resolved,
     scan_tree::Node,
     scanning::{Action, Frame, Session, Technique},
     switch_gestures::Gestures,
@@ -15,7 +16,21 @@ use tauri::{AppHandle, Manager};
 const PRACTICE_BLOCKS: [&str; 6] = [
     "Block 1", "Block 2", "Block 3", "Block 4", "Block 5", "Block 6",
 ];
+const STOPPED_MESSAGE: &str =
+    "The highlight stopped after its passes, as the menu does. Use Select to start again.";
+
+/// Used when the scanning settings cannot be read, as before practice followed them.
 const PRACTICE_INTERVAL_MS: u64 = 1000;
+
+/// How practice scans when the menu's settings cannot be read: manual, at
+/// the rate practice always used.
+fn fallback_options() -> Resolved {
+    Resolved {
+        automatic: false,
+        interval_ms: PRACTICE_INTERVAL_MS,
+        ..Resolved::default()
+    }
+}
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +41,12 @@ pub struct View {
     pub input: String,
     pub action: Option<Action>,
     pub completed: u32,
+    /// The block chosen most recently, so a guide can set a goal.
+    pub last_choice: Option<String>,
+    /// Whether the highlight moves by itself.
+    pub automatic: bool,
+    /// The scan ran out of passes and waits for Select, as the menu does.
+    pub stopped: bool,
     pub blocks: Vec<BlockView>,
 }
 #[derive(Clone, Serialize)]
@@ -42,25 +63,32 @@ struct Block {
     label: &'static str,
 }
 
+/// The practice blocks scan with the Home menu's settings: automatic or
+/// manual, scan rate, direction, passes, and first-item and group timing.
 struct Blocks {
     scan: ItemScanner<Block>,
     labels: Vec<&'static str>,
 }
 impl Blocks {
-    fn new() -> Self {
+    fn new(options: Resolved) -> Self {
         let labels = PRACTICE_BLOCKS.to_vec();
         let nodes = labels
             .iter()
             .enumerate()
             .map(|(id, label)| Node::Leaf(Block { id, label }))
             .collect();
-        Self {
-            scan: ItemScanner::new(nodes, Policy::MENU),
-            labels,
-        }
+        let mut scan = ItemScanner::new(nodes, Policy::MENU);
+        scan.options = options;
+        scan.restart();
+        Self { scan, labels }
+    }
+    /// Scanning ran out of passes; like the menu, it waits for Select.
+    fn stopped(&self) -> bool {
+        self.scan.suspended
     }
     fn views(&self, scanning: bool) -> Vec<BlockView> {
-        let selected = scanning.then(|| self.scan.nav.index());
+        // A stopped scan shows no highlight, as the menu does.
+        let selected = (scanning && !self.stopped()).then(|| self.scan.nav.index());
         self.labels
             .iter()
             .enumerate()
@@ -79,7 +107,7 @@ impl Technique for Blocks {
         self.scan.restart();
     }
     fn advance(&mut self, elapsed_ms: u64) {
-        self.scan.advance(elapsed_ms, PRACTICE_INTERVAL_MS);
+        self.scan.advance(elapsed_ms, self.scan.options.interval_ms);
     }
     fn handle(&mut self, action: Action) -> Option<Self::Selection> {
         self.scan.handle(action)
@@ -105,7 +133,7 @@ struct Practice {
     held_since: Option<u64>,
 }
 impl Practice {
-    fn new(settings: Settings, generation: u64, remote: bool) -> Self {
+    fn new(settings: Settings, generation: u64, remote: bool, options: Resolved) -> Self {
         let mut practice = Self {
             view: View {
                 active: true,
@@ -115,10 +143,16 @@ impl Practice {
                     "This computer"
                 }
                 .into(),
-                message: "Use Select to start. Next and Previous move an active scan among the practice blocks.".into(),
+                message: if options.automatic {
+                    "Use Select to start. The highlight moves by itself; use Select again to choose."
+                } else {
+                    "Use Select to start. Next and Previous move an active scan among the practice blocks."
+                }
+                .into(),
+                automatic: options.automatic,
                 ..View::default()
             },
-            engine: Session::new(Blocks::new(), false),
+            engine: Session::new(Blocks::new(options), options.automatic),
             gestures: Gestures::default(),
             settings,
             generation,
@@ -132,6 +166,7 @@ impl Practice {
     }
     fn sync_blocks(&mut self) {
         let scanning = self.engine.active();
+        self.view.stopped = scanning && self.engine.technique.stopped();
         self.view.blocks = self.engine.technique.views(scanning);
     }
     fn edge(&mut self, id: &str, pressed: bool, now: u64) {
@@ -168,6 +203,13 @@ impl Practice {
             return;
         }
         let was_idle = !self.engine.active();
+        let was_stopped = self.engine.active() && self.engine.technique.stopped();
+        if was_stopped && matches!(action, Action::Next | Action::Back) {
+            // A stopped scan does not move; only Select starts it again.
+            self.view.message = STOPPED_MESSAGE.into();
+            self.sync_blocks();
+            return;
+        }
         if let Some(block) = self.engine.action(action.clone()) {
             self.complete(&block);
         } else if was_idle && matches!(action, Action::Next | Action::Back) {
@@ -187,9 +229,15 @@ impl Practice {
         }
         self.sync_blocks();
     }
+    fn note_stopped(&mut self, was_stopped: bool) {
+        if !was_stopped && self.engine.active() && self.engine.technique.stopped() {
+            self.view.message = STOPPED_MESSAGE.into();
+        }
+    }
     fn complete(&mut self, block: &Block) {
         // Intentionally discard every selection — practice never drives native adapters.
         self.view.completed += 1;
+        self.view.last_choice = Some(block.label.into());
         self.view.message = format!(
             "Chose {}. Nothing was sent to another application. Select starts again.",
             block.label
@@ -212,11 +260,13 @@ impl Practice {
                 prompt.action.label()
             );
         }
+        let was_stopped = self.engine.technique.stopped();
         self.engine.tick(
             self.last_tick.elapsed().as_millis().min(250) as u64,
             self.gestures.held(),
         );
         self.last_tick = Instant::now();
+        self.note_stopped(was_stopped);
         self.sync_blocks();
     }
 }
@@ -303,12 +353,20 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
         }
         (switches.settings(), 0)
     };
-    let mut session = Practice::new(settings, generation, remote);
+    let menu = app
+        .try_state::<crate::point_scan_runtime::Controller>()
+        .map(|c| {
+            c.view()
+                .config
+                .resolved(crate::scan_preferences::Area::Menu)
+        });
+    let options = menu.unwrap_or_else(fallback_options);
+    let mut session = Practice::new(settings, generation, remote, options);
     crate::point_scan_runtime::pause(app);
     let result = if remote {
         switches.enable_escape()
     } else {
-        switches.enable(true)
+        switches.enable(options.automatic)
     };
     result?;
     if !remote {
@@ -408,7 +466,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        Practice::new(settings, 7, false)
+        Practice::new(settings, 7, false, fallback_options())
     }
     #[test]
     fn input_feedback_and_hold_actions_use_saved_binding() {
@@ -454,6 +512,77 @@ mod tests {
         p.edge("one", true, 0);
         p.tick(p.settings.escape_ms());
         assert!(!p.view.active);
+    }
+    #[test]
+    fn automatic_practice_moves_at_the_menu_rate_and_records_the_choice() {
+        let mut p = practice();
+        p.engine = Session::new(
+            Blocks::new(Resolved {
+                automatic: true,
+                interval_ms: 500,
+                ..Resolved::default()
+            }),
+            true,
+        );
+        p.view.automatic = true;
+        p.action(Action::Select);
+        let first = p.view.blocks.iter().position(|b| b.selected).unwrap();
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        assert_eq!(p.view.blocks.iter().position(|b| b.selected), Some(first));
+        // The menu's other timing applies too; here the first item has no extra time.
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        let moved = p.view.blocks.iter().position(|b| b.selected).unwrap();
+        assert_ne!(moved, first);
+        p.action(Action::Select);
+        assert_eq!(p.view.last_choice.as_deref(), Some(PRACTICE_BLOCKS[moved]));
+    }
+    #[test]
+    fn automatic_practice_stops_after_its_passes_and_select_starts_again() {
+        let mut p = practice();
+        p.engine = Session::new(
+            Blocks::new(Resolved {
+                automatic: true,
+                interval_ms: 100,
+                pass_limit: 1,
+                ..Resolved::default()
+            }),
+            true,
+        );
+        p.action(Action::Select);
+        for _ in 0..20 {
+            let was = p.engine.technique.stopped();
+            p.engine.tick(100, false);
+            p.note_stopped(was);
+        }
+        p.sync_blocks();
+        assert!(p.engine.technique.stopped());
+        assert!(p.view.blocks.iter().all(|b| !b.selected));
+        assert!(p.view.message.contains("Use Select to start again"));
+        assert!(p.view.stopped);
+        // Next does not pretend to move a stopped scan.
+        p.action(Action::Next);
+        assert!(p.view.message.contains("Use Select to start again"));
+        assert!(p.view.blocks.iter().all(|b| !b.selected));
+        // Select starts the scan again rather than choosing an unseen block.
+        p.action(Action::Select);
+        assert!(p.view.last_choice.is_none());
+        assert!(!p.view.stopped);
+        assert_eq!(p.view.blocks.iter().filter(|b| b.selected).count(), 1);
+    }
+    #[test]
+    fn manual_practice_waits_for_next() {
+        let mut p = practice();
+        assert!(!p.view.automatic);
+        p.action(Action::Select);
+        let first = p.view.blocks.iter().position(|b| b.selected);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        assert_eq!(p.view.blocks.iter().position(|b| b.selected), first);
     }
     #[test]
     fn unassigned_input_and_release_without_press_do_nothing() {

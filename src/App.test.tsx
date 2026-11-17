@@ -546,7 +546,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set up switches later" }));
     expect(screen.getByRole("dialog", { name: "Scanning pace" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Try it" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next" })).toHaveAccessibleDescription("Choose Start with system or Start manually to enable Next.");
@@ -623,7 +623,7 @@ describe("Switchify PC shell", () => {
     expect(screen.getByText("Paired with Pixel")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pair later" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Try it" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("dialog", { name: "Connect your phone" })).toBeInTheDocument();
   });
@@ -713,7 +713,7 @@ describe("Switchify PC shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Pair later" }));
-    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Try it" })).toBeInTheDocument();
   });
 
   it("shows the compact diagnostic history in troubleshooting", async () => {
