@@ -456,7 +456,7 @@ describe("Switchify PC shell", () => {
     expect(screen.queryAllByRole("heading", { name: "Input access" }).length).toBe(visible ? 2 : 0);
     fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
     await screen.findByRole("dialog", { name: visible ? "Input access" : "How will you connect?" });
-    expect(screen.getByLabelText(`Step 1 of ${visible ? 6 : 5}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`Step 1 of ${visible ? 7 : 6}`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
   });
 
@@ -470,7 +470,7 @@ describe("Switchify PC shell", () => {
     await screen.findByRole("dialog", { name: "Input access" });
     act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "How will you connect?" })).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 6")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
     // Saved switches already answer how this person connects.
     expect(screen.getByRole("button", { name: "A switch on this computer" })).toHaveAttribute("aria-pressed", "true");
@@ -486,7 +486,7 @@ describe("Switchify PC shell", () => {
     act(() => receive?.({ ...structuredClone(browserState), accessibility: "granted" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Scanning pace" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("dialog", { name: "Add your switch" })).toBeInTheDocument();
   });
@@ -498,7 +498,7 @@ describe("Switchify PC shell", () => {
     render(<App />);
     const guide = await screen.findByRole("dialog", { name: "Input access" });
     await waitFor(() => expect(guide).toHaveFocus());
-    expect(screen.getByLabelText("Step 1 of 6")).toBeInTheDocument();
+    expect(screen.getByLabelText("Step 1 of 7")).toBeInTheDocument();
     await waitFor(() => expect(markShown).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Skip setup for now" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Input access" })).not.toBeInTheDocument());
@@ -544,6 +544,8 @@ describe("Switchify PC shell", () => {
     expect(screen.queryByRole("button", { name: /More options/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Switch help/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Set up switches later" }));
+    expect(screen.getByRole("dialog", { name: "Scanning pace" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("dialog", { name: "Scanning basics" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
@@ -555,6 +557,50 @@ describe("Switchify PC shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Don’t share" }));
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     await waitFor(() => expect(complete).toHaveBeenCalledWith(false, false));
+  });
+
+  it("sets the scan rate and line speed together from a pace", async () => {
+    const update = vi.fn();
+    const config = { ...scanHooks.defaultPointScanConfig };
+    vi.spyOn(scanHooks, "useScanning").mockReturnValue({ config, state: { config, supported: true, enabled: false, paused: false, phase: "idle", message: "" }, pending: 0, error: null, unsaved: false, update, chooseKeyboardLayout: vi.fn(), retry: vi.fn() });
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Scanning pace" })).toBeInTheDocument();
+    // The default pace is Medium, and a pace is always in effect, so Next is on.
+    expect(screen.getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Medium" })).toHaveAccessibleDescription("1 s on each item");
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Slow" }));
+    expect(update).toHaveBeenCalledWith("blockIntervalMs", 1500);
+    expect(update).toHaveBeenCalledWith("speed", 1);
+    fireEvent.click(screen.getByRole("button", { name: "Pause preview" }));
+    expect(screen.getByRole("button", { name: "Play preview" })).toBeInTheDocument();
+  });
+
+  it("says when scanning already uses a pace that is not listed", async () => {
+    const config = { ...scanHooks.defaultPointScanConfig, blockIntervalMs: 1200 };
+    vi.spyOn(scanHooks, "useScanning").mockReturnValue({ config, state: { config, supported: true, enabled: false, paused: false, phase: "idle", message: "" }, pending: 0, error: null, unsaved: false, update: vi.fn(), chooseKeyboardLayout: vi.fn(), retry: vi.fn() });
+    vi.spyOn(switchHooks, "useSwitches").mockReturnValue(localSwitches());
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText(/Your scanning uses its own pace: 1.2 s on each item/)).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Scanning pace" })).queryAllByRole("button", { pressed: true })).toHaveLength(0);
+  });
+
+  it("leaves out the pace step on the phone path", async () => {
+    browserState.bluetooth = "advertising";
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Help" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open setup guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Switchify on my Android phone or tablet" }));
+    expect(screen.getByLabelText("Step 1 of 5")).toBeInTheDocument();
   });
 
   it("pairs a phone in setup instead of adding a switch", async () => {

@@ -806,6 +806,16 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .setup-phone { display: grid; gap: 16px; }
 .setup-phone-status { display: flex; align-items: center; gap: 12px; }
 .setup-phone-status p { margin-top: 2px; }
+.setup-pace-choices { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.setup-pace-choices .btn { min-height: 80px; }
+.setup-pace-choices .btn > span { display: flex; flex-direction: column; gap: 4px; }
+.setup-pace-choices .btn small { color: var(--muted); font-size: 16px; font-weight: 500; }
+.setup-pace-preview { margin-top: 24px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 18px; background: var(--surface); }
+.setup-pace-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.setup-pace-preview-head h4 { font-size: 18px; font-weight: 700; }
+.setup-pace-preview ul { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.setup-pace-preview li { display: grid; place-items: center; min-height: 56px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); font-weight: 700; }
+.setup-pace-preview li[data-selected="true"] { outline: 4px solid var(--scan); outline-offset: -2px; }
 .setup-privacy { margin-top: 16px; color: var(--brand-label); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-top: 12px; }
