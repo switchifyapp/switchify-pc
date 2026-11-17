@@ -367,7 +367,8 @@ function SwitchConfirmation({ title, action, busy, error, cancel, confirm }: { t
   return <ConfirmDialog title={title} action={action} busy={busy} error={error ? `${error} Your switch is still available. Try again or keep it.` : null} cancelLabel="Keep switch" onCancel={cancel} onConfirm={confirm} />;
 }
 
-export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected, platform }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean; platform?: DemoPlatform }) {
+/** `compact` is the setup guide's version: the switch list and editing, without remote slots, timing or help. */
+export function SwitchesSection({ controller, onDraftChange, suspended = false, mobileConnected, platform, compact = false }: { controller: SwitchController; onDraftChange?: (draft: boolean) => void; suspended?: boolean; mobileConnected?: boolean; platform?: DemoPlatform; compact?: boolean }) {
   const panels = usePanels();
   const { settings, state, pending, unsaved } = controller;
   // A refused capture sets both the general error and the capture error; the
@@ -718,7 +719,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               things. Automatic scanning needs a Select switch. Manual
               scanning also needs Next and Previous.
             </p>
-            <div className="switch-list-actions">
+            {!compact && <div className="switch-list-actions">
               <Button
                 type="button"
                 className="secondary"
@@ -728,7 +729,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
               >
                 Add remote switch
               </Button>
-            </div>
+            </div>}
           </div>
         ) : (
           <div className="switch-list" id={listId}>
@@ -804,7 +805,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 </article>
               );
             })}
-            <MoreOptions label="Mobile switches" attention={!!remote.error || remote.unsaved || expanded?.startsWith("remote-") === true}>
+            {!compact && <MoreOptions label="Mobile switches" attention={!!remote.error || remote.unsaved || expanded?.startsWith("remote-") === true}>
             {!draft && (
               <div className="switch-list-actions">
                 <Button
@@ -886,7 +887,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
                 </article>
               );
             })}
-            </MoreOptions>
+            </MoreOptions>}
             {draft && (
               <article className="switch-row" data-open>
                 <div className="switch-row-summary">
@@ -940,7 +941,8 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         )}
         <SwitchPractice disabled={!!state?.keyboardEntry || entryPending || capturing || !!pending || unsaved || !!remote.pending || remote.unsaved || !!draft || suspended} />
       </SettingGroup>
-      <MoreOptions label="More options">
+      {compact && <SettingNote about="switch interfaces" summary={interfaceModeAdvice} detail={reservedKeyAdvice(platform)} />}
+      {!compact && <MoreOptions label="More options">
       <SettingGroup
         section="timing"
         title="Press timing"
@@ -1045,7 +1047,7 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
           detail={`Movement freezes while a switch is held, and each hold action is offered on screen in turn. Escape resets the scan. Holding any switch for ${seconds(escapeMs)} also resets it. Remote switches are numbered as they appear on the Forwarding screen in Switchify Remote and share the hold timing below.`}
         />
 <SwitchDemonstrations /></MoreOptions>
-      </MoreOptions>
+      </MoreOptions>}
     </>
   );
 }

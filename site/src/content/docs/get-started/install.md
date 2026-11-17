@@ -45,20 +45,29 @@ See [licences, activation and offline access](/licence/) for the full details.
 
 The first time Switchify PC opens, a guide walks you through:
 
-1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus. This step appears only on a Mac that still needs permission. After permission is granted, the guide continues to Add your switch.
+1. **Input access.** On a Mac, Switchify PC needs Accessibility permission to control the pointer and keyboard. Choose *Open Accessibility Settings*, turn on Switchify PC under Privacy & Security, then come back to the app. It checks again by itself when its window regains focus. This step appears only on a Mac that still needs permission. After permission is granted, the guide continues to the next step.
 
    ![The Input access step of the setup guide on a Mac, with an Open Accessibility Settings button and a Show me how demonstration.](../../../assets/screenshots/setup-input-access-macos.png)
 
-2. **Add your switch.** Choose **Add switch**, press your switch once so Switchify PC learns the key it sends, then name it. [Add a switch](/get-started/add-a-switch/) shows each part of this. **Next** turns on once a switch is saved. To set switches up later, choose **Skip switch configuration**.
+2. **How will you connect?** Choose **A switch on this computer** if your switch is plugged in through a switch interface or a USB switch, or **Switchify on my Android phone or tablet** if you control the computer from Switchify on Android. You can set up the other one later. The phone choice is unavailable, and says why, on a computer without the Bluetooth features Switchify PC needs or when Bluetooth could not start.
 
-   ![The Add your switch step with one saved switch, called Head switch, on the Space key, set to Select.](../../../assets/screenshots/setup-add-switch-saved.png)
+   ![The How will you connect step, with A switch on this computer chosen and Switchify on my Android phone or tablet beside it.](../../../assets/screenshots/setup-connect.png)
 
-3. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
-4. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
+3. **Add your switch** or **Connect your phone**, depending on your choice.
+   - **Add your switch.** Choose **Add switch**, press your switch once so Switchify PC learns the key it sends, then name it. [Add a switch](/get-started/add-a-switch/) shows each part of this. This step shows only your switches. Timing, hold timing and switches forwarded from a phone are in **Switches** after setup. **Next** turns on once a switch is saved. To set switches up later, choose **Set up switches later**.
+
+     ![The Add your switch step with one saved switch, called Head switch, on the Space key, set to Select.](../../../assets/screenshots/setup-add-switch-saved.png)
+
+   - **Connect your phone.** Shows whether this computer is ready to pair, a QR code to get Switchify from Google Play, and the pairing steps. When a pairing request appears, check that the codes match before you approve it. **Next** turns on once a device is paired. To pair later, choose **Pair later**; pairing is always on the **Mobile** page. See [Pair your device](/android/pairing/).
+
+     ![The Connect your phone step, showing Ready to connect, the QR code for Switchify on Google Play and the three pairing steps.](../../../assets/screenshots/setup-connect-phone.png)
+
+4. **Scanning basics.** A short introduction to automatic scanning and the Home menu.
+5. **Start with system.** Choose **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
 
    ![The Start with system step, with Start with system chosen and Start manually next to it.](../../../assets/screenshots/setup-start-with-system.png)
 
-5. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
+6. **Anonymous diagnostics.** Choose **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
 
 You can skip the guide with **Skip setup for now** and reopen it later from Help.
 

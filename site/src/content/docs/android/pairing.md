@@ -7,6 +7,8 @@ If you use Switchify on an Android phone or tablet, you can pair it with Switchi
 
 Pairing is optional. Switchify PC works on its own with switches connected to the computer.
 
+You can pair while the setup guide is open: at **How will you connect?**, choose **Switchify on my Android phone or tablet**. Or pair at any time from the **Mobile** page.
+
 In places, Switchify PC calls the phone **Remote** or **Switchify Remote**, for example in the Switches settings. That means the Switchify app on your phone or tablet.
 
 ## What you need

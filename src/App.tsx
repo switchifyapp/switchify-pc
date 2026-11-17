@@ -3,8 +3,10 @@ import { FeedbackMessage, SectionHeader, ActionRow, FormField } from "./ui/patte
 import { IconButton, Button, Input, Select, StatusIcon } from "./ui/controls";
 import { PageIcon } from "./ui/PageIcon";
 import { needsInputAccess } from "./inputAccess";
+import { bluetoothDescriptions, bluetoothLabels, MobileInstallCards } from "./mobile";
+import { AccessibilityCopy, SetupGuide } from "./setup/SetupGuide";
 import { Demonstration, DemonstrationProvider } from "./help/Demonstration";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Accessibility, Bluetooth, Download,
   Copy, KeyRound, Plus, Power, RefreshCw, Save,
@@ -35,36 +37,6 @@ type View = Page;
 const pages: Page[] = ["home", "switches", "scanning", "panels", "mobile", "settings", "support"];
 
 const brandIconUrl = new URL("../src-tauri/icons/icon.png", import.meta.url).href;
-const mobileQrUrl = new URL("./assets/mobile-download-qr.png", import.meta.url).href;
-const mobileDownloadUrl = "https://play.google.com/store/apps/details?id=com.enaboapps.switchify";
-
-const bluetoothLabels: Record<AppState["bluetooth"], string> = {
-  initializing: "Starting Bluetooth...", advertising: "Ready to connect", connected: "Device connected",
-  poweredOff: "Bluetooth is off", unauthorized: "Bluetooth permission required",
-  conflict: "Current Switchify PC is running", unsupported: "Bluetooth unavailable", error: "Bluetooth unavailable",
-};
-
-const bluetoothDescriptions: Record<AppState["bluetooth"], string> = {
-  initializing: "Preparing this computer for nearby devices.",
-  advertising: "Waiting for a nearby mobile device.",
-  connected: "Mobile device connected.",
-  poweredOff: "Turn on Bluetooth to connect a mobile device.",
-  unauthorized: "Allow Bluetooth access in System Settings to connect.",
-  conflict: "Quit the other Switchify PC instance, then reopen this app.",
-  unsupported: "This computer does not support the required Bluetooth features.",
-  error: "Bluetooth could not start. Try restarting Switchify PC.",
-};
-
-function AccessibilityCopy({ state, detailed = false }: { state: AppState; detailed?: boolean }) {
-  if (state.accessibility === "granted") return <p>Ready</p>;
-  if (state.accessibility === "unavailable") return <p>Unavailable on this system</p>;
-  if (!detailed || state.capabilities.platform !== "macos") return <p>Permission required</p>;
-  return <>
-    <p>Enable “Switchify PC” in Accessibility, then return to the app. Status updates automatically.</p>
-    <p className="permission-recovery">If it is already enabled but access is still required, select the stale row, click Remove, return to Switchify, reopen Accessibility Settings, and enable the newly added entry.</p>
-  </>;
-}
-
 function HomeView({ state, switches, scanning, navigate, ctx, jump, recent, onDisconnect, onAccessibility, onReleaseSwitchKeys }: { state: AppState; switches: SwitchController; scanning: ScanningController; navigate: (view: View) => void; ctx: FindContext; jump: Jump; recent: string[]; onDisconnect: () => void; onAccessibility: () => void; onReleaseSwitchKeys: (released: boolean) => void }) {
   const saved = switches.state?.settings.bindings ?? [];
   const hasSelect = saved.some((binding) => binding.pressAction === "select" || binding.holdActions.includes("select"));
@@ -106,14 +78,7 @@ function MobileConnection({ state, onDisconnect }: { state: AppState; onDisconne
       {state.bluetooth === "connected" && <Button className="secondary" onClick={onDisconnect}>Disconnect</Button>}
     </section>
     <p className="mobile-note">Optional. Connecting a mobile device pauses local scanning.</p>
-    <div className="mobile-cards" data-section="pairing" data-setting="pairing">
-    <div className="mobile-download">
-      <h2>Install Switchify for mobile</h2><p>Scan to get the app.</p>
-      <figure><img src={mobileQrUrl} alt="QR code for Switchify on Google Play" /><figcaption>Get Switchify</figcaption></figure>
-      <a className="secondary" href={mobileDownloadUrl} target="_blank" rel="noreferrer">Open Google Play</a>
-    </div>
-    <section className="mobile-pairing"><h2>Connect your mobile</h2><ol><li>Open Switchify on your mobile device and select this computer.</li><li>Compare the pairing codes shown in both apps.</li><li>Approve the pairing request on this computer only if the codes match.</li></ol><Demonstration kind="pair" /></section>
-    </div>
+    <MobileInstallCards />
   </section>;
 }
 
@@ -349,74 +314,6 @@ function SupportView({ state, switches, busy, perform, openSetup, openUpdates, c
     </div></section>
     <AlsoSee page="support" ctx={ctx} jump={jump} />
   </div>;
-}
-
-function SetupGuide({ state, switches, suspended, busy, error, skip, finish, accessibility }: {
-  state: AppState;
-  busy: boolean;
-  error: string | null;
-  skip: () => Promise<void>;
-  finish: (startWithSystem: boolean, shareDiagnostics: boolean) => Promise<void>;
-  accessibility: () => Promise<void>;
-  switches: SwitchController;
-  suspended: boolean;
-}) {
-  const inputAccessRequired = needsInputAccess(state);
-  const [requestedStep, setStep] = useState(() => inputAccessRequired ? 0 : 1);
-  const steps = inputAccessRequired ? [0, 1, 2, 3, 4] : [1, 2, 3, 4];
-  // Permission can arrive while this guide is open. Move straight to switch
-  // setup without renumbering the remaining content or losing saved choices.
-  const step = requestedStep === 0 && !inputAccessRequired ? 1 : requestedStep;
-  const stepNumber = steps.indexOf(step) + 1;
-  useEffect(() => {
-    if (!inputAccessRequired && requestedStep === 0) setStep(1);
-  }, [inputAccessRequired, requestedStep]);
-  const [startupChoice, setStartupChoice] = useState<boolean | null>(state.setup.completed ? state.settings.startWithSystem : null);
-  const [diagnosticsChoice, setDiagnosticsChoice] = useState<boolean | null>(state.setup.completed && state.telemetry.consent !== "undecided" ? state.telemetry.consent === "enabled" : null);
-  const dialogRef = useRef<HTMLElement>(null);
-  const [switchDraft, setSwitchDraft] = useState(false);
-  const capturing = switches.capturing || !!switches.state?.capture.active;
-  const switchBusy = capturing || !!switches.pending || switches.unsaved || switchDraft;
-  const titles = ["Input access", "Add your switch", "Scanning basics", "Start with system", "Anonymous diagnostics"];
-  const canContinue = step === 1 ? !switchBusy && !!switches.state?.settings.bindings.length : step === 3 ? startupChoice !== null : step === 4 ? diagnosticsChoice !== null : true;
-  const guidanceId = useId();
-  const navigationGuidance = capturing
-    ? "Finish capturing a switch or cancel capture before continuing."
-    : switches.pending
-      ? "Wait for your switch changes to finish saving before continuing."
-      : switches.unsaved
-        ? "Your switch changes have not saved. Retry saving before continuing."
-        : switchDraft
-          ? "Save or cancel the new switch before continuing."
-          : busy
-            ? "Please wait while setup saves your changes."
-            : step === 1 && !switches.state?.settings.bindings.length
-              ? "Add and save a local switch to enable Next. If you use only remote switches or want to configure switches later, choose Skip switch configuration to continue setup. Remote presets alone do not confirm a connected switch."
-              : step === 3 && startupChoice === null
-                ? "Choose Start with system or Start manually to enable Next."
-                : step === 4 && diagnosticsChoice === null
-                  ? "Choose whether to share diagnostics to enable Finish."
-                  : null;
-
-  useEffect(() => { if (!suspended && !capturing) dialogRef.current?.focus(); }, [step, suspended]);
-
-
-  return <Dialog dialogRef={dialogRef} className="setup-dialog" backdropClassName="setup-backdrop" suspended={suspended} active={!capturing} data-switch-step={step === 1} aria-labelledby="setup-title">
-    <header><div><span>Setup guide</span><h2 id="setup-title">{titles[step]}</h2></div><strong aria-label={`Step ${stepNumber} of ${steps.length}`}>{stepNumber} / {steps.length}</strong></header>
-    <div className="setup-progress" aria-hidden="true">{steps.map(index => <span key={titles[index]} data-active={index <= step} />)}</div>
-    {error && <FeedbackMessage>{error}</FeedbackMessage>}
-    <div className="setup-content">
-      {step === 0 && <div className="setup-statuses">
-        {needsInputAccess(state) && <article><StatusIcon ok={false}><Accessibility size={19} /></StatusIcon><div><h3>Input access</h3><AccessibilityCopy state={state} detailed /><Demonstration kind="access" /></div><Button className="secondary" disabled={busy} onClick={() => void accessibility()}>Open Accessibility Settings</Button></article>}
-      </div>}
-      {step === 1 && <SwitchesSection mobileConnected={state.bluetooth === "connected"} platform={state.capabilities.platform} controller={switches} onDraftChange={setSwitchDraft} suspended={suspended} />}
-      {step === 2 && <div><h3>Use your switches</h3><p>Press and release Select to open Home. Choose Point to pick a place on the screen and an action, Mouse to move a visible pointer ring with mouse controls, or Keyboard to type. Apps and windows brings another app forward, so you never need to focus an app first. After an action, Select carries on in the same mode.</p><p>Automatic scanning moves the highlight for you. Use Auto scan rate for grid and panel timing, and Line speed for point scanning lines. Holding a switch pauses the scan highlight; release runs the action shown. Choose whether repeating Mouse movement and scrolling stop on switch press or release under Scanning, Mouse pointer.</p><p>Escape disables switch control. Assign Stop scanning or Pause / resume in Switches. Holding any switch for {switches.state ? switches.state.escapeHoldMs / 1000 : 4}s disables switch control.</p><p>Open Scanning after setup to adjust movement and switch between Point and Mouse. Mobile connection is optional.</p><Demonstration kind="grid" /><Demonstration kind="line" /><Demonstration kind="hold" /></div>}
-      {step === 3 && <div><h3>Choose startup behavior</h3><p>Switchify can start quietly when you sign in, ready for your switches.</p><div className="setup-choices" role="group" aria-label="Start with system choice"><Button className="secondary" aria-pressed={startupChoice === true} onClick={() => setStartupChoice(true)}>Start with system</Button><Button className="secondary" aria-pressed={startupChoice === false} onClick={() => setStartupChoice(false)}>Start manually</Button></div><Demonstration kind="startup" /></div>}
-      {step === 4 && <div><h3>Choose whether to share diagnostics</h3><p>Optional anonymous app health, internal error reports and sanitized errors, sent to Sentry, help improve Switchify. Typed text, commands, pairing secrets, device names, and full paths are never included.</p><div className="setup-choices" role="group" aria-label="Anonymous diagnostics choice"><Button className="secondary" disabled={!state.telemetry.available} aria-pressed={diagnosticsChoice === true} onClick={() => setDiagnosticsChoice(true)}>Share diagnostics</Button><Button className="secondary" aria-pressed={diagnosticsChoice === false} onClick={() => setDiagnosticsChoice(false)}>Don’t share</Button></div><a className="setup-privacy" href="https://www.theswitchify.app/privacy" target="_blank" rel="noreferrer">Privacy policy</a></div>}
-    </div>
-    <p id={guidanceId} className="setup-navigation-guidance" role="status">{navigationGuidance}</p>
-    <footer><Button className="text-button" disabled={busy || switchBusy} onClick={() => void skip()}>Skip setup for now</Button>{step === 1 && <Button className="secondary" disabled={busy || switchBusy} onClick={() => setStep(2)}>Skip switch configuration</Button>}<span /><Button className="secondary" disabled={busy || switchBusy || stepNumber === 1} onClick={() => setStep(step - 1)}>Back</Button><Button className="primary" aria-describedby={navigationGuidance ? guidanceId : undefined} disabled={busy || switchBusy || !canContinue} onClick={() => step === 4 ? void finish(startupChoice!, diagnosticsChoice!) : setStep(step + 1)}>{step === 4 ? "Finish" : "Next"}</Button></footer>
-  </Dialog>;
 }
 
 function PairingDialog({ requests, connectedDeviceName, busy, error, approve, reject }: {

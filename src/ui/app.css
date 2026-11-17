@@ -800,6 +800,12 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .setup-content > div > p { max-width: 68ch; }
 .setup-content p { margin-top: 8px; color: var(--muted); }
 .setup-choices { margin-top: 24px; }
+.setup-connection .btn { justify-content: flex-start; gap: 16px; }
+.setup-connection .btn > span { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.setup-connection .btn small { color: var(--muted); font-size: 16px; font-weight: 500; line-height: 1.4; }
+.setup-phone { display: grid; gap: 16px; }
+.setup-phone-status { display: flex; align-items: center; gap: 12px; }
+.setup-phone-status p { margin-top: 2px; }
 .setup-privacy { margin-top: 16px; color: var(--brand-label); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-top: 12px; }
@@ -854,6 +860,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 @media (forced-colors: active) {
   .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { forced-color-adjust: none; color: HighlightText; background: Highlight; border-color: ButtonText; outline: none; }
   .segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: currentColor; }
+  .setup-choices .btn[aria-pressed="true"] small { color: inherit; }
   .btn.tile-nav[data-active="true"], .toggle-row:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
   .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
   /* Focus must still read as focus on the current page's own button. */

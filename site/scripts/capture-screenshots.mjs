@@ -14,7 +14,7 @@ const chrome = process.env.CHROME_PATH ?? {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 }[process.platform] ?? "/usr/bin/google-chrome";
 // Only the screenshots the docs use are written.
-const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-add-switch-saved", "setup-start-with-system", "home",
+const keep = new Set(process.env.ONLY ? process.env.ONLY.split(",") : ["setup-input-access-macos", "setup-connect", "setup-connect-phone", "setup-add-switch-saved", "setup-start-with-system", "home",
   "add-switch-waiting", "add-switch-learned", "switch-editor", "pairing-request", "panels", "panel-editor", "builtin-menu-editor", "panel-extras-editor", "find", "settings-categories"]);
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -243,6 +243,14 @@ for (const platform of ["windows", "macos"]) {
   await click(page, "Open setup guide");
   await shot(page, `setup-input-access-${platform}`, ".setup-dialog");
   if (platform === "windows") {
+    // The connection choices name themselves with their bold line, not their whole text.
+    await click(page, "Switchify on my Android phone or tablet", ".setup-connection strong");
+    await click(page, "Next");
+    await shot(page, "setup-connect-phone", ".setup-dialog");
+    await click(page, "Back");
+    await click(page, "A switch on this computer", ".setup-connection strong");
+    await shot(page, "setup-connect", ".setup-dialog");
+    await click(page, "Next");
     await shot(page, "setup-add-switch-empty", ".setup-dialog");
     await fake(page, (s) => { window.__fake.switches.settings.bindings = [s]; window.__fake.pushSwitches(); }, headSwitch);
     await shot(page, "setup-add-switch-saved", ".setup-dialog");
