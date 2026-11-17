@@ -816,6 +816,14 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .setup-pace-demo ul { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
 .setup-pace-demo li { display: grid; place-items: center; min-height: 56px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); font-weight: 700; }
 .setup-pace-demo li[data-selected="true"] { outline: 4px solid var(--scan); outline-offset: -2px; }
+.setup-try > .btn { margin-top: 16px; }
+.setup-try-practice { display: grid; justify-items: start; gap: 12px; margin-top: 16px; }
+.setup-try-practice .switch-practice-blocks { width: 100%; }
+.setup-try .switch-practice-blocks li[data-goal] { border: 2px dashed var(--text); }
+.setup-content p.setup-try-done { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; }
+.setup-after { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 20px; }
+.setup-after ul { margin: 8px 0 0; padding-left: 24px; color: var(--muted); line-height: 1.6; }
+.setup-after li + li { margin-top: 6px; }
 .setup-privacy { margin-top: 16px; color: var(--brand-label); }
 .setup-navigation-guidance { flex: 0 0 auto; margin: 0; color: var(--muted); line-height: 1.5; }
 .setup-navigation-guidance:not(:empty) { padding-top: 12px; }

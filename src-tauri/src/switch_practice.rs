@@ -15,7 +15,24 @@ use tauri::{AppHandle, Manager};
 const PRACTICE_BLOCKS: [&str; 6] = [
     "Block 1", "Block 2", "Block 3", "Block 4", "Block 5", "Block 6",
 ];
+/// Used when the scanning settings cannot be read, as before practice followed them.
 const PRACTICE_INTERVAL_MS: u64 = 1000;
+
+/// How the practice highlight moves: the menu's automatic scanning and scan
+/// rate, so practice feels like the Home menu it prepares for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pace {
+    pub automatic: bool,
+    pub interval_ms: u64,
+}
+impl Default for Pace {
+    fn default() -> Self {
+        Self {
+            automatic: false,
+            interval_ms: PRACTICE_INTERVAL_MS,
+        }
+    }
+}
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +43,10 @@ pub struct View {
     pub input: String,
     pub action: Option<Action>,
     pub completed: u32,
+    /// The block chosen most recently, so a guide can set a goal.
+    pub last_choice: Option<String>,
+    /// Whether the highlight moves by itself.
+    pub automatic: bool,
     pub blocks: Vec<BlockView>,
 }
 #[derive(Clone, Serialize)]
@@ -45,9 +66,10 @@ struct Block {
 struct Blocks {
     scan: ItemScanner<Block>,
     labels: Vec<&'static str>,
+    interval_ms: u64,
 }
 impl Blocks {
-    fn new() -> Self {
+    fn new(interval_ms: u64) -> Self {
         let labels = PRACTICE_BLOCKS.to_vec();
         let nodes = labels
             .iter()
@@ -57,6 +79,7 @@ impl Blocks {
         Self {
             scan: ItemScanner::new(nodes, Policy::MENU),
             labels,
+            interval_ms,
         }
     }
     fn views(&self, scanning: bool) -> Vec<BlockView> {
@@ -79,7 +102,7 @@ impl Technique for Blocks {
         self.scan.restart();
     }
     fn advance(&mut self, elapsed_ms: u64) {
-        self.scan.advance(elapsed_ms, PRACTICE_INTERVAL_MS);
+        self.scan.advance(elapsed_ms, self.interval_ms);
     }
     fn handle(&mut self, action: Action) -> Option<Self::Selection> {
         self.scan.handle(action)
@@ -105,7 +128,7 @@ struct Practice {
     held_since: Option<u64>,
 }
 impl Practice {
-    fn new(settings: Settings, generation: u64, remote: bool) -> Self {
+    fn new(settings: Settings, generation: u64, remote: bool, pace: Pace) -> Self {
         let mut practice = Self {
             view: View {
                 active: true,
@@ -115,10 +138,16 @@ impl Practice {
                     "This computer"
                 }
                 .into(),
-                message: "Use Select to start. Next and Previous move an active scan among the practice blocks.".into(),
+                message: if pace.automatic {
+                    "Use Select to start. The highlight moves by itself; use Select again to choose."
+                } else {
+                    "Use Select to start. Next and Previous move an active scan among the practice blocks."
+                }
+                .into(),
+                automatic: pace.automatic,
                 ..View::default()
             },
-            engine: Session::new(Blocks::new(), false),
+            engine: Session::new(Blocks::new(pace.interval_ms), pace.automatic),
             gestures: Gestures::default(),
             settings,
             generation,
@@ -190,6 +219,7 @@ impl Practice {
     fn complete(&mut self, block: &Block) {
         // Intentionally discard every selection — practice never drives native adapters.
         self.view.completed += 1;
+        self.view.last_choice = Some(block.label.into());
         self.view.message = format!(
             "Chose {}. Nothing was sent to another application. Select starts again.",
             block.label
@@ -303,7 +333,18 @@ pub fn begin(app: &AppHandle, remote: bool) -> Result<View, String> {
         }
         (switches.settings(), 0)
     };
-    let mut session = Practice::new(settings, generation, remote);
+    let menu = app
+        .try_state::<crate::point_scan_runtime::Controller>()
+        .map(|c| {
+            c.view()
+                .config
+                .resolved(crate::scan_preferences::Area::Menu)
+        });
+    let pace = menu.map_or_else(Pace::default, |menu| Pace {
+        automatic: menu.automatic,
+        interval_ms: menu.interval_ms,
+    });
+    let mut session = Practice::new(settings, generation, remote, pace);
     crate::point_scan_runtime::pause(app);
     let result = if remote {
         switches.enable_escape()
@@ -408,7 +449,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        Practice::new(settings, 7, false)
+        Practice::new(settings, 7, false, Pace::default())
     }
     #[test]
     fn input_feedback_and_hold_actions_use_saved_binding() {
@@ -454,6 +495,36 @@ mod tests {
         p.edge("one", true, 0);
         p.tick(p.settings.escape_ms());
         assert!(!p.view.active);
+    }
+    #[test]
+    fn automatic_practice_moves_at_the_menu_rate_and_records_the_choice() {
+        let mut p = practice();
+        p.engine = Session::new(Blocks::new(500), true);
+        p.view.automatic = true;
+        p.action(Action::Select);
+        let first = p.view.blocks.iter().position(|b| b.selected).unwrap();
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        assert_eq!(p.view.blocks.iter().position(|b| b.selected), Some(first));
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        let moved = p.view.blocks.iter().position(|b| b.selected).unwrap();
+        assert_ne!(moved, first);
+        p.action(Action::Select);
+        assert_eq!(p.view.last_choice.as_deref(), Some(PRACTICE_BLOCKS[moved]));
+    }
+    #[test]
+    fn manual_practice_waits_for_next() {
+        let mut p = practice();
+        assert!(!p.view.automatic);
+        p.action(Action::Select);
+        let first = p.view.blocks.iter().position(|b| b.selected);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.engine.tick(250, false);
+        p.sync_blocks();
+        assert_eq!(p.view.blocks.iter().position(|b| b.selected), first);
     }
     #[test]
     fn unassigned_input_and_release_without_press_do_nothing() {
