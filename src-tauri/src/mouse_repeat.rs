@@ -188,6 +188,10 @@ impl BlockSize {
     }
 }
 
+/// The choices for the time between repeating block hops. 0 hops at the
+/// mouse panel's scan speed.
+pub const BLOCK_INTERVALS_MS: [u32; 6] = [0, 500, 1000, 1500, 2000, 3000];
+
 /// One block on a display of this size, in the display's own units, which
 /// are the units a relative pointer move uses. Blocks are square, so a
 /// diagonal moves as far along each axis.

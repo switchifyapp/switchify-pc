@@ -67,6 +67,10 @@ pub struct AppSettings {
     pub mouse_movement: crate::mouse_repeat::MouseMovement,
     #[serde(default)]
     pub mouse_block_size: crate::mouse_repeat::BlockSize,
+    /// Milliseconds between repeating block hops, or 0 to hop at the mouse
+    /// panel's scan speed.
+    #[serde(default)]
+    pub mouse_block_interval_ms: u32,
     #[serde(default = "default_mouse_repeat_acceleration")]
     pub mouse_repeat_acceleration_duration_ms: u32,
     #[serde(default = "default_key_repeat_enabled")]
@@ -110,6 +114,7 @@ impl Default for AppSettings {
             scroll_repeat_interval_ms: 250,
             mouse_movement: Default::default(),
             mouse_block_size: Default::default(),
+            mouse_block_interval_ms: 0,
             mouse_repeat_acceleration_duration_ms: default_mouse_repeat_acceleration(),
             key_repeat_enabled: default_key_repeat_enabled(),
             key_repeat_interval_ms: default_key_repeat_interval(),
@@ -143,6 +148,9 @@ impl AppSettings {
         }
         if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
             return Err("Mouse repeat acceleration is invalid.".into());
+        }
+        if !crate::mouse_repeat::BLOCK_INTERVALS_MS.contains(&self.mouse_block_interval_ms) {
+            return Err("Block speed is invalid.".into());
         }
         if ![100, 250, 500, 1000].contains(&self.key_repeat_interval_ms) {
             return Err("Key repeat interval is invalid.".into());

@@ -29,6 +29,8 @@ export type AppSettings = {
   scrollRepeatIntervalMs: number;
   mouseMovement: "smooth" | "blocks";
   mouseBlockSize: "small" | "medium" | "large";
+  /** Milliseconds between repeating block hops, or 0 to hop at the mouse panel's scan speed. */
+  mouseBlockIntervalMs: number;
   mouseRepeatAccelerationDurationMs: number;
   keyRepeatEnabled: boolean;
   keyRepeatIntervalMs: number;

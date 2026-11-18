@@ -430,7 +430,11 @@ impl Adapter for PointScan {
                     settings.scroll_repeat_interval_ms,
                     settings.mouse_repeat_enabled,
                 );
-                technique.set_mouse_movement(settings.mouse_movement, settings.mouse_block_size);
+                technique.set_mouse_movement(
+                    settings.mouse_movement,
+                    settings.mouse_block_size,
+                    settings.mouse_block_interval_ms,
+                );
                 technique.set_cursor_color(crate::scanning::ScannerColor::from_cursor_overlay(
                     &settings.cursor_overlay_color,
                 ));

@@ -13,6 +13,9 @@ const blockSizeOptions: { value: AppSettings["mouseBlockSize"]; label: string }[
   { value: "large", label: "Large" },
 ];
 
+// 0 keeps the mouse panel's scan speed. Mirrors `BLOCK_INTERVALS_MS` in src-tauri/src/mouse_repeat.rs.
+const blockSpeedOptions = [{ value: 0, label: "Scan speed" }, ...secondsOptions([500, 1000, 1500, 2000, 3000])];
+
 export function PointerSection({ settings, update, children, title = "Movement", description = "", section }: { settings: AppSettings; update: SettingsUpdate; children?: ReactNode; title?: string; description?: string; section?: string }) {
   const percent = settings.pointerScalePercent;
   const level = speedLevelLabel(percent);
@@ -49,6 +52,8 @@ export function PointerSection({ settings, update, children, title = "Movement",
         <Toggle label="Move in blocks" checked={settings.mouseMovement === "blocks"} onChange={(value) => update("mouseMovement", value ? "blocks" : "smooth")} />
         <p className="setting-note">The mouse panel's arrows jump the pointer a block at a time instead of gliding. You can also switch this with the Blocks tile on the panel's Speed and more page, or with a switch set to Move in blocks on / off.</p>
         <OptionGroup<AppSettings["mouseBlockSize"]> legend="Block size" columns="three" disabled={false} options={blockSizeOptions} value={settings.mouseBlockSize} onChange={(next) => update("mouseBlockSize", next)} />
+        <OptionGroup<number> legend="Block speed" columns="three" disabled={!settings.mouseRepeatEnabled} options={blockSpeedOptions} value={settings.mouseBlockIntervalMs} onChange={(next) => update("mouseBlockIntervalMs", next)}
+          note={{ about: "block speed", summary: settings.mouseRepeatEnabled ? "How long the pointer waits between blocks when it keeps moving." : "Turn on Repeat mouse movement and scrolling to use this.", detail: "Scan speed waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Pick a time to make blocks move faster or slower than that." }} />
       </div>
       <div className="repeat-settings" data-setting="repeat">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
