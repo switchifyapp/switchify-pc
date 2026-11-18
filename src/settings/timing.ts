@@ -15,6 +15,7 @@ export const switchIgnoreRepeatRange: TimeRange = { min: 0, max: 3000, step: 50 
 // The backend takes any millisecond in this range, as earlier builds did;
 // the stepper moves on the step.
 export const holdIntervalRange: TimeRange = { min: 250, max: 5000, step: 50 };
+export const firstItemRange: TimeRange = { min: 0, max: 3000, step: 100 };
 
 /** A time in seconds, without floating-point noise: 350 ms is "0.35 s". */
 export function formatSeconds(ms: number) {

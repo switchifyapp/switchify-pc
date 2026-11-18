@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -255,7 +255,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             15 => upgrade_v15(value)?,
             16 => upgrade_v16(value)?,
             17 => upgrade_v17(value)?,
-            _ => upgrade_v18(value)?,
+            18 => upgrade_v18(value)?,
+            _ => upgrade_v19(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -592,6 +593,24 @@ fn upgrade_v18(mut value: Value) -> Result<Value, ParseError> {
             require_choice(&value, pointer, choices, 18)?;
         }
     }
+    value["schemaVersion"] = Value::from(19);
+    Ok(value)
+}
+
+/// Version 19 offered fixed choices for the extra time on the first item.
+/// Version 20 sets it with a stepper. Saved scan preferences fall back to
+/// off for an unknown time, but a synced document must round-trip exactly,
+/// so version 19 rejected any other time and so does this step.
+fn upgrade_v19(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(19)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    require_choice(
+        &value,
+        "/pointScan/scanPreferences/firstItemMs",
+        &[0, 500, 1000, 1500, 2000],
+        19,
+    )?;
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -1894,6 +1913,57 @@ mod tests {
             odd["switches"][field] = json!(ms);
             let parsed = parse(odd, SCHEMA_VERSION).unwrap();
             assert!(plan(&local, parsed).is_err(), "{field} {ms}");
+        }
+    }
+
+    #[test]
+    fn version_nineteen_documents_keep_their_first_item_time() {
+        let mut local = local();
+        local.point_scan.scan_preferences.first_item_ms = 1500;
+        let older = written_by(serde_json::to_value(local.document()).unwrap(), 19);
+        assert_eq!(older["schemaVersion"], json!(19));
+        let parsed = parse(older.clone(), 19).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.point_scan.scan_preferences.first_item_ms, 1500);
+
+        // Version 19 offered only its fixed choices.
+        let mut odd = older.clone();
+        odd["pointScan"]["scanPreferences"]["firstItemMs"] = json!(300);
+        assert!(matches!(parse(odd, 19), Err(ParseError::Invalid(_))));
+    }
+
+    #[test]
+    fn stepped_first_item_time_syncs_in_the_current_version() {
+        let mut local = local();
+        local.point_scan.scan_preferences.first_item_ms = 300;
+        let value = serde_json::to_value(local.document()).unwrap();
+        let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+        assert_eq!(parsed.point_scan.scan_preferences.first_item_ms, 300);
+        let point_scan = plan(
+            &super::Local {
+                point_scan: point_scan::Config {
+                    scan_preferences: Default::default(),
+                    ..local.point_scan.clone()
+                },
+                ..local.clone()
+            },
+            parsed,
+        )
+        .unwrap()
+        .point_scan
+        .unwrap();
+        assert_eq!(point_scan.scan_preferences.first_item_ms, 300);
+
+        // Saved preferences read a time outside the range as off, so a
+        // document holding one no longer round-trips and is rejected rather
+        // than turning the time off.
+        for ms in [3100, 250] {
+            let mut odd = value.clone();
+            odd["pointScan"]["scanPreferences"]["firstItemMs"] = json!(ms);
+            assert!(
+                matches!(parse(odd, SCHEMA_VERSION), Err(ParseError::Invalid(_))),
+                "{ms}"
+            );
         }
     }
 

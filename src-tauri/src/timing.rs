@@ -46,6 +46,9 @@ pub const MOUSE_BLOCK_INTERVAL: TimeRange = TimeRange::new(100, 10_000, 100);
 pub const SWITCH_ACCEPT: TimeRange = TimeRange::new(0, 2000, 50);
 /// Press timing: how long presses are ignored after a press. 0 is off.
 pub const SWITCH_IGNORE_REPEAT: TimeRange = TimeRange::new(0, 3000, 50);
+/// Scanning: extra time on the first item. 0 is off. A saved time outside
+/// this range falls back to off rather than failing the other settings.
+pub const FIRST_ITEM: TimeRange = TimeRange::new(0, 3000, 100);
 
 #[cfg(test)]
 mod tests {
@@ -84,6 +87,9 @@ mod tests {
         }
         for ms in [0, 250, 500, 1000, 2000] {
             assert!(SWITCH_IGNORE_REPEAT.contains_u64(ms), "ignore {ms}");
+        }
+        for ms in [0, 500, 1000, 1500, 2000] {
+            assert!(FIRST_ITEM.contains_u64(ms), "first item {ms}");
         }
     }
 

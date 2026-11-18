@@ -122,8 +122,6 @@ pub struct Preferences {
     pub keyboard: Overrides,
     pub mouse: Overrides,
 }
-/// The choices Settings offers, so a saved value always shows as chosen.
-pub const FIRST_ITEM_MS: [u64; 5] = [0, 500, 1000, 1500, 2000];
 fn valid_group_rate(value: u16) -> bool {
     matches!(value, 100 | 150 | 200)
 }
@@ -222,7 +220,7 @@ impl Preferences {
             thickness: local.thickness.unwrap_or(self.thickness),
             next_scan: local.next_scan.unwrap_or(self.next_scan),
             start_from: local.start_from.unwrap_or(self.start_from),
-            first_item_ms: if FIRST_ITEM_MS.contains(&self.first_item_ms) {
+            first_item_ms: if crate::timing::FIRST_ITEM.contains_u64(self.first_item_ms) {
                 self.first_item_ms
             } else {
                 0
@@ -269,7 +267,7 @@ pub fn deserialize_preferences<'de, D: serde::Deserializer<'de>>(
     if !valid_passes(preferences.pass_limit) {
         preferences.pass_limit = 3;
     }
-    if !FIRST_ITEM_MS.contains(&preferences.first_item_ms) {
+    if !crate::timing::FIRST_ITEM.contains_u64(preferences.first_item_ms) {
         preferences.first_item_ms = 0;
     }
     if !valid_group_rate(preferences.group_rate_percent) {
@@ -517,6 +515,21 @@ mod tests {
             assert_eq!(saved.pass_limit, 5);
             assert_eq!(saved.first_item_ms, 0);
             assert_eq!(saved.group_rate_percent, 100);
+        }
+        // Any tenth of a second up to 3 seconds is kept.
+        for first in [100, 300, 2500, 3000] {
+            let saved = read(serde_json::json!({ "firstItemMs": first }));
+            assert_eq!(saved.first_item_ms, first);
+            let resolved = Preferences {
+                first_item_ms: first,
+                ..Default::default()
+            }
+            .resolve(Area::Menu, true, 1000, ScannerColor::Blue);
+            assert_eq!(resolved.first_item_ms, first);
+        }
+        for first in [50, 3100] {
+            let saved = read(serde_json::json!({ "firstItemMs": first }));
+            assert_eq!(saved.first_item_ms, 0, "{first}");
         }
     }
     #[test]
