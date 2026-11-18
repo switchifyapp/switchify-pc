@@ -24,7 +24,9 @@ jobs:
         with:
           toolchain: 1.97.1
       - run: npm ci
-      - run: npm audit --audit-level=high
+      - name: Audit npm dependencies
+        # Exceptions are documented in docs/dependency-audit.md.
+        run: node scripts/npm-audit.mjs
       - name: Install pinned cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Audit Rust lockfiles
