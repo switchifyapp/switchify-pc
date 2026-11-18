@@ -105,11 +105,13 @@ pub enum CloseTo {
     PointScanning,
 }
 impl CloseTo {
+    /// Named like the Home tiles, and kept to two short lines: the key is
+    /// narrow on most pages, and a taller label would be cut off.
     fn label(self) -> &'static str {
         match self {
-            Self::Home => "Close keyboard\nto Home",
-            Self::MousePanel => "Close keyboard\nto Mouse panel",
-            Self::PointScanning => "Close keyboard\nto Point scanning",
+            Self::Home => "Close to\nHome",
+            Self::MousePanel => "Close to\nMouse",
+            Self::PointScanning => "Close to\nPoint",
         }
     }
 }

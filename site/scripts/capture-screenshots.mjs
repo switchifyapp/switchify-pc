@@ -114,7 +114,7 @@ const bridge = (platform) => {
       [key("Caps lock", 1.6), ...keys("asdfghjkl'"), key("↩", 1.9)],
       [key("⬆", 1.6), ...keys("zxcvbnm,./")],
       [key("Ctrl", 1.6), key("Alt", 1.6), key("Space", 4), key("Windows", 1.6)],
-      [key("Close keyboard\nto Home", 1.5), key("Letters •", 1.3), key("Navigation", 1.3), key("Numbers", 1.3), key("Symbols", 1.3), key("Position", 1.5), key("Use simple QWERTY", 1.5)],
+      [key("Close keyboard", 1.5), key("Letters •", 1.3), key("Navigation", 1.3), key("Numbers", 1.3), key("Symbols", 1.3), key("Position", 1.5), key("Use simple QWERTY", 1.5)],
     ] },
   ];
   const entry = (id, name, category, categoryLabel, action, keywords = [], parameter) => ({ id, name, category, categoryLabel, keywords, action, needsPoint: false, ...(parameter ? { parameter } : {}) });

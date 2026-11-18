@@ -4911,8 +4911,8 @@ mod tests {
                 .frame()
                 .tiles
                 .iter()
-                .find(|tile| tile.text.starts_with("Close keyboard"))
-                .expect("a Close keyboard key")
+                .find(|tile| tile.text.starts_with("Close to"))
+                .expect("a Close key")
                 .text
                 .clone()
         };
@@ -4929,7 +4929,7 @@ mod tests {
         let mut workflow = session(false).technique;
         workflow.open_home();
         open(&mut workflow);
-        assert_eq!(close_label(&workflow), "Close keyboard\nto Home");
+        assert_eq!(close_label(&workflow), "Close to\nHome");
         assert_eq!(workflow.choose_key(Key::Close), None);
         assert!(workflow.home_open());
 
@@ -4941,7 +4941,7 @@ mod tests {
             Some(Request::OpenKeyboard)
         );
         workflow.execution_succeeded();
-        assert_eq!(close_label(&workflow), "Close keyboard\nto Mouse panel");
+        assert_eq!(close_label(&workflow), "Close to\nMouse");
         assert_eq!(workflow.choose_key(Key::Close), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
 
@@ -4950,7 +4950,7 @@ mod tests {
         workflow.point.config.control_mode = ControlMode::Point;
         workflow.reset();
         open(&mut workflow);
-        assert_eq!(close_label(&workflow), "Close keyboard\nto Point scanning");
+        assert_eq!(close_label(&workflow), "Close to\nPoint");
         assert_eq!(workflow.choose_key(Key::Close), None);
         assert!(matches!(workflow.phase(), Phase::Point(_)));
 
@@ -4958,7 +4958,7 @@ mod tests {
         workflow.point.config.control_mode = ControlMode::Mouse;
         workflow.reset();
         open(&mut workflow);
-        assert_eq!(close_label(&workflow), "Close keyboard\nto Mouse panel");
+        assert_eq!(close_label(&workflow), "Close to\nMouse");
         assert_eq!(workflow.choose_key(Key::Close), None);
         assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
     }

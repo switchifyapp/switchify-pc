@@ -100,7 +100,7 @@ const browserExtrasDefaults: PanelExtrasView[] = [
     [browserKey("Caps lock", 1.6), ...browserKeys("asdfghjkl'"), browserKey("↩", 1.9)],
     [browserKey("⬆", 1.6), ...browserKeys("zxcvbnm,./")],
     [browserKey("Ctrl", 1.6), browserKey("Alt", 1.6), browserKey("Space", 4), browserKey("Windows", 1.6)],
-    [browserKey("Close keyboard\nto Home", 1.5), browserKey("Letters •", 1.3), browserKey("Navigation", 1.3), browserKey("Numbers", 1.3), browserKey("Symbols", 1.3), browserKey("Position", 1.5), browserKey("Use simple QWERTY", 1.5)],
+    [browserKey("Close keyboard", 1.5), browserKey("Letters •", 1.3), browserKey("Navigation", 1.3), browserKey("Numbers", 1.3), browserKey("Symbols", 1.3), browserKey("Position", 1.5), browserKey("Use simple QWERTY", 1.5)],
   ] },
 ];
 let browserExtras: PanelExtrasView[] = structuredClone(browserExtrasDefaults);
