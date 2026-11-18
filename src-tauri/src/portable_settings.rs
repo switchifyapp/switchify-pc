@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 15;
+pub const SCHEMA_VERSION: u32 = 16;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,7 +251,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             11 => upgrade_v11(value)?,
             12 => upgrade_v12(value)?,
             13 => upgrade_v13(value)?,
-            _ => upgrade_v14(value)?,
+            14 => upgrade_v14(value)?,
+            _ => upgrade_v15(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -487,6 +488,24 @@ fn upgrade_v14(mut value: Value) -> Result<Value, ParseError> {
         .filter(|app| !app.contains_key("mouseBlockIntervalMs"))
         .ok_or_else(|| ParseError::Invalid("it does not match version 14 settings".into()))?;
     app.insert("mouseBlockIntervalMs".into(), Value::from(0));
+    value["schemaVersion"] = Value::from(15);
+    Ok(value)
+}
+
+/// Version 15 offered only these block speeds. Version 16 takes any tenth
+/// of a second from 0.1 to 10 seconds, which version 15 would reject, so
+/// those documents carry a newer version.
+const VERSION_15_BLOCK_INTERVALS_MS: [u64; 6] = [0, 500, 1000, 1500, 2000, 3000];
+
+fn upgrade_v15(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(15)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    value
+        .pointer("/app/mouseBlockIntervalMs")
+        .and_then(Value::as_u64)
+        .filter(|ms| VERSION_15_BLOCK_INTERVALS_MS.contains(ms))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 15 settings".into()))?;
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -1592,6 +1611,55 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(base.app.mouse_block_interval_ms, 0);
+    }
+
+    #[test]
+    fn version_fifteen_documents_keep_their_block_speed() {
+        let mut local = local();
+        local.settings.mouse_block_interval_ms = 1500;
+        let older = written_by(serde_json::to_value(local.document()).unwrap(), 15);
+        assert_eq!(older["schemaVersion"], json!(15));
+        let parsed = parse(older.clone(), 15).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.app.mouse_block_interval_ms, 1500);
+
+        // Version 15 offered only its five times and Scan speed.
+        let mut odd = older;
+        odd["app"]["mouseBlockIntervalMs"] = json!(1200);
+        assert!(matches!(parse(odd, 15), Err(ParseError::Invalid(_))));
+
+        // A version 14 document still reaches the current version.
+        let oldest = written_by(serde_json::to_value(local.document()).unwrap(), 14);
+        let parsed = parse(oldest, 14).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.app.mouse_block_interval_ms, 0);
+    }
+
+    #[test]
+    fn any_tenth_of_a_second_block_speed_syncs_in_the_current_version() {
+        let mut local = local();
+        for ms in [100, 1200, 10_000] {
+            local.settings.mouse_block_interval_ms = ms;
+            let value = serde_json::to_value(local.document()).unwrap();
+            assert_eq!(value["schemaVersion"], json!(SCHEMA_VERSION));
+            let parsed = parse(value, SCHEMA_VERSION).unwrap();
+            let mut other = local.clone();
+            other.settings.mouse_block_interval_ms = 0;
+            assert_eq!(
+                plan(&other, parsed)
+                    .unwrap()
+                    .settings
+                    .map(|s| s.mouse_block_interval_ms),
+                Some(ms)
+            );
+        }
+        for ms in [50, 1250, 10_100] {
+            local.settings.mouse_block_interval_ms = 0;
+            let mut value = serde_json::to_value(local.document()).unwrap();
+            value["app"]["mouseBlockIntervalMs"] = json!(ms);
+            let parsed = parse(value, SCHEMA_VERSION).unwrap();
+            assert!(plan(&local, parsed).is_err(), "{ms}");
+        }
     }
 
     #[test]

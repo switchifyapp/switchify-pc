@@ -149,7 +149,7 @@ impl AppSettings {
         if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
             return Err("Mouse repeat acceleration is invalid.".into());
         }
-        if !crate::mouse_repeat::BLOCK_INTERVALS_MS.contains(&self.mouse_block_interval_ms) {
+        if !crate::mouse_repeat::valid_block_interval(self.mouse_block_interval_ms) {
             return Err("Block speed is invalid.".into());
         }
         if ![100, 250, 500, 1000].contains(&self.key_repeat_interval_ms) {
