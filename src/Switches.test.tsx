@@ -440,7 +440,7 @@ it("lists remote switches with local ones and edits them in place", async () => 
   await screen.findByRole("heading", { name: "Remote switch 1" });
   expect(screen.getByText("Remote 1")).toBeTruthy();
   open("Remote switch 1");
-  expect(screen.queryByRole("button", { name: /Learn another key/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(Change|Learn) key for/ })).toBeNull();
   fireEvent.change(screen.getByLabelText("Normal action for Remote switch 1"), { target: { value: "next" } });
   await waitFor(() => expect(remote.slots[0].pressAction).toBe("next"));
   fireEvent.change(screen.getByLabelText("Name for Remote 1"), { target: { value: "Chin" } });
