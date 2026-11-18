@@ -1068,41 +1068,62 @@ enum Available {
     Windows,
 }
 
-/// One remote command and how the protocol treats it.
+/// Who handles a command once it is accepted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Passed to the runtime as an [`EngineEvent::Desktop`] command.
+    Desktop,
+    /// Parsed by the engine itself.
+    Engine,
+}
+
+/// Whether a client may send a command with `responseMode: "none"`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reply {
+    Required,
+    Optional,
+}
+
+/// Whether a command is still accepted after the licence access deadline.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Licence {
+    Required,
+    NotRequired,
+}
+
+/// One remote command and how the protocol treats it. Each column has its own
+/// type, so a row with its columns in the wrong order does not compile.
 struct CommandSpec {
     name: &'static str,
-    /// Passed to the runtime as an [`EngineEvent::Desktop`] command. Commands
-    /// without this flag are parsed by the engine itself.
-    desktop: bool,
-    /// May be sent with `responseMode: "none"`.
-    no_ack: bool,
-    /// Still accepted after the licence access deadline.
-    when_locked: bool,
+    route: Route,
+    reply: Reply,
+    licence: Licence,
     available: Available,
 }
 
 const fn command(
     name: &'static str,
-    desktop: bool,
-    no_ack: bool,
-    when_locked: bool,
+    route: Route,
+    reply: Reply,
+    licence: Licence,
     available: Available,
 ) -> CommandSpec {
     CommandSpec {
         name,
-        desktop,
-        no_ack,
-        when_locked,
+        route,
+        reply,
+        licence,
         available,
     }
 }
 
-const DESKTOP: bool = true;
-const ENGINE: bool = false;
-const NO_ACK: bool = true;
-const ACK: bool = false;
-const LOCKED_OK: bool = true;
-const LICENSED: bool = false;
+// Short names for the table columns.
+const DESKTOP: Route = Route::Desktop;
+const ENGINE: Route = Route::Engine;
+const ACK: Reply = Reply::Required;
+const NO_ACK: Reply = Reply::Optional;
+const NEEDS_LICENCE: Licence = Licence::Required;
+const LOCKED_OK: Licence = Licence::NotRequired;
 
 /// Every remote command the desktop understands, listed once. The advertised
 /// `supportedCommands` and `noAckCommands` lists, the locked-licence
@@ -1111,41 +1132,41 @@ const LICENSED: bool = false;
 /// gated commands advertised after the rest.
 #[rustfmt::skip]
 const COMMANDS: &[CommandSpec] = &[
-    //      name                         route    reply   licence    advertised
-    command("mouse.move",                ENGINE,  NO_ACK, LICENSED,  Available::Always),
-    command("mouse.click",               ENGINE,  NO_ACK, LICENSED,  Available::Always),
-    command("mouse.doubleClick",         ENGINE,  NO_ACK, LICENSED,  Available::Always),
-    command("mouse.rightClick",          ENGINE,  NO_ACK, LICENSED,  Available::Always),
-    command("mouse.scroll",              DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("mouse.dragStart",           DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("mouse.dragEnd",             DESKTOP, NO_ACK, LOCKED_OK, Available::Always),
-    command("mouse.repeat.start",        DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("mouse.repeat.stop",         DESKTOP, NO_ACK, LOCKED_OK, Available::Always),
-    command("connection.ping",           ENGINE,  ACK,    LOCKED_OK, Available::Always),
-    command("pointer.profile",           ENGINE,  ACK,    LOCKED_OK, Available::Always),
-    command("pointer.speed.set",         DESKTOP, ACK,    LICENSED,  Available::Always),
-    command("pointer.display.move",      DESKTOP, ACK,    LICENSED,  Available::DisplayNavigation),
-    command("keyboard.key",              DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.modifierDown",     DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.modifierUp",       DESKTOP, NO_ACK, LOCKED_OK, Available::Always),
-    command("keyboard.shortcut",         DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.typeText",         ENGINE,  NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.textStream.open",  DESKTOP, ACK,    LICENSED,  Available::Always),
-    command("keyboard.textStream.char",  DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.textStream.chunk", DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.textStream.key",   DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("keyboard.textStream.close", DESKTOP, ACK,    LICENSED,  Available::Always),
-    command("media.control",             DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("window.control",            DESKTOP, NO_ACK, LICENSED,  Available::Always),
+    //      name                         route    reply   licence        advertised
+    command("mouse.move",                ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.click",               ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.doubleClick",         ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.rightClick",          ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.scroll",              DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.dragStart",           DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.dragEnd",             DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("mouse.repeat.start",        DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.repeat.stop",         DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("connection.ping",           ENGINE,  ACK,    LOCKED_OK,     Available::Always),
+    command("pointer.profile",           ENGINE,  ACK,    LOCKED_OK,     Available::Always),
+    command("pointer.speed.set",         DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("pointer.display.move",      DESKTOP, ACK,    NEEDS_LICENCE, Available::DisplayNavigation),
+    command("keyboard.key",              DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.modifierDown",     DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.modifierUp",       DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("keyboard.shortcut",         DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.typeText",         ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.open",  DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.char",  DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.chunk", DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.key",   DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.close", DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("media.control",             DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("window.control",            DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
     // Accepted without a reply on every build, but only advertised on Windows.
-    command("grid.switch.set",           DESKTOP, NO_ACK, LICENSED,  Available::Windows),
-    command("grid.switch.sync",          DESKTOP, ACK,    LICENSED,  Available::Windows),
-    command("switch.profile.list",       DESKTOP, ACK,    LOCKED_OK, Available::Always),
-    command("switch.session.start",      DESKTOP, ACK,    LICENSED,  Available::Always),
-    command("switch.edge",               DESKTOP, NO_ACK, LICENSED,  Available::Always),
-    command("switch.sync",               DESKTOP, ACK,    LICENSED,  Available::Always),
-    command("switch.session.stop",       DESKTOP, ACK,    LOCKED_OK, Available::Always),
-    command("connection.disconnecting",  DESKTOP, ACK,    LOCKED_OK, Available::Always),
+    command("grid.switch.set",           DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Windows),
+    command("grid.switch.sync",          DESKTOP, ACK,    NEEDS_LICENCE, Available::Windows),
+    command("switch.profile.list",       DESKTOP, ACK,    LOCKED_OK,     Available::Always),
+    command("switch.session.start",      DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("switch.edge",               DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("switch.sync",               DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("switch.session.stop",       DESKTOP, ACK,    LOCKED_OK,     Available::Always),
+    command("connection.disconnecting",  DESKTOP, ACK,    LOCKED_OK,     Available::Always),
 ];
 
 fn spec(command: &str) -> Option<&'static CommandSpec> {
@@ -1153,11 +1174,11 @@ fn spec(command: &str) -> Option<&'static CommandSpec> {
 }
 
 fn allowed_when_locked(command: &str) -> bool {
-    spec(command).is_some_and(|spec| spec.when_locked)
+    spec(command).is_some_and(|spec| spec.licence == Licence::NotRequired)
 }
 
 fn accepts_no_ack(command: &str) -> bool {
-    spec(command).is_some_and(|spec| spec.no_ack)
+    spec(command).is_some_and(|spec| spec.reply == Reply::Optional)
 }
 
 /// Commands a client may send with `responseMode: "none"`, as advertised in
@@ -1165,13 +1186,13 @@ fn accepts_no_ack(command: &str) -> bool {
 fn no_ack_commands() -> Vec<&'static str> {
     COMMANDS
         .iter()
-        .filter(|spec| spec.no_ack)
+        .filter(|spec| spec.reply == Reply::Optional)
         .map(|spec| spec.name)
         .collect()
 }
 
 fn is_desktop_command(command: &str) -> bool {
-    spec(command).is_some_and(|spec| spec.desktop)
+    spec(command).is_some_and(|spec| spec.route == Route::Desktop)
 }
 
 fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
