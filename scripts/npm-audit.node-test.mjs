@@ -43,6 +43,17 @@ describe("npm audit gate", () => {
     assert.deepEqual(evaluate(withNew, exceptions).blocking.map((a) => a.id), ["GHSA-AAAA-BBBB-CCCC", "GHSA-DDDD-EEEE-FFFF"]);
   });
 
+  it("excepts an advisory only in the package the exception names", () => {
+    const shared = report(
+      ...Object.entries(picomatch.vulnerabilities),
+      ["micromatch", { name: "micromatch", severity: "high", via: [advisory("micromatch", "GHSA-fc5q-39xc-vjpf", "high")] }],
+    );
+    const result = evaluate(shared, exceptions);
+    assert.deepEqual(result.blocking.map((a) => a.package), ["micromatch"]);
+    assert.deepEqual(result.excepted.map((a) => a.package), ["picomatch"]);
+    assert.deepEqual(evaluate(picomatch, [{ id: "GHSA-fc5q-39xc-vjpf", package: "micromatch" }]).blocking.map((a) => a.package), ["picomatch"]);
+  });
+
   it("does not block moderate or low advisories", () => {
     const moderate = report(["qs", { name: "qs", severity: "moderate", via: [advisory("qs", "GHSA-gggg-hhhh-jjjj", "moderate")] }]);
     assert.deepEqual(evaluate(moderate, []).blocking, []);

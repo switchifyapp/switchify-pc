@@ -4,7 +4,8 @@ CI and the release workflow run `node scripts/npm-audit.mjs` and `cargo audit`
 over every Rust lock file.
 
 The npm audit fails on every high or critical advisory, dev dependencies
-included, except the ones listed in `scripts/npm-audit-exceptions.json`. It
+included, except the ones listed, by advisory ID and package, in
+`scripts/npm-audit-exceptions.json`. It
 also fails when a listed exception no longer matches an advisory, so the
 exception is removed as soon as a fixed release is in use. The Rust audits deny
 every advisory except the ones listed here.

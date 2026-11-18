@@ -9,7 +9,11 @@ export const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 
 const advisoryId = (url) => String(url ?? "").match(/GHSA(?:-[0-9a-z]{4}){3}/i)?.[0]?.toUpperCase() ?? null;
 
-/** Every advisory in an `npm audit --json` report, once each. */
+// An advisory is identified by its ID and the package it is in: one GHSA can
+// cover several packages, and an exception covers only the package it names.
+const key = (id, name) => `${String(id).toUpperCase()} ${name}`;
+
+/** Every advisory in an `npm audit --json` report, once per package. */
 export function advisories(report) {
   if (!report || typeof report !== "object" || report.error || typeof report.vulnerabilities !== "object") {
     throw new Error(`npm audit did not produce a report: ${JSON.stringify(report?.error ?? report).slice(0, 500)}`);
@@ -20,7 +24,8 @@ export function advisories(report) {
       // A string names another vulnerable package; its own entry lists the advisory.
       if (typeof via !== "object" || via === null) continue;
       const id = advisoryId(via.url) ?? `npm-${via.source}`;
-      if (!found.has(id)) found.set(id, { id, package: via.name, severity: via.severity, title: via.title, url: via.url });
+      const name = via.name ?? vulnerability.name;
+      if (!found.has(key(id, name))) found.set(key(id, name), { id, package: name, severity: via.severity, title: via.title, url: via.url });
     }
   }
   return [...found.values()];
@@ -29,12 +34,13 @@ export function advisories(report) {
 /** The advisories that block, and the exceptions that no longer match anything. */
 export function evaluate(report, exceptions) {
   const found = advisories(report);
-  const excepted = new Set(exceptions.map((exception) => exception.id.toUpperCase()));
-  const present = new Set(found.map((advisory) => advisory.id));
+  const excepted = new Set(exceptions.map((exception) => key(exception.id, exception.package)));
+  const present = new Set(found.map((advisory) => key(advisory.id, advisory.package)));
+  const isExcepted = (advisory) => excepted.has(key(advisory.id, advisory.package));
   return {
-    blocking: found.filter((advisory) => BLOCKING_SEVERITIES.has(advisory.severity) && !excepted.has(advisory.id)),
-    excepted: found.filter((advisory) => excepted.has(advisory.id)),
-    stale: exceptions.filter((exception) => !present.has(exception.id.toUpperCase())),
+    blocking: found.filter((advisory) => BLOCKING_SEVERITIES.has(advisory.severity) && !isExcepted(advisory)),
+    excepted: found.filter(isExcepted),
+    stale: exceptions.filter((exception) => !present.has(key(exception.id, exception.package))),
   };
 }
 
