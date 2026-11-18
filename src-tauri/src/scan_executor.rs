@@ -363,70 +363,6 @@ pub fn cleanup() -> Result<(), String> {
     })
 }
 
-pub fn shortcut(command: crate::scan_menu::Command, mac: bool) -> Option<Vec<&'static str>> {
-    use crate::scan_menu::Command::*;
-    let primary = if mac { "Meta" } else { "Ctrl" };
-    Some(match command {
-        Copy => vec![primary, "C"],
-        Cut => vec![primary, "X"],
-        Paste => vec![primary, "V"],
-        SelectAll => vec![primary, "A"],
-        Undo => vec![primary, "Z"],
-        Redo => {
-            if mac {
-                vec![primary, "Shift", "Z"]
-            } else {
-                vec![primary, "Y"]
-            }
-        }
-        Save => vec![primary, "S"],
-        Find => vec![primary, "F"],
-        BrowserBack => {
-            if mac {
-                vec![primary, "["]
-            } else {
-                vec!["Alt", "ArrowLeft"]
-            }
-        }
-        BrowserForward => {
-            if mac {
-                vec![primary, "]"]
-            } else {
-                vec!["Alt", "ArrowRight"]
-            }
-        }
-        Reload => vec![primary, "R"],
-        NewTab => vec![primary, "T"],
-        CloseTab => vec![primary, "W"],
-        ReopenTab => vec![primary, "Shift", "T"],
-        NextTab => vec!["Ctrl", "Tab"],
-        PreviousTab => vec!["Ctrl", "Shift", "Tab"],
-        Address => vec![primary, "L"],
-        ZoomIn => vec![primary, "="],
-        ZoomOut => vec![primary, "-"],
-        ZoomReset => vec![primary, "0"],
-        SwitchNext => vec![if mac { "Meta" } else { "Alt" }, "Tab"],
-        SwitchPrevious => vec![if mac { "Meta" } else { "Alt" }, "Shift", "Tab"],
-        Overview => {
-            if mac {
-                vec!["Ctrl", "ArrowUp"]
-            } else {
-                vec!["Meta", "Tab"]
-            }
-        }
-        Desktop => {
-            if mac {
-                vec!["Meta", "F3"]
-            } else {
-                vec!["Meta", "D"]
-            }
-        }
-        CloseWindow if !mac => vec!["Alt", "F4"],
-        Minimize if mac => vec!["Meta", "M"],
-        Maximize if mac => vec!["Ctrl", "Meta", "F"],
-        _ => return None,
-    })
-}
 fn execute_command<I: InputInjector>(
     input: &mut DesktopInput<I>,
     command: crate::scan_menu::Command,
@@ -436,7 +372,7 @@ fn execute_command<I: InputInjector>(
     if input.has_active_drag() {
         return Err("End the active drag before choosing an action.".into());
     }
-    if let Some(keys) = shortcut(command, cfg!(target_os = "macos")) {
+    if let Some(keys) = command.shortcut(cfg!(target_os = "macos")) {
         return input.scan_chord(&keys, None);
     }
     let modifier = match command {
@@ -1333,15 +1269,12 @@ mod tests {
     #[test]
     fn platform_mappings_and_input_marker_are_explicit() {
         assert_eq!(
-            shortcut(Command::Redo, true).unwrap(),
+            Command::Redo.shortcut(true).unwrap(),
             ["Meta", "Shift", "Z"]
         );
-        assert_eq!(shortcut(Command::Redo, false).unwrap(), ["Ctrl", "Y"]);
-        assert_eq!(
-            shortcut(Command::CloseWindow, false).unwrap(),
-            ["Alt", "F4"]
-        );
-        assert_eq!(shortcut(Command::CloseWindow, true), None);
+        assert_eq!(Command::Redo.shortcut(false).unwrap(), ["Ctrl", "Y"]);
+        assert_eq!(Command::CloseWindow.shortcut(false).unwrap(), ["Alt", "F4"]);
+        assert_eq!(Command::CloseWindow.shortcut(true), None);
         assert!(crate::input::own_input(crate::input::SCAN_EVENT_MARKER));
         assert!(!crate::input::own_input(0));
         assert!(!crate::input::own_input(1234));
@@ -1389,8 +1322,8 @@ mod tests {
             input.injector.events.clear();
             execute(&mut input, request, true).unwrap();
             assert_eq!(input.injector.events, ["key Shift false", name]);
-            assert_eq!(shortcut(command, true), None);
-            assert_eq!(shortcut(command, false), None);
+            assert_eq!(command.shortcut(true), None);
+            assert_eq!(command.shortcut(false), None);
         }
     }
     #[test]

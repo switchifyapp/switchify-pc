@@ -367,117 +367,6 @@ fn entry(
     }
 }
 
-fn command_category(command: Command) -> Category {
-    use Command::*;
-    match command {
-        MiddleClick | TripleClick | ShiftClick | CtrlClick | AltClick | MetaClick => {
-            Category::Mouse
-        }
-        Copy | Cut | Paste | SelectAll | Undo | Redo | Save | Find => Category::Editing,
-        SwitchNext | SwitchPrevious | Overview | Desktop | Minimize | Maximize | CloseWindow => {
-            Category::Windows
-        }
-        BrowserBack | BrowserForward | Reload | NewTab | CloseTab | ReopenTab | NextTab
-        | PreviousTab | Address | ZoomIn | ZoomOut | ZoomReset => Category::Browser,
-        PlayPause | NextTrack | PreviousTrack | VolumeUp | VolumeDown | Mute => Category::Media,
-        ShutDown | Restart => Category::Power,
-    }
-}
-
-fn command_keywords(command: Command) -> &'static [&'static str] {
-    use Command::*;
-    match command {
-        Copy => &["clipboard", "ctrl c"],
-        Cut => &["clipboard", "ctrl x"],
-        Paste => &["clipboard", "ctrl v"],
-        SelectAll => &["ctrl a"],
-        Undo => &["ctrl z"],
-        Redo => &["ctrl y"],
-        Save => &["ctrl s"],
-        Find => &["search", "ctrl f"],
-        SwitchNext | SwitchPrevious => &["alt tab", "application"],
-        Overview => &["task view", "mission control"],
-        Desktop => &["minimise all"],
-        Minimize => &["minimise", "hide window"],
-        Maximize => &["maximise", "full screen", "restore"],
-        CloseWindow => &["alt f4", "quit"],
-        BrowserBack | BrowserForward => &["history", "navigate"],
-        Reload => &["refresh"],
-        NewTab | CloseTab | ReopenTab | NextTab | PreviousTab => &["tabs"],
-        Address => &["url", "location", "address bar"],
-        ZoomIn | ZoomOut | ZoomReset => &["magnify", "text size"],
-        PlayPause => &["music", "video"],
-        NextTrack | PreviousTrack => &["music", "skip"],
-        VolumeUp | VolumeDown | Mute => &["sound", "audio"],
-        ShutDown => &["power off", "turn off"],
-        Restart => &["reboot"],
-        MiddleClick | TripleClick | ShiftClick | CtrlClick | AltClick | MetaClick => {
-            &["modifier click"]
-        }
-    }
-}
-
-const ALL_COMMANDS: [Command; 41] = {
-    use Command::*;
-    [
-        MiddleClick,
-        TripleClick,
-        ShiftClick,
-        CtrlClick,
-        AltClick,
-        MetaClick,
-        Copy,
-        Cut,
-        Paste,
-        SelectAll,
-        Undo,
-        Redo,
-        Save,
-        Find,
-        SwitchNext,
-        SwitchPrevious,
-        Overview,
-        Desktop,
-        Minimize,
-        Maximize,
-        CloseWindow,
-        BrowserBack,
-        BrowserForward,
-        Reload,
-        NewTab,
-        CloseTab,
-        ReopenTab,
-        NextTab,
-        PreviousTab,
-        Address,
-        ZoomIn,
-        ZoomOut,
-        ZoomReset,
-        PlayPause,
-        NextTrack,
-        PreviousTrack,
-        VolumeUp,
-        VolumeDown,
-        Mute,
-        ShutDown,
-        Restart,
-    ]
-};
-
-/// Fails to compile when a `Command` is added, so `ALL_COMMANDS` is updated too.
-#[cfg(test)]
-fn command_count() -> usize {
-    use Command::*;
-    match Command::Copy {
-        MiddleClick | TripleClick | ShiftClick | CtrlClick | AltClick | MetaClick | Copy | Cut
-        | Paste | SelectAll | Undo | Redo | Save | Find | SwitchNext | SwitchPrevious
-        | Overview | Desktop | Minimize | Maximize | CloseWindow | BrowserBack | BrowserForward
-        | Reload | NewTab | CloseTab | ReopenTab | NextTab | PreviousTab | Address | ZoomIn
-        | ZoomOut | ZoomReset | PlayPause | NextTrack | PreviousTrack | VolumeUp | VolumeDown
-        | Mute | ShutDown | Restart => 41,
-    }
-}
-
 #[cfg(test)]
 const ALL_SETTINGS: [Setting; 9] = [
     Setting::FasterScan,
@@ -565,23 +454,15 @@ pub fn catalogue() -> Vec<CatalogueEntry> {
             },
         ));
     }
-    for command in ALL_COMMANDS {
+    for command in crate::scan_menu::all_commands() {
         let mut row = entry(
             &command_id(command),
             command.label(),
-            command_category(command),
-            command_keywords(command),
+            command.category(),
+            command.keywords(),
             PanelAction::Command { command },
         );
-        row.needs_point = matches!(
-            command,
-            Command::MiddleClick
-                | Command::TripleClick
-                | Command::ShiftClick
-                | Command::CtrlClick
-                | Command::AltClick
-                | Command::MetaClick
-        );
+        row.needs_point = command.at_point();
         entries.push(row);
     }
     for (id, name, button, count, keywords) in [
@@ -846,10 +727,7 @@ mod tests {
     #[test]
     fn every_command_setting_and_openable_menu_is_listed() {
         let entries = catalogue();
-        assert_eq!(ALL_COMMANDS.len(), command_count());
-        let distinct: HashSet<_> = ALL_COMMANDS.iter().map(|c| format!("{c:?}")).collect();
-        assert_eq!(distinct.len(), ALL_COMMANDS.len());
-        for command in ALL_COMMANDS {
+        for command in crate::scan_menu::all_commands() {
             assert!(
                 entries
                     .iter()
