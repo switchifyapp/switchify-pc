@@ -782,17 +782,7 @@ impl ProtocolEngine {
         if self
             .access_deadline
             .is_some_and(|deadline| now_ms / 1000 >= deadline)
-            && !matches!(
-                command_type,
-                "connection.ping"
-                    | "pointer.profile"
-                    | "switch.session.stop"
-                    | "switch.profile.list"
-                    | "mouse.repeat.stop"
-                    | "mouse.dragEnd"
-                    | "keyboard.modifierUp"
-                    | "connection.disconnecting"
-            )
+            && !allowed_when_locked(command_type)
         {
             return Ok(EngineEvent::Response(error_response(
                 Some(&validated.id),
@@ -1028,8 +1018,7 @@ impl ProtocolEngine {
             _ => return Err("invalid_payload".into()),
         };
         let command_type = required_string(value, "type").map_err(|_| "invalid_payload")?;
-        if response_mode == ResponseMode::None && !NO_ACK_COMMANDS.contains(&command_type.as_str())
-        {
+        if response_mode == ResponseMode::None && !accepts_no_ack(&command_type) {
             return Err("invalid_payload".into());
         }
         let token = self
@@ -1069,63 +1058,141 @@ impl ProtocolEngine {
     }
 }
 
-/// Commands a client may send with `responseMode: "none"`. This single list is
-/// both what the pointer profile advertises as `noAckCommands` and what the
-/// command parser accepts, so the two cannot drift apart.
-const NO_ACK_COMMANDS: &[&str] = &[
-    "mouse.move",
-    "mouse.click",
-    "mouse.doubleClick",
-    "mouse.rightClick",
-    "mouse.scroll",
-    "mouse.dragStart",
-    "mouse.dragEnd",
-    "mouse.repeat.start",
-    "mouse.repeat.stop",
-    "keyboard.key",
-    "keyboard.modifierDown",
-    "keyboard.modifierUp",
-    "keyboard.shortcut",
-    "keyboard.typeText",
-    "keyboard.textStream.char",
-    "keyboard.textStream.chunk",
-    "keyboard.textStream.key",
-    "media.control",
-    "window.control",
-    "grid.switch.set",
-    "switch.edge",
+/// Which builds advertise a command in `supportedCommands`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Available {
+    Always,
+    /// Only when the desktop can move between displays.
+    DisplayNavigation,
+    /// Only on Windows builds.
+    Windows,
+}
+
+/// Who handles a command once it is accepted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Passed to the runtime as an [`EngineEvent::Desktop`] command.
+    Desktop,
+    /// Parsed by the engine itself.
+    Engine,
+}
+
+/// Whether a client may send a command with `responseMode: "none"`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reply {
+    Required,
+    Optional,
+}
+
+/// Whether a command is still accepted after the licence access deadline.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Licence {
+    Required,
+    NotRequired,
+}
+
+/// One remote command and how the protocol treats it. Each column has its own
+/// type, so a row with its columns in the wrong order does not compile.
+struct CommandSpec {
+    name: &'static str,
+    route: Route,
+    reply: Reply,
+    licence: Licence,
+    available: Available,
+}
+
+const fn command(
+    name: &'static str,
+    route: Route,
+    reply: Reply,
+    licence: Licence,
+    available: Available,
+) -> CommandSpec {
+    CommandSpec {
+        name,
+        route,
+        reply,
+        licence,
+        available,
+    }
+}
+
+// Short names for the table columns.
+const DESKTOP: Route = Route::Desktop;
+const ENGINE: Route = Route::Engine;
+const ACK: Reply = Reply::Required;
+const NO_ACK: Reply = Reply::Optional;
+const NEEDS_LICENCE: Licence = Licence::Required;
+const LOCKED_OK: Licence = Licence::NotRequired;
+
+/// Every remote command the desktop understands, listed once. The advertised
+/// `supportedCommands` and `noAckCommands` lists, the locked-licence
+/// allowlist and desktop routing are all read from this table, so they cannot
+/// drift apart. Order matters: each advertised list follows table order, with
+/// gated commands advertised after the rest.
+#[rustfmt::skip]
+const COMMANDS: &[CommandSpec] = &[
+    //      name                         route    reply   licence        advertised
+    command("mouse.move",                ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.click",               ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.doubleClick",         ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.rightClick",          ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.scroll",              DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.dragStart",           DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.dragEnd",             DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("mouse.repeat.start",        DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("mouse.repeat.stop",         DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("connection.ping",           ENGINE,  ACK,    LOCKED_OK,     Available::Always),
+    command("pointer.profile",           ENGINE,  ACK,    LOCKED_OK,     Available::Always),
+    command("pointer.speed.set",         DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("pointer.display.move",      DESKTOP, ACK,    NEEDS_LICENCE, Available::DisplayNavigation),
+    command("keyboard.key",              DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.modifierDown",     DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.modifierUp",       DESKTOP, NO_ACK, LOCKED_OK,     Available::Always),
+    command("keyboard.shortcut",         DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.typeText",         ENGINE,  NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.open",  DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.char",  DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.chunk", DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.key",   DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("keyboard.textStream.close", DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("media.control",             DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("window.control",            DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    // Accepted without a reply on every build, but only advertised on Windows.
+    command("grid.switch.set",           DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Windows),
+    command("grid.switch.sync",          DESKTOP, ACK,    NEEDS_LICENCE, Available::Windows),
+    command("switch.profile.list",       DESKTOP, ACK,    LOCKED_OK,     Available::Always),
+    command("switch.session.start",      DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("switch.edge",               DESKTOP, NO_ACK, NEEDS_LICENCE, Available::Always),
+    command("switch.sync",               DESKTOP, ACK,    NEEDS_LICENCE, Available::Always),
+    command("switch.session.stop",       DESKTOP, ACK,    LOCKED_OK,     Available::Always),
+    command("connection.disconnecting",  DESKTOP, ACK,    LOCKED_OK,     Available::Always),
 ];
 
+fn spec(command: &str) -> Option<&'static CommandSpec> {
+    COMMANDS.iter().find(|spec| spec.name == command)
+}
+
+fn allowed_when_locked(command: &str) -> bool {
+    spec(command).is_some_and(|spec| spec.licence == Licence::NotRequired)
+}
+
+fn accepts_no_ack(command: &str) -> bool {
+    spec(command).is_some_and(|spec| spec.reply == Reply::Optional)
+}
+
+/// Commands a client may send with `responseMode: "none"`, as advertised in
+/// `noAckCommands`.
+fn no_ack_commands() -> Vec<&'static str> {
+    COMMANDS
+        .iter()
+        .filter(|spec| spec.reply == Reply::Optional)
+        .map(|spec| spec.name)
+        .collect()
+}
+
 fn is_desktop_command(command: &str) -> bool {
-    matches!(
-        command,
-        "mouse.scroll"
-            | "mouse.repeat.start"
-            | "mouse.repeat.stop"
-            | "mouse.dragStart"
-            | "mouse.dragEnd"
-            | "keyboard.key"
-            | "keyboard.modifierDown"
-            | "keyboard.modifierUp"
-            | "keyboard.shortcut"
-            | "keyboard.textStream.open"
-            | "keyboard.textStream.char"
-            | "keyboard.textStream.chunk"
-            | "keyboard.textStream.key"
-            | "keyboard.textStream.close"
-            | "media.control"
-            | "window.control"
-            | "grid.switch.set"
-            | "grid.switch.sync"
-            | "switch.profile.list"
-            | "switch.session.start"
-            | "switch.edge"
-            | "switch.sync"
-            | "switch.session.stop"
-            | "pointer.display.move"
-            | "pointer.speed.set"
-            | "connection.disconnecting"
-    )
+    spec(command).is_some_and(|spec| spec.route == Route::Desktop)
 }
 
 fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
@@ -1565,7 +1632,7 @@ pub fn pointer_profile_response(
             "capabilities": {
                 "noAckMouseMove": true,
                 "switchScanning": cfg!(any(target_os = "windows", target_os = "macos")),
-                "noAckCommands": NO_ACK_COMMANDS,
+                "noAckCommands": no_ack_commands(),
                 "supportedCommands": supported_commands(profile.display_navigation_supported),
                 "mouseRepeat": {
                     "supported": true,
@@ -1617,48 +1684,22 @@ pub fn pointer_profile_response(
 }
 
 fn supported_commands(display_navigation_supported: bool) -> Vec<&'static str> {
-    let mut commands = vec![
-        "mouse.move",
-        "mouse.click",
-        "mouse.doubleClick",
-        "mouse.rightClick",
-        "mouse.scroll",
-        "mouse.dragStart",
-        "mouse.dragEnd",
-        "mouse.repeat.start",
-        "mouse.repeat.stop",
-        "connection.ping",
-        "pointer.profile",
-        "pointer.speed.set",
-        "keyboard.key",
-        "keyboard.modifierDown",
-        "keyboard.modifierUp",
-        "keyboard.shortcut",
-        "keyboard.typeText",
-        "keyboard.textStream.open",
-        "keyboard.textStream.char",
-        "keyboard.textStream.chunk",
-        "keyboard.textStream.key",
-        "keyboard.textStream.close",
-        "media.control",
-        "window.control",
-        "switch.profile.list",
-        "switch.session.start",
-        "switch.edge",
-        "switch.sync",
-        "switch.session.stop",
-        "connection.disconnecting",
-    ];
+    let mut gates = vec![Available::Always];
     if display_navigation_supported {
-        commands.push("pointer.display.move");
+        gates.push(Available::DisplayNavigation);
     }
-    #[cfg(target_os = "windows")]
-    {
-        commands.extend(["grid.switch.set", "grid.switch.sync"]);
-        commands
+    if cfg!(target_os = "windows") {
+        gates.push(Available::Windows);
     }
-    #[cfg(not(target_os = "windows"))]
-    commands
+    gates
+        .into_iter()
+        .flat_map(|gate| {
+            COMMANDS
+                .iter()
+                .filter(move |spec| spec.available == gate)
+                .map(|spec| spec.name)
+        })
+        .collect()
 }
 
 pub fn switch_profile_catalog_response(
@@ -1727,6 +1768,127 @@ pub fn switch_profile_catalog_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Existing Android and desktop clients read these lists, so their exact
+    // contents and order are part of the protocol. Change them only with a
+    // matching client change.
+    #[test]
+    fn advertised_command_lists_are_unchanged() {
+        let mut supported = vec![
+            "mouse.move",
+            "mouse.click",
+            "mouse.doubleClick",
+            "mouse.rightClick",
+            "mouse.scroll",
+            "mouse.dragStart",
+            "mouse.dragEnd",
+            "mouse.repeat.start",
+            "mouse.repeat.stop",
+            "connection.ping",
+            "pointer.profile",
+            "pointer.speed.set",
+            "keyboard.key",
+            "keyboard.modifierDown",
+            "keyboard.modifierUp",
+            "keyboard.shortcut",
+            "keyboard.typeText",
+            "keyboard.textStream.open",
+            "keyboard.textStream.char",
+            "keyboard.textStream.chunk",
+            "keyboard.textStream.key",
+            "keyboard.textStream.close",
+            "media.control",
+            "window.control",
+            "switch.profile.list",
+            "switch.session.start",
+            "switch.edge",
+            "switch.sync",
+            "switch.session.stop",
+            "connection.disconnecting",
+        ];
+        let mut with_display = supported.clone();
+        with_display.push("pointer.display.move");
+        if cfg!(target_os = "windows") {
+            supported.extend(["grid.switch.set", "grid.switch.sync"]);
+            with_display.extend(["grid.switch.set", "grid.switch.sync"]);
+        }
+        assert_eq!(supported_commands(false), supported);
+        assert_eq!(supported_commands(true), with_display);
+        assert_eq!(
+            no_ack_commands(),
+            [
+                "mouse.move",
+                "mouse.click",
+                "mouse.doubleClick",
+                "mouse.rightClick",
+                "mouse.scroll",
+                "mouse.dragStart",
+                "mouse.dragEnd",
+                "mouse.repeat.start",
+                "mouse.repeat.stop",
+                "keyboard.key",
+                "keyboard.modifierDown",
+                "keyboard.modifierUp",
+                "keyboard.shortcut",
+                "keyboard.typeText",
+                "keyboard.textStream.char",
+                "keyboard.textStream.chunk",
+                "keyboard.textStream.key",
+                "media.control",
+                "window.control",
+                "grid.switch.set",
+                "switch.edge",
+            ]
+        );
+    }
+
+    #[test]
+    fn desktop_and_locked_command_sets_are_unchanged() {
+        let desktop = [
+            "mouse.scroll",
+            "mouse.repeat.start",
+            "mouse.repeat.stop",
+            "mouse.dragStart",
+            "mouse.dragEnd",
+            "keyboard.key",
+            "keyboard.modifierDown",
+            "keyboard.modifierUp",
+            "keyboard.shortcut",
+            "keyboard.textStream.open",
+            "keyboard.textStream.char",
+            "keyboard.textStream.chunk",
+            "keyboard.textStream.key",
+            "keyboard.textStream.close",
+            "media.control",
+            "window.control",
+            "grid.switch.set",
+            "grid.switch.sync",
+            "switch.profile.list",
+            "switch.session.start",
+            "switch.edge",
+            "switch.sync",
+            "switch.session.stop",
+            "pointer.display.move",
+            "pointer.speed.set",
+            "connection.disconnecting",
+        ];
+        let locked = [
+            "connection.ping",
+            "pointer.profile",
+            "switch.session.stop",
+            "switch.profile.list",
+            "mouse.repeat.stop",
+            "mouse.dragEnd",
+            "keyboard.modifierUp",
+            "connection.disconnecting",
+        ];
+        let mut names: Vec<&str> = supported_commands(true);
+        names.extend(["grid.switch.set", "grid.switch.sync", "unknown.command", ""]);
+        for name in names {
+            assert_eq!(is_desktop_command(name), desktop.contains(&name), "{name}");
+            assert_eq!(allowed_when_locked(name), locked.contains(&name), "{name}");
+        }
+    }
 
     #[test]
     fn scanning_catalog_opt_in_preserves_existing_requests() {
@@ -2904,7 +3066,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            assert!(NO_ACK_COMMANDS.contains(&command_type));
+            assert!(accepts_no_ack(command_type));
             let payload = if command_type == "mouse.repeat.start" {
                 json!({ "command": { "type": "mouse.move", "payload": { "dx": 1, "dy": 0 } } })
             } else {
