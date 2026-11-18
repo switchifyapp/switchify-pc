@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { ChevronRight } from 'lucide-react';
 import { lastModeName, mouseRepeatStopInstruction, scannerColors, selectOpensHome, type ScanningController, type ScannerColor, type PointScanConfig } from '../scanning/useScanning';
 import { areaOptions, sharedOptions, defaultScanPreferences, usualAfterSelection, savedKeyboardWait, itemScanning, itemScanningLabels, lightPanels, type ItemScanning, type PanelSize, type PanelTheme, type ScanArea, type ScanOptions } from '../scanning/preferences';
-import { SettingGroup, Toggle, OptionGroup } from './controls';
+import { SettingGroup, Toggle, OptionGroup, TimeStepper } from './controls';
+import { firstItemRange } from './timing';
 import type { SettingId } from '../find/index';
 
 const speedOptions = ["Very slow", "Slow", "Medium", "Fast", "Very fast"].map((label, value) => ({ label, value }));
@@ -228,11 +229,10 @@ export function ScannerPreferences({ controller, requestedArea, onAreaOpened, po
       </div></div>
       <p className="setting-note">{effective.automatic ? 'Seconds per highlight. Less time means faster scanning.' : 'Used in automatic scanning. Your rate is kept while scanning manually.'}</p>
     </>)}
-    {area === 'shared' && <OptionGroup<number>
-      setting="first-item" legend="Extra time on the first item" columns="five" disabled={disabled} value={settings.firstItemMs ?? 0}
-      options={[0, 500, 1000, 1500, 2000].map(value => ({ value, label: value ? `${value / 1000} s` : 'Off' }))}
+    {area === 'shared' && <TimeStepper
+      setting="first-item" label="Extra time on the first item" range={firstItemRange} zeroLabel="Off" disabled={disabled} value={settings.firstItemMs ?? 0}
       onChange={firstItemMs => update('scanPreferences', { ...settings, firstItemMs })}
-      note={{ summary: 'The first item stays highlighted for longer when scanning starts, starts again after a selection, or moves into or back out of a row or group, giving you time to react. Menus, the keyboard and the mouse panel use it in automatic scanning.' }}
+      note={{ summary: 'The first item stays highlighted for longer when scanning starts, starts again after a selection, or moves into or back out of a row or group, giving you time to react. Set from Off to 3 seconds. Menus, the keyboard and the mouse panel use it in automatic scanning.' }}
     />}
     {area === 'shared' && <OptionGroup<number>
       setting="group-rate" legend="Inside a row or group" columns="three" disabled={disabled} value={settings.groupRatePercent ?? 100}

@@ -804,11 +804,16 @@ it("saves first-item and in-group timing, which start off", async () => {
   render(<PointScan />);
   await screen.findByText(initial.message);
   const first = screen.getByRole("group", { name: "Extra time on the first item" });
-  expect(within(first).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(first).getByRole("status", { name: "Extra time on the first item" })).toHaveTextContent("Off");
+  expect(within(first).getByRole("button", { name: "Decrease extra time on the first item by 0.1 seconds" })).toBeDisabled();
   const group = screen.getByRole("group", { name: "Inside a row or group" });
   expect(within(group).getByRole("button", { name: "Same rate" })).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(within(first).getByRole("button", { name: "1.5 s" }));
-  await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.firstItemMs).toBe(1500));
+  // A tenth of a second at a time.
+  for (let i = 0; i < 3; i++) {
+    fireEvent.click(within(first).getByRole("button", { name: "Increase extra time on the first item by 0.1 seconds" }));
+    await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.firstItemMs).toBe(100 + i * 100));
+  }
+  expect(within(first).getByRole("status", { name: "Extra time on the first item" })).toHaveTextContent("0.3 s");
   fireEvent.click(within(group).getByRole("button", { name: "Twice as long" }));
   await waitFor(() => expect(mocks.invoke.mock.lastCall?.[1].config.scanPreferences.groupRatePercent).toBe(200));
 });
