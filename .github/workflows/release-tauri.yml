@@ -99,7 +99,7 @@ jobs:
       - name: Audit dependencies at release tag
         # Exceptions are documented in docs/dependency-audit.md.
         run: |
-          npm audit --audit-level=high
+          node scripts/npm-audit.mjs
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit --file src-tauri/Cargo.lock
           cargo audit --file src-tauri/startup-launcher/Cargo.lock
