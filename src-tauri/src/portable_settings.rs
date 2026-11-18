@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -254,7 +254,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             14 => upgrade_v14(value)?,
             15 => upgrade_v15(value)?,
             16 => upgrade_v16(value)?,
-            _ => upgrade_v17(value)?,
+            17 => upgrade_v17(value)?,
+            _ => upgrade_v18(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -573,6 +574,24 @@ fn upgrade_v17(mut value: Value) -> Result<Value, ParseError> {
         &[0, 500, 1000, 2000],
         17,
     )?;
+    value["schemaVersion"] = Value::from(18);
+    Ok(value)
+}
+
+/// Version 18 offered fixed choices for press timing. Version 19 sets them
+/// with steppers. Press timing that is off is left out of the document.
+fn upgrade_v18(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(18)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    for (pointer, choices) in [
+        ("/switches/acceptMs", &[0, 100, 200, 300, 500, 1000][..]),
+        ("/switches/ignoreRepeatMs", &[0, 250, 500, 1000, 2000][..]),
+    ] {
+        if value.pointer(pointer).is_some() {
+            require_choice(&value, pointer, choices, 18)?;
+        }
+    }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -1805,6 +1824,74 @@ mod tests {
         ] {
             let mut odd = value.clone();
             odd["app"][field] = json!(ms);
+            let parsed = parse(odd, SCHEMA_VERSION).unwrap();
+            assert!(plan(&local, parsed).is_err(), "{field} {ms}");
+        }
+    }
+
+    #[test]
+    fn version_eighteen_documents_keep_their_press_timing() {
+        let mut local = local();
+        local.switches.accept_ms = 300;
+        local.switches.ignore_repeat_ms = 2000;
+        let older = written_by(serde_json::to_value(local.document()).unwrap(), 18);
+        assert_eq!(older["schemaVersion"], json!(18));
+        let parsed = parse(older.clone(), 18).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.switches.accept_ms, 300);
+        assert_eq!(parsed.switches.ignore_repeat_ms, 2000);
+
+        // Press timing that is off is left out, as version 18 wrote it.
+        let mut off = older.clone();
+        let switches = off["switches"].as_object_mut().unwrap();
+        switches.remove("acceptMs");
+        switches.remove("ignoreRepeatMs");
+        let parsed = parse(off, 18).unwrap();
+        assert_eq!(parsed.switches.accept_ms, 0);
+        assert_eq!(parsed.switches.ignore_repeat_ms, 0);
+
+        // Version 18 offered only its fixed choices.
+        for (field, ms) in [("acceptMs", 150), ("ignoreRepeatMs", 750)] {
+            let mut odd = older.clone();
+            odd["switches"][field] = json!(ms);
+            assert!(
+                matches!(parse(odd, 18), Err(ParseError::Invalid(_))),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn stepped_press_timing_syncs_in_the_current_version() {
+        let mut local = local();
+        local.switches.accept_ms = 150;
+        local.switches.ignore_repeat_ms = 2750;
+        let value = serde_json::to_value(local.document()).unwrap();
+        let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+        let switches = plan(
+            &super::Local {
+                switches: switches::Settings {
+                    bindings: local.switches.bindings.clone(),
+                    ..switches::Settings::default()
+                },
+                ..local.clone()
+            },
+            parsed,
+        )
+        .unwrap()
+        .switches
+        .unwrap();
+        assert_eq!(switches.accept_ms, 150);
+        assert_eq!(switches.ignore_repeat_ms, 2750);
+
+        for (field, ms) in [
+            ("acceptMs", 2050),
+            ("acceptMs", 125),
+            ("ignoreRepeatMs", 3050),
+            ("ignoreRepeatMs", 260),
+        ] {
+            let mut odd = value.clone();
+            odd["switches"][field] = json!(ms);
             let parsed = parse(odd, SCHEMA_VERSION).unwrap();
             assert!(plan(&local, parsed).is_err(), "{field} {ms}");
         }

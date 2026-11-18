@@ -10,6 +10,11 @@ export const mouseRepeatIntervalRange: TimeRange = { min: 100, max: 2000, step: 
 export const mouseRepeatAccelerationRange: TimeRange = { min: 0, max: 3000, step: 100 };
 // A set time between block hops; 0 keeps the mouse panel's scan speed.
 export const mouseBlockIntervalRange: TimeRange = { min: 100, max: 10000, step: 100 };
+export const switchAcceptRange: TimeRange = { min: 0, max: 2000, step: 50 };
+export const switchIgnoreRepeatRange: TimeRange = { min: 0, max: 3000, step: 50 };
+// The backend takes any millisecond in this range, as earlier builds did;
+// the stepper moves on the step.
+export const holdIntervalRange: TimeRange = { min: 250, max: 5000, step: 50 };
 
 /** A time in seconds, without floating-point noise: 350 ms is "0.35 s". */
 export function formatSeconds(ms: number) {

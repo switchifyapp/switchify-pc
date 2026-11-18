@@ -206,7 +206,13 @@ it("shows hold timing computed from the interval", async () => {
     screen.getByText("Hold 1s for Next, 2s for Stop scanning. Release to run the action shown."),
   ).toBeTruthy();
   fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
-  fireEvent.click(within(screen.getByRole("group", { name: "Hold action interval" })).getByRole("button", { name: "2s" }));
+  const interval = screen.getByRole("group", { name: "Hold action interval" });
+  expect(within(interval).getByRole("status", { name: "Hold action interval" })).toHaveTextContent("1 s");
+  for (let i = 0; i < 20; i++) {
+    fireEvent.click(within(interval).getByRole("button", { name: "Increase hold action interval by 0.05 seconds" }));
+    await waitFor(() => expect(current.settings.holdIntervalMs).toBe(1050 + i * 50));
+  }
+  expect(within(interval).getByRole("status", { name: "Hold action interval" })).toHaveTextContent("2 s");
   await screen.findByText("Hold 2s for Next, 4s for Stop scanning. Release to run the action shown.");
   await screen.findByText(/Holding any switch for 8s resets the scan/);
 });
@@ -659,14 +665,19 @@ it("saves press timing, which starts off", async () => {
   await screen.findByRole("heading", { name: "Head switch" });
   fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
   const accept = screen.getByRole("group", { name: "Hold before a press counts" });
-  expect(within(accept).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
-  fireEvent.click(within(accept).getByRole("button", { name: "0.3s" }));
-  await waitFor(() => expect(current.settings.acceptMs).toBe(300));
+  expect(within(accept).getByRole("status", { name: "Hold before a press counts" })).toHaveTextContent("Off");
+  expect(within(accept).getByRole("button", { name: "Decrease hold before a press counts by 0.05 seconds" })).toBeDisabled();
+  for (let i = 0; i < 6; i++) {
+    fireEvent.click(within(accept).getByRole("button", { name: "Increase hold before a press counts by 0.05 seconds" }));
+    await waitFor(() => expect(current.settings.acceptMs).toBe(50 + i * 50));
+  }
   const ignore = screen.getByRole("group", { name: "Ignore presses after a press" });
-  fireEvent.click(within(ignore).getByRole("button", { name: "0.5s" }));
-  await waitFor(() => expect(current.settings.ignoreRepeatMs).toBe(500));
+  for (let i = 0; i < 10; i++) {
+    fireEvent.click(within(ignore).getByRole("button", { name: "Increase ignore presses after a press by 0.05 seconds" }));
+    await waitFor(() => expect(current.settings.ignoreRepeatMs).toBe(50 + i * 50));
+  }
   expect(current.settings.acceptMs).toBe(300);
-  expect(within(ignore).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(ignore).getByRole("status", { name: "Ignore presses after a press" })).toHaveTextContent("0.5 s");
   // Hold actions, and the hold that resets the scan, start once a press counts.
   open("Head switch");
   await screen.findByText("Hold 1.3s for Next, 2.3s for Stop scanning. Release to run the action shown.");
