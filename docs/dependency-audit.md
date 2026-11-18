@@ -16,20 +16,9 @@ as soon as a fixed release can be used. Every exception in
 
 ## npm
 
-### GHSA-fc5q-39xc-vjpf (picomatch)
-
-[picomatch is vulnerable to ReDoS through single-branch repeated extglobs](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
-Every release up to 4.0.7 is affected, and no patched release exists yet.
-Tracked in [#1503](https://github.com/switchifyapp/switchify-pc/issues/1503).
-
-- picomatch is reached only through dev and build tools: vite, vitest,
-  tinyglobby and fdir.
-- Those tools match only this repository's own glob patterns at build and test
-  time. No untrusted input reaches them.
-- Nothing from it ships in the app: `npm audit --omit=dev` reports no
-  vulnerabilities.
-
-Remove the exception, and update picomatch, once a fixed release is published.
+There are no npm exceptions at the moment. GHSA-fc5q-39xc-vjpf (picomatch), excepted
+under [#1503](https://github.com/switchifyapp/switchify-pc/issues/1503), was withdrawn by GitHub on 2026-11-18
+and removed in [#1524](https://github.com/switchifyapp/switchify-pc/issues/1524).
 
 ## Rust
 

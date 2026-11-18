@@ -1,8 +1,1 @@
-[
-  {
-    "id": "GHSA-fc5q-39xc-vjpf",
-    "package": "picomatch",
-    "issue": "https://github.com/switchifyapp/switchify-pc/issues/1503",
-    "reason": "No patched picomatch release exists. It is reached only through dev and build tools (vite, vitest, tinyglobby, fdir) matching the repository's own glob patterns, and nothing from it ships in the app."
-  }
-]
+[]
