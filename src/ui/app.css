@@ -662,12 +662,31 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .switch-editor .field { margin-top: 0; }
 .switch-editor .field > span:first-child { font-weight: 600; }
 .key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.hold-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.hold-list li { display: grid; grid-template-columns: 24px minmax(0, 1fr) repeat(3, 64px); align-items: center; gap: 12px; }
-.hold-step { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--app-background); background: var(--text); font-weight: 700; font-size: 14px; }
-.hold-list select { margin-right: 6px; }
+/* Two sections: the switch itself, then what it does. */
+.switch-editor-section { display: grid; gap: 14px; min-width: 0; }
+.switch-editor-section + .switch-editor-section { border-top: 1px solid var(--border); padding-top: 18px; }
+.switch-editor-section > h3, .switch-editor-heading h3 { margin: 0; font-size: 18px; }
+.switch-editor-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.switch-editor-how > .teaching-disclosure:first-child { margin-top: 0; }
+/* Key and name side by side, the name taking the room. */
+.switch-identity { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 16px; }
+.switch-identity .key-badge { min-width: 88px; min-height: 56px; justify-content: center; color: var(--text); font-size: 20px; }
+.switch-typing { display: grid; justify-items: start; gap: 10px; }
+.switch-typing .setting-note { margin: 0; }
+/* Hold actions as tiles, in the order holding reaches them; the list wraps. */
+.hold-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.hold-tiles li { display: grid; }
+.btn.hold-tile { display: grid; justify-content: stretch; justify-items: start; align-content: start; gap: 6px; min-height: 104px; border-color: var(--border); border-radius: var(--radius-card); padding: 16px; background: var(--surface); text-align: left; }
+.btn.hold-tile:hover { background: var(--surface-hover); }
+.btn.hold-tile[aria-pressed="true"] { border: 3px solid var(--text); padding: 14px; background: var(--surface-muted); }
+.hold-tile-when { color: var(--muted); font-size: 15px; font-weight: 700; }
+.hold-tile-action { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.btn.hold-tile.hold-tile-add { place-content: center; justify-content: center; justify-items: center; border-style: dashed; color: var(--brand-label); background: transparent; text-align: center; font-weight: 700; }
+.hold-panel { display: grid; gap: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-card); padding: 16px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / 10%); }
+.hold-panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); font-size: 18px; }
+.hold-panel-heading strong { font-weight: 700; }
+.hold-panel-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .hold-actions .setting-note { margin-top: 2px; }
-.hold-actions .disclosure { margin-top: 0; }
 .switch-editor-footer { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 4px; }
 .switch-editor-footer .danger { margin-left: auto; }
 .switch-list-actions, .setup-choices { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -888,11 +907,11 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
    chosen state with system colours, and let swatches and the highlight
    sample keep their real colours, since the colour is the choice being made. */
 @media (forced-colors: active) {
-  .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { forced-color-adjust: none; color: HighlightText; background: Highlight; border-color: ButtonText; outline: none; }
+  .segmented .btn[aria-pressed="true"], .setup-choices .btn[aria-pressed="true"], .btn.hold-tile[aria-pressed="true"], .color-options label:has(input:checked), .scanner-colours label:has(input:checked) { forced-color-adjust: none; color: HighlightText; background: Highlight; border-color: ButtonText; outline: none; }
   .segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: currentColor; }
-  .setup-choices .btn[aria-pressed="true"] small { color: inherit; }
+  .setup-choices .btn[aria-pressed="true"] small, .btn.hold-tile[aria-pressed="true"] .hold-tile-when { color: inherit; }
   .btn.tile-nav[data-active="true"], .toggle-row:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
-  .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
+  .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .btn.hold-tile:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
   /* Focus must still read as focus on the current page's own button. */
   .btn.tile-nav[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .toggle { forced-color-adjust: none; color: CanvasText; }
@@ -923,8 +942,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .view { padding: 12px; gap: 24px; }
   .licence-banner-wrap { padding: 12px 12px 0; }
   .error-banner, .update-banner { margin: 12px 12px 0; }
-  .hold-list li { grid-template-columns: repeat(3, minmax(64px, 1fr)); }
-  .hold-list li > select { grid-column: 2 / -1; }
+  .switch-identity { grid-template-columns: minmax(0, 1fr); }
   .btn.profile-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .profile-row > span:not(.status-icon):not(.action-row-text) { display: none; }
 }
