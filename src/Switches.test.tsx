@@ -182,9 +182,9 @@ it("reorders hold actions and reflects the saved order in the summary", async ()
   // Choosing the second hold opens its panel, which moves it earlier.
   fireEvent.click(screen.getByRole("button", { name: "Hold 2s: Stop scanning" }));
   expect(screen.getByRole("button", { name: "Hold 2s: Stop scanning" })).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: "Move hold action 2 later" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Move later: hold action 2" })).toBeDisabled();
   fireEvent.click(
-    screen.getByRole("button", { name: "Move hold action 2 earlier" }),
+    screen.getByRole("button", { name: "Move earlier: hold action 2" }),
   );
   await waitFor(() => expect(finish).toBeTypeOf("function"));
   expect(screen.getByText("Saving switches...")).toBeTruthy();
@@ -213,7 +213,7 @@ it("edits hold actions from a panel opened by choosing their tile", async () => 
   fireEvent.click(first);
   const panel = screen.getByRole("group", { name: "Hold action 1: hold 1s" });
   expect(within(panel).getByText("Hold 1s: Next")).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Move hold action 1 earlier" })).toBeDisabled();
+  expect(within(panel).getByRole("button", { name: "Move earlier: hold action 1" })).toBeDisabled();
   fireEvent.click(first);
   expect(screen.queryByRole("group", { name: "Hold action 1: hold 1s" })).toBeNull();
 
@@ -223,28 +223,28 @@ it("edits hold actions from a panel opened by choosing their tile", async () => 
   await waitFor(() => expect(screen.getByRole("button", { name: "Hold 1s: Next" })).toHaveFocus());
 
   // A new hold opens ready to change.
-  fireEvent.click(screen.getByRole("button", { name: "Add hold action for Head switch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add a hold for 3s to Head switch" }));
   await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "stop", "next"]));
   expect(screen.getByRole("group", { name: "Hold action 3: hold 3s" })).toBeTruthy();
   expect(screen.getByLabelText("Hold action 3 for Head switch")).toHaveValue("next");
   await waitFor(() => expect(screen.getByLabelText("Hold action 3 for Head switch")).toHaveFocus());
 
   // A move that reaches the end disables its button, so focus goes to the action.
-  fireEvent.click(screen.getByRole("button", { name: "Move hold action 3 earlier" }));
+  fireEvent.click(screen.getByRole("button", { name: "Move earlier: hold action 3" }));
   await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "next", "stop"]));
-  screen.getByRole("button", { name: "Move hold action 2 earlier" }).focus();
-  fireEvent.click(screen.getByRole("button", { name: "Move hold action 2 earlier" }));
+  screen.getByRole("button", { name: "Move earlier: hold action 2" }).focus();
+  fireEvent.click(screen.getByRole("button", { name: "Move earlier: hold action 2" }));
   await waitFor(() => expect(screen.getByLabelText("Hold action 1 for Head switch")).toHaveFocus());
-  expect(screen.getByRole("button", { name: "Move hold action 1 earlier" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Move hold action 1 later" }));
-  fireEvent.click(screen.getByRole("button", { name: "Move hold action 2 later" }));
+  expect(screen.getByRole("button", { name: "Move earlier: hold action 1" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Move later: hold action 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Move later: hold action 2" }));
   await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "stop", "next"]));
 
   // Removing it closes the panel and leaves focus on the tiles.
   fireEvent.click(screen.getByRole("button", { name: "Remove hold action 3" }));
   await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "stop"]));
   expect(screen.queryByRole("group", { name: /^Hold action 3/ })).toBeNull();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Add hold action for Head switch" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add a hold for 3s to Head switch" })).toHaveFocus());
 });
 
 it("keeps the switch demonstrations behind Show me how", async () => {
@@ -268,9 +268,9 @@ it("shows hold timing computed from the interval", async () => {
   expect(within(holds).getAllByRole("button").map((tile) => tile.getAttribute("aria-label"))).toEqual([
     "Hold 1s: Next",
     "Hold 2s: Stop scanning",
-    "Add hold action for Head switch",
+    "Add a hold for 3s to Head switch",
   ]);
-  expect(within(holds).getByRole("button", { name: "Add hold action for Head switch" })).toHaveTextContent("+ Add a hold for 3s");
+  expect(within(holds).getByRole("button", { name: "Add a hold for 3s to Head switch" })).toHaveTextContent("+ Add a hold for 3s");
   fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
   const interval = screen.getByRole("group", { name: "Hold action interval" });
   expect(within(interval).getByRole("status", { name: "Hold action interval" })).toHaveTextContent("1 s");
@@ -446,7 +446,7 @@ it("lists remote switches with local ones and edits them in place", async () => 
   fireEvent.change(screen.getByLabelText("Name for Remote 1"), { target: { value: "Chin" } });
   await waitFor(() => expect(remote.slots[0].name).toBe("Chin"));
   await screen.findByRole("heading", { name: "Chin" });
-  fireEvent.click(screen.getByRole("button", { name: "Add hold action for Chin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add a hold for 1s to Chin" }));
   await waitFor(() => expect(remote.slots[0].holdActions).toEqual(["next"]));
   expect(mocks.invoke.mock.calls.some(([c]) => c === "save_switches")).toBe(false);
 });
@@ -829,7 +829,7 @@ it("assigns panel actions to forwarded switch presses and holds", async () => {
   await within(press).findByRole("option", { name: "Greetings" });
   fireEvent.change(press, { target: { value: JSON.stringify({ openMenu: "home" }) } });
   await waitFor(() => expect(remote.slots[0].pressAction).toEqual({ openMenu: "home" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add hold action for Remote switch 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add a hold for 1s to Remote switch 1" }));
   await waitFor(() => expect(remote.slots[0].holdActions).toHaveLength(1));
   fireEvent.change(screen.getByLabelText("Hold action 1 for Remote switch 1"), { target: { value: JSON.stringify({ openCustomPanel: "greetings" }) } });
   await waitFor(() => expect(remote.slots[0].holdActions[0]).toEqual({ openCustomPanel: "greetings" }));

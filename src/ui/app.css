@@ -911,7 +911,7 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
   .segmented .btn[aria-pressed="true"]::after, .setup-choices .btn[aria-pressed="true"]::after { border-color: currentColor; }
   .setup-choices .btn[aria-pressed="true"] small, .btn.hold-tile[aria-pressed="true"] .hold-tile-when { color: inherit; }
   .btn.tile-nav[data-active="true"], .toggle-row:has(input:checked), .switch-row[data-open], .tile-find:focus-within, .tile-find.tile-chosen, [data-found] { outline: 3px solid Highlight; outline-offset: -3px; }
-  .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
+  .segmented .btn:focus-visible, .setup-choices .btn:focus-visible, .btn.hold-tile:focus-visible, .color-options label:has(input:focus-visible), .scanner-colours label:has(input:focus-visible) { outline: 3px solid CanvasText; outline-offset: 3px; }
   /* Focus must still read as focus on the current page's own button. */
   .btn.tile-nav[data-active="true"]:focus-visible { outline: 3px solid CanvasText; outline-offset: 3px; }
   .toggle { forced-color-adjust: none; color: CanvasText; }

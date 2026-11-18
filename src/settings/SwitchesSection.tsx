@@ -291,7 +291,7 @@ function SwitchEditor({
                 <Button
                   type="button"
                   className="hold-tile hold-tile-add"
-                  aria-label={`Add hold action for ${name}`}
+                  aria-label={`Add a hold for ${holdAt(holds.length)} to ${name}`}
                   onClick={() => {
                     onChange({ ...binding, holdActions: [...holds, "next"] });
                     choose(holds.length);
@@ -322,12 +322,12 @@ function SwitchEditor({
               </label>
               <div className="hold-panel-actions">
                 <Button type="button" className="secondary" disabled={selected === 0}
-                  aria-label={`Move hold action ${selected + 1} earlier`}
+                  aria-label={`Move earlier: hold action ${selected + 1}`}
                   onClick={() => { move(selected, -1); choose(selected - 1); focusAction(false); }}>
                   Move earlier
                 </Button>
                 <Button type="button" className="secondary" disabled={selected === holds.length - 1}
-                  aria-label={`Move hold action ${selected + 1} later`}
+                  aria-label={`Move later: hold action ${selected + 1}`}
                   onClick={() => { move(selected, 1); choose(selected + 1); focusAction(false); }}>
                   Move later
                 </Button>
