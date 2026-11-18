@@ -24,18 +24,9 @@ import {
   type SwitchAction,
   type SwitchController,
 } from "../scanning/useSwitches";
-import {
-  Disclosure,
-  OptionGroup,
-  SettingGroup,
-  SettingNote,
-  secondsOptions,
-} from "./controls";
+import { SettingGroup, SettingNote, TimeStepper } from "./controls";
+import { holdIntervalRange, switchAcceptRange, switchIgnoreRepeatRange } from "./timing";
 
-const holdIntervalPresets = [500, 1000, 1500, 2000, 3000] as const;
-const holdIntervalValues = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000];
-const acceptPresets = [0, 100, 200, 300, 500, 1000];
-const ignoreRepeatPresets = [0, 250, 500, 1000, 2000];
 const newId = "new";
 
 function seconds(ms: number) {
@@ -632,14 +623,6 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
     escapeHoldMs(settings.bindings, settings.holdIntervalMs, settings.acceptMs ?? 0),
     escapeHoldMs(remoteRows.map(({ slot, index }) => remoteBinding(slot, index)), settings.holdIntervalMs),
   );
-  const isPreset = (holdIntervalPresets as readonly number[]).includes(
-    settings.holdIntervalMs,
-  );
-  const [showExact, setShowExact] = useState(!isPreset);
-  useEffect(() => {
-    if (!isPreset) setShowExact(true);
-  }, [isPreset]);
-  const exactId = useId();
   const listId = useId();
   const captureName =
     target === newId
@@ -948,25 +931,25 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         title="Press timing"
         description="Ignore presses that are too short or come too soon after the last one, such as a tremor, a bump or a switch that bounces."
       >
-        <OptionGroup<number>
+        <TimeStepper
           setting="accept-time"
-          legend="Hold before a press counts"
-          columns="three"
+          label="Hold before a press counts"
+          range={switchAcceptRange}
+          zeroLabel="Off"
           disabled={disabled}
           value={settings.acceptMs ?? 0}
           onChange={(acceptMs) => controller.update({ ...settings, acceptMs })}
-          options={acceptPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
-          note={{ summary: "A press released sooner than this does nothing. Hold action timing starts once the press counts, so each hold action takes this much longer, and the hold that resets the scan can too. Each switch and the reset hold below show the resulting times." }}
+          note={{ summary: "A press released sooner than this does nothing. Set from Off to 2 seconds. Hold action timing starts once the press counts, so each hold action takes this much longer, and the hold that resets the scan can too. Each switch and the reset hold below show the resulting times." }}
         />
-        <OptionGroup<number>
+        <TimeStepper
           setting="ignore-repeat"
-          legend="Ignore presses after a press"
-          columns="five"
+          label="Ignore presses after a press"
+          range={switchIgnoreRepeatRange}
+          zeroLabel="Off"
           disabled={disabled}
           value={settings.ignoreRepeatMs ?? 0}
           onChange={(ignoreRepeatMs) => controller.update({ ...settings, ignoreRepeatMs })}
-          options={ignoreRepeatPresets.map((value) => ({ value, label: value ? seconds(value) : "Off" }))}
-          note={{ summary: "After a press that counts, any switch pressed within this time does nothing. Timing starts when the switch is released." }}
+          note={{ summary: "After a press that counts, any switch pressed within this time does nothing. Set from Off to 3 seconds. Timing starts when the switch is released." }}
         />
         <p className="setting-note">
           These apply to switches connected to this computer, not to switches
@@ -981,44 +964,17 @@ export function SwitchesSection({ controller, onDraftChange, suspended = false, 
         description="How long a switch is held before each hold action is offered."
       >
         <div className="repeat-options">
-          <OptionGroup<number>
-            legend="Hold action interval"
-            columns="five"
+          <TimeStepper
+            label="Hold action interval"
+            range={holdIntervalRange}
             disabled={disabled}
             value={settings.holdIntervalMs}
             onChange={(holdIntervalMs) =>
               controller.update({ ...settings, holdIntervalMs })
             }
-            options={secondsOptions(holdIntervalPresets)}
           />
-          <Disclosure
-            label={showExact ? "Hide exact interval" : "Set an exact interval"}
-            expanded={showExact}
-            onToggle={() => setShowExact(!showExact)}
-            controls={exactId}
-          >
-            <label className="exact-speed" id={exactId}>
-              <span>Exact interval</span>
-              <Select
-                aria-label="Exact hold action interval"
-                disabled={disabled}
-                value={settings.holdIntervalMs}
-                onChange={(e) =>
-                  controller.update({
-                    ...settings,
-                    holdIntervalMs: Number(e.target.value),
-                  })
-                }
-              >
-                {holdIntervalValues.map((value) => (
-                  <option key={value} value={value}>
-                    {seconds(value)}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          </Disclosure>
           <p className="setting-note">
+            Set from 0.25 to 5 seconds.
             The first action appears after one interval and the next after
             each further interval. The last action stays offered. Holding any
             switch for {seconds(escapeMs)} resets the scan.

@@ -54,7 +54,7 @@ To change a saved switch later, choose **Edit** next to it on the Switches page.
 
 ## Hold actions
 
-A switch can also have an ordered list of **hold actions**. Keep the switch down and each action is offered in turn on screen, one per interval. Release while an action is offered to run it. The interval is 1 second by default and can be anything from 250 milliseconds to 5 seconds. Holding on its own never runs anything; only the release does.
+A switch can also have an ordered list of **hold actions**. Keep the switch down and each action is offered in turn on screen, one per interval. Release while an action is offered to run it. The interval is 1 second by default. Set it under **More options** on the Switches page, in **Hold timing**, with **Hold action interval**: use **−** and **+** to set it from 0.25 to 5 seconds, 0.05 seconds at a time. Holding on its own never runs anything; only the release does.
 
 To open a panel with a hold, choose **Add hold action** and pick the panel under **Open a panel**, **Open a menu** or **My panels**. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
 
@@ -64,10 +64,10 @@ Choose **Add hold action** to add one, and use the arrows to change the order. T
 
 ## Press timing
 
-If a switch gets pressed by accident, or one press selects twice, change these under **More options** on the Switches page, in **Press timing**. Both are off to begin with.
+If a switch gets pressed by accident, or one press selects twice, change these under **More options** on the Switches page, in **Press timing**. Both are off to begin with. Use **−** and **+** to change them 0.05 seconds at a time.
 
-- **Hold before a press counts**: off, or 0.1 to 1 second. A press released sooner than this does nothing, so a tremor or a brief bump is ignored. Hold action timing starts once the press counts, so each hold action takes that much longer, and the emergency stop can too; Settings shows the exact times.
-- **Ignore presses after a press**: off, or 0.25 to 2 seconds. After a press that counts, any switch pressed within this time does nothing. The time starts when you release the switch. This stops a switch that bounces, or a quick second press, from selecting again.
+- **Hold before a press counts**: off, or up to 2 seconds. A press released sooner than this does nothing, so a tremor or a brief bump is ignored. Hold action timing starts once the press counts, so each hold action takes that much longer, and the emergency stop can too; Settings shows the exact times.
+- **Ignore presses after a press**: off, or up to 3 seconds. After a press that counts, any switch pressed within this time does nothing. The time starts when you release the switch. This stops a switch that bounces, or a quick second press, from selecting again.
 
 These apply to switches connected to the computer, not to switches forwarded from Switchify Remote. Escape and the emergency stop below still work.
 

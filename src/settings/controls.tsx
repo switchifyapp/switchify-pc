@@ -44,10 +44,6 @@ export function OptionGroup<T extends string | number>({ legend, options, value,
   return note ? <div className="option-with-note">{group}<SettingNote id={noteId} {...note} /></div> : group;
 }
 
-export function secondsOptions<T extends number>(values: readonly T[]) {
-  return values.map((value) => ({ value, label: <>{value / 1000}s</> }));
-}
-
 export const overlayVisibilityOptions = [
   { value: "onInput", label: "On input" },
   { value: "whileControlling", label: "While controlling" },

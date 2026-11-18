@@ -29,9 +29,6 @@ pub struct Settings {
 fn is_zero(value: &u64) -> bool {
     *value == 0
 }
-/// The choices Settings offers, so a saved value always shows as chosen.
-pub const ACCEPT_MS: [u64; 6] = [0, 100, 200, 300, 500, 1000];
-pub const IGNORE_REPEAT_MS: [u64; 5] = [0, 250, 500, 1000, 2000];
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -46,9 +43,11 @@ impl Default for Settings {
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
+            // Any time from 0.25 to 5 seconds. Settings steps it by 0.05 s,
+            // but earlier builds accepted any millisecond in this range.
             || !(250..=5000).contains(&self.hold_interval_ms)
-            || !ACCEPT_MS.contains(&self.accept_ms)
-            || !IGNORE_REPEAT_MS.contains(&self.ignore_repeat_ms)
+            || !crate::timing::SWITCH_ACCEPT.contains_u64(self.accept_ms)
+            || !crate::timing::SWITCH_IGNORE_REPEAT.contains_u64(self.ignore_repeat_ms)
             || self.bindings.len() > 128
         {
             return Err("Unsupported switch settings or switch timing.".into());
@@ -221,12 +220,19 @@ mod tests {
         let on = serde_json::to_value(&s).unwrap();
         assert_eq!(on["acceptMs"], 1000);
         assert_eq!(serde_json::from_value::<Settings>(on).unwrap(), s);
-        // Only the choices Settings offers.
+        // Any twentieth of a second Settings' steppers reach, and no more.
         s.accept_ms = 150;
-        assert!(s.validate().is_err());
+        s.ignore_repeat_ms = 2750;
+        s.validate().unwrap();
+        for accept in [125, 2050] {
+            s.accept_ms = accept;
+            assert!(s.validate().is_err(), "accept {accept}");
+        }
         s.accept_ms = 0;
-        s.ignore_repeat_ms = 5000;
-        assert!(s.validate().is_err());
+        for ignore in [260, 3050, 5000] {
+            s.ignore_repeat_ms = ignore;
+            assert!(s.validate().is_err(), "ignore {ignore}");
+        }
     }
     #[test]
     fn the_emergency_hold_outlasts_hold_actions_after_the_hold_time() {
