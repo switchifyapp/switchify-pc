@@ -18,20 +18,17 @@ use objc2_foundation::{NSHost, NSNotification, NSNotificationCenter, NSString, N
 use tauri::{AppHandle, Manager};
 
 use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
+use crate::desktop_dispatch::DesktopHost;
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
-use crate::input::{
-    execute_desktop_command, execute_dwell_click, DesktopCommandOutcome, DesktopInput,
-    MobileTypingRoute, PointerFeedback,
-};
+use crate::input::{execute_dwell_click, DesktopInput, MobileTypingRoute, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
-    bluetooth_status_payload, pointer_profile_response, switch_profile_catalog_response,
-    DesktopCommand, EngineEvent, MouseButton, MouseClickCommand, MouseMoveCommand,
-    NotificationTarget, OutboundQueue, PairingCentralRegistry, PointerProfile, TextCommand,
-    MAX_POINTER_DELTA,
+    bluetooth_status_payload, pointer_profile_response, DesktopCommand, EngineEvent, MouseButton,
+    MouseClickCommand, MouseMoveCommand, NotificationTarget, OutboundQueue, PairingCentralRegistry,
+    PointerProfile, TextCommand, MAX_POINTER_DELTA,
 };
 use crate::state::{
     emit_state, now_ms, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
@@ -1282,201 +1279,18 @@ impl MacRuntime {
     }
 
     fn handle_desktop(&mut self, command: DesktopCommand) {
-        if command.command_type == "switch.session.start" {
-            self.stop_all_repeats();
-            if let Some(input) = self.input.as_mut() {
-                if let Err(error) = input.release_all() {
-                    let response = self
-                        .shared
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .engine
-                        .complete_desktop_command_with_error(
-                            &command,
-                            Err(("input_failed", error.as_str())),
-                        );
-                    if let Some(response) = response {
-                        if let Err(error) = self.enqueue_message(&response) {
-                            self.report_error(error);
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-        if let Some(result) = crate::remote_scan::route(
-            &self.app,
-            &command.device_id,
-            &command.command_type,
-            &command.payload,
-        ) {
-            let response = self
-                .shared
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .engine
-                .complete_desktop_command_with_error(
-                    &command,
-                    result
-                        .as_ref()
-                        .map(|_| ())
-                        .map_err(|e| ("input_failed", e.as_str())),
-                );
-            if let Some(response) = response {
-                if let Err(error) = self.enqueue_message(&response) {
-                    self.report_error(error);
-                }
-            }
-            return;
-        }
-        if command.command_type == "mouse.repeat.start" {
-            self.handle_repeat_start(command);
-            return;
-        }
-        if command.command_type == "mouse.repeat.stop" {
-            self.handle_repeat_stop(command);
-            return;
-        }
-        if matches!(
-            command.command_type.as_str(),
-            "mouse.scroll"
-                | "mouse.dragStart"
-                | "mouse.dragEnd"
-                | "mouse.click"
-                | "mouse.doubleClick"
-                | "mouse.rightClick"
-                | "switch.session.start"
-                | "connection.disconnecting"
-        ) {
-            self.app.state::<DwellController>().cancel(&self.app);
-        }
-        let typing_route = MobileTypingRoute::for_command(&command.command_type);
-        let profiles = self
-            .shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .profiles
-            .clone();
-        if command.command_type == "switch.profile.list" {
-            self.stop_all_repeats();
-            if let Err(error) = self.enqueue_message(&crate::remote_scan::catalog(
-                &self.app,
-                &command.payload,
-                switch_profile_catalog_response(&command.id, &profiles),
-            )) {
-                self.report_error(error);
-            }
-            return;
-        }
-        let accessibility_unavailable = if command.command_type == "pointer.display.move" {
-            false
-        } else {
-            if typing_route.is_eligible() {
-                let app = self.app.clone();
-                typing_route.prepare(
-                    || app.state::<DwellController>().cancel(&app),
-                    || self.stop_all_repeats(),
-                );
-            } else {
-                self.stop_all_repeats();
-            }
-            self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false)
-        };
-        let (injection, error_code) = if command.command_type == "pointer.display.move" {
-            let direction = command.payload["direction"].as_str().unwrap_or_default();
-            match display_navigation::run_navigation_command(
-                self,
-                direction,
-                MacRuntime::stop_all_repeats,
-                MacRuntime::navigate_display,
-                |runtime, feedback| {
-                    runtime
-                        .app
-                        .state::<CursorOverlay>()
-                        .show(feedback, runtime.overlay_settings());
-                },
-            ) {
-                Ok(feedback) => (
-                    Ok(DesktopCommandOutcome {
-                        pointer_feedback: Some(feedback),
-                        typing_injected: false,
-                    }),
-                    "input_failed",
-                ),
-                Err(error) => (Err(error.message), error.code),
-            }
-        } else if accessibility_unavailable {
-            (
-                Err(
-                    "Accessibility permission is required before input can be controlled."
-                        .to_string(),
-                ),
-                "input_failed",
-            )
-        } else {
-            let model = self.app.state::<AppModel>();
-            (
-                self.input
-                    .as_mut()
-                    .ok_or_else(|| {
-                        "Accessibility permission is required before input can be controlled."
-                            .to_string()
-                    })
-                    .and_then(|input| {
-                        execute_desktop_command(
-                            input,
-                            &model,
-                            &command.device_id,
-                            &command.command_type,
-                            &command.payload,
-                            &profiles,
-                        )
-                    }),
-                "input_failed",
-            )
-        };
-        let response = self
-            .shared
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .engine
-            .complete_desktop_command_with_error(
-                &command,
-                injection
-                    .as_ref()
-                    .map(|_| ())
-                    .map_err(|error| (error_code, error.as_str())),
-            );
-        if command.command_type != "pointer.display.move" {
-            if let Ok(outcome) = &injection {
-                let settings = self.overlay_settings();
-                let overlay = self.app.state::<CursorOverlay>();
-                typing_route.finish(outcome.typing_injected, || overlay.hide_for_typing());
-                if !outcome.typing_injected {
-                    if let Some(feedback) = &outcome.pointer_feedback {
-                        overlay.show(*feedback, settings);
-                    } else {
-                        overlay.mark_control_active(settings);
-                    }
-                }
-                if command.command_type == "connection.disconnecting" {
-                    crate::scanning_runtime::cancel(&self.app);
-                    overlay.end_session();
-                }
-            }
-        }
-        if command.command_type == "pointer.display.move" && injection.is_ok() {
-            self.app.state::<DwellController>().arm(&self.app);
-        }
-        match injection {
-            Ok(_) => set_activity(
+        let command_type = command.command_type.clone();
+        let dispatched = crate::desktop_dispatch::dispatch(self, command);
+        match dispatched.outcome {
+            Some(Ok(())) => set_activity(
                 &self.shared,
                 ActivityKind::Success,
-                format!("Handled {}.", command.command_type),
+                format!("Handled {command_type}."),
             ),
-            Err(error) => set_activity(&self.shared, ActivityKind::Error, error),
+            Some(Err(error)) => set_activity(&self.shared, ActivityKind::Error, error),
+            None => {}
         }
-        if let Some(response) = response {
+        if let Some(response) = dispatched.response {
             if let Err(error) = self.enqueue_message(&response) {
                 self.report_error(error);
             }
@@ -2221,6 +2035,62 @@ fn expire_pairing(app: &AppHandle, shared: &SharedModel, request_id: &str) -> Re
         emit_state(app, shared);
         Ok(())
     })
+}
+
+/// The macOS steps for [`crate::desktop_dispatch::dispatch`]. Input is owned by
+/// the runtime and needs Accessibility permission before it can be used.
+impl DesktopHost for MacRuntime {
+    fn app(&self) -> &AppHandle {
+        &self.app
+    }
+
+    fn shared(&self) -> &SharedModel {
+        &self.shared
+    }
+
+    fn settings(&self) -> crate::state::AppSettings {
+        self.overlay_settings()
+    }
+
+    fn stop_repeats(&mut self) {
+        self.stop_all_repeats();
+    }
+
+    fn release_input(&mut self) -> Result<(), String> {
+        match self.input.as_mut() {
+            Some(input) => input.release_all(),
+            None => Ok(()),
+        }
+    }
+
+    fn start_repeat(&mut self, command: DesktopCommand) -> Option<String> {
+        self.handle_repeat_start(command);
+        None
+    }
+
+    fn stop_repeat(&mut self, command: DesktopCommand) -> Option<String> {
+        self.handle_repeat_stop(command);
+        None
+    }
+
+    fn move_to_display(&mut self, direction: &str) -> Result<PointerFeedback, NavigationError> {
+        self.navigate_display(direction)
+    }
+
+    fn with_input<T>(
+        &mut self,
+        operation: impl FnOnce(&mut DesktopInput<Enigo>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        const UNAVAILABLE: &str =
+            "Accessibility permission is required before input can be controlled.";
+        if self.input.is_none() && !self.refresh_accessibility(false).unwrap_or(false) {
+            return Err(UNAVAILABLE.to_string());
+        }
+        self.input
+            .as_mut()
+            .ok_or_else(|| UNAVAILABLE.to_string())
+            .and_then(operation)
+    }
 }
 
 impl Drop for MacRuntime {

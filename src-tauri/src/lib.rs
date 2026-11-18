@@ -17,6 +17,8 @@ use licensing::{
     check_licence, paste_licence, redeem_licence, remove_licence, set_licence_recovery,
     transfer_licence,
 };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod desktop_dispatch;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
