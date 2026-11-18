@@ -1542,6 +1542,20 @@ impl Workflow {
         self.stage = Stage::Mouse;
         self.mouse.opened();
     }
+    /// Where Close keyboard goes. The keyboard shows it on the key, and
+    /// `keyboard_closed` goes there.
+    fn keyboard_close_to(&self) -> crate::scan_keyboard::CloseTo {
+        use crate::scan_keyboard::CloseTo;
+        if self.return_to_mouse {
+            CloseTo::MousePanel
+        } else if self.return_to_home {
+            CloseTo::Home
+        } else if self.point.config.control_mode == crate::point_scan::ControlMode::Mouse {
+            CloseTo::MousePanel
+        } else {
+            CloseTo::PointScanning
+        }
+    }
     fn keyboard_closed(&mut self) {
         if self.return_to_mouse {
             self.return_to_mouse = false;
@@ -1778,6 +1792,8 @@ impl Technique for Workflow {
         self.leaving_home = false;
         if self.stage == Stage::KeyboardOpening {
             self.stage = Stage::Keyboard;
+            let close_to = self.keyboard_close_to();
+            self.keyboard.set_close_to(close_to);
             self.keyboard.opened();
         } else if self.stage == Stage::Keyboard {
             self.keyboard_layout_pending = false;
@@ -4886,6 +4902,67 @@ mod tests {
             span,
         }
     }
+    #[test]
+    fn close_keyboard_shows_where_it_goes_and_goes_there() {
+        use crate::point_scan::ControlMode;
+        use crate::scan_keyboard::Key;
+        let close_label = |workflow: &Workflow| {
+            workflow
+                .frame()
+                .tiles
+                .iter()
+                .find(|tile| tile.text.starts_with("Close keyboard"))
+                .expect("a Close keyboard key")
+                .text
+                .clone()
+        };
+        let open = |workflow: &mut Workflow| {
+            assert_eq!(
+                workflow.selected(Item::Keyboard),
+                Some(Request::OpenKeyboard)
+            );
+            workflow.execution_succeeded();
+            assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+        };
+
+        // From Home, back to Home.
+        let mut workflow = session(false).technique;
+        workflow.open_home();
+        open(&mut workflow);
+        assert_eq!(close_label(&workflow), "Close keyboard\nto Home");
+        assert_eq!(workflow.choose_key(Key::Close), None);
+        assert!(workflow.home_open());
+
+        // From the mouse panel, back to it.
+        let mut workflow = session(false).technique;
+        workflow.open_mouse(true);
+        assert_eq!(
+            workflow.choose_mouse_key(crate::scan_mouse::Key::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        workflow.execution_succeeded();
+        assert_eq!(close_label(&workflow), "Close keyboard\nto Mouse panel");
+        assert_eq!(workflow.choose_key(Key::Close), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+
+        // From neither, to the mode used last.
+        let mut workflow = session(false).technique;
+        workflow.point.config.control_mode = ControlMode::Point;
+        workflow.reset();
+        open(&mut workflow);
+        assert_eq!(close_label(&workflow), "Close keyboard\nto Point scanning");
+        assert_eq!(workflow.choose_key(Key::Close), None);
+        assert!(matches!(workflow.phase(), Phase::Point(_)));
+
+        let mut workflow = session(false).technique;
+        workflow.point.config.control_mode = ControlMode::Mouse;
+        workflow.reset();
+        open(&mut workflow);
+        assert_eq!(close_label(&workflow), "Close keyboard\nto Mouse panel");
+        assert_eq!(workflow.choose_key(Key::Close), None);
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    }
+
     fn tile_rect(frame: &Frame, text: &str) -> Rect {
         frame
             .tiles

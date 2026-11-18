@@ -97,6 +97,22 @@ impl Stroke {
         self.modifiers[1..].iter().any(|m| *m)
     }
 }
+/// Where Close keyboard returns to, shown on the key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseTo {
+    Home,
+    MousePanel,
+    PointScanning,
+}
+impl CloseTo {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Home => "Close keyboard\nto Home",
+            Self::MousePanel => "Close keyboard\nto Mouse panel",
+            Self::PointScanning => "Close keyboard\nto Point scanning",
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
     Prediction {
@@ -312,8 +328,13 @@ pub struct Keyboard {
     auto_shift: bool,
     capital_context: Option<TypingContext>,
     pending_typed: Option<PendingTyped>,
+    /// Where Close keyboard goes, once the workflow has said.
+    close_to: Option<CloseTo>,
 }
 impl Keyboard {
+    pub fn set_close_to(&mut self, close_to: CloseTo) {
+        self.close_to = Some(close_to);
+    }
     #[cfg(all(test, target_os = "windows"))]
     pub(crate) fn fixture_page(&mut self, key: Key) {
         self.choose(key);
@@ -364,6 +385,7 @@ impl Keyboard {
             auto_shift: false,
             capital_context: None,
             pending_typed: None,
+            close_to: None,
         }
     }
     pub fn with_wait_after_typing(mut self, enabled: bool) -> Self {
@@ -1153,7 +1175,10 @@ impl Keyboard {
             Key::Dock => crate::scan_panel::POSITION_PAGE.into(),
             Key::Position(dock) => crate::scan_panel::position_label(dock, self.dock),
             Key::Back => "Back".into(),
-            Key::Close => "Close keyboard".into(),
+            Key::Close => self
+                .close_to
+                .map_or("Close keyboard", CloseTo::label)
+                .into(),
             Key::Extra(..) | Key::Column(..) => self
                 .cell(key)
                 .map(|cell| cell.label.clone())

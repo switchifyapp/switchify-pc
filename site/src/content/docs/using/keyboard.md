@@ -11,7 +11,7 @@ Open it from [Home](/using/home-menu/), from the point scan action menu, from th
 
 Rows highlight in turn. Press Select on a row, then on a key. The escape slot at the end of a row returns to the rows. After a key, scanning starts again from the first row, or from the key you just typed if you set **Start again from** to *where I selected* in Settings.
 
-The keyboard stays open after Space, Backspace, Enter and Tab, so you can keep writing. **Close** takes you back to wherever you opened it from: the mouse panel, Home, or the scan you were in.
+The keyboard stays open after Space, Backspace, Enter and Tab, so you can keep writing. **Close keyboard** takes you back to wherever you opened it from: the mouse panel, Home, or the scan you were in. The key says where it goes, for example **Close keyboard to Home**.
 
 Rows of your own tiles can sit just above the bottom row on every page, and columns of them to the right of the keys: a phrase, a shortcut, or a link to one of your panels. Add them in the [Panels](/using/panels/) section.
 
