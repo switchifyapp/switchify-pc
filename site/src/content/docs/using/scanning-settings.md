@@ -53,7 +53,7 @@ Line speed, line-only or grid-then-line, grid size, and Auto select are on the [
 
 ## Mouse pointer
 
-Pointer speed, Move in blocks and its block size, repeat while holding, and whether a press or a release stops repeating are in the **Mouse pointer** section at the end of the Scanning page. See [Mouse panel and radar](/using/mouse-panel/).
+Pointer speed, Move in blocks with its block size and block speed, repeat while holding, and whether a press or a release stops repeating are in the **Mouse pointer** section at the end of the Scanning page. See [Mouse panel and radar](/using/mouse-panel/).
 
 ## Selecting and holding
 

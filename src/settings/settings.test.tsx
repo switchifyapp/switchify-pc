@@ -647,6 +647,23 @@ describe("Switchify PC settings", () => {
     expect(screen.getByRole("group", { name: "Block size" })).toBeInTheDocument();
   });
 
+  it("sets the block speed, which needs repeat on", async () => {
+    const saveSettings = vi.spyOn(api, "saveSettings");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
+
+    const speed = screen.getByRole("group", { name: "Block speed" });
+    expect(within(speed).getByRole("button", { name: "Scan speed" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(speed).getByRole("button", { name: "1.5s" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 1500 })));
+    fireEvent.click(within(speed).getByRole("button", { name: "Scan speed" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 0 })));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Block speed" })).toBeDisabled());
+  });
+
   it("keeps a pending Mouse edit across pages and saves it", async () => {
     const saveSettings = vi.spyOn(api, "saveSettings").mockImplementation(async (settings) => stateWithSettings(settings));
     render(<App />);

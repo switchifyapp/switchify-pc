@@ -15,7 +15,7 @@ export const browserState: AppState = {
   lastActivity: null,
   settings: {
     startWithSystem: false, pointerScalePercent: 100, mouseRepeatEnabled: true,
-    moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250, mouseMovement: "smooth", mouseBlockSize: "medium",
+    moveRepeatIntervalMs: 250, scrollRepeatIntervalMs: 250, mouseMovement: "smooth", mouseBlockSize: "medium", mouseBlockIntervalMs: 0,
     mouseRepeatAccelerationDurationMs: 1000,
     keyRepeatEnabled: true, keyRepeatIntervalMs: 250, keyRepeatInitialDelayMs: 500,
     scanKeyRepeatEnabled: false,

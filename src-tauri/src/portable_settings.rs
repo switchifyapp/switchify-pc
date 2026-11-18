@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 15;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +61,9 @@ pub struct PortableAppSettings {
     pub mouse_movement: crate::mouse_repeat::MouseMovement,
     #[serde(default)]
     pub mouse_block_size: crate::mouse_repeat::BlockSize,
+    /// Added in version 15, with the same merge-base default as above.
+    #[serde(default)]
+    pub mouse_block_interval_ms: u32,
     pub mouse_repeat_acceleration_duration_ms: u32,
     pub key_repeat_enabled: bool,
     pub key_repeat_interval_ms: u32,
@@ -87,6 +90,7 @@ impl PortableAppSettings {
             scroll_repeat_interval_ms: settings.scroll_repeat_interval_ms,
             mouse_movement: settings.mouse_movement,
             mouse_block_size: settings.mouse_block_size,
+            mouse_block_interval_ms: settings.mouse_block_interval_ms,
             mouse_repeat_acceleration_duration_ms: settings.mouse_repeat_acceleration_duration_ms,
             key_repeat_enabled: settings.key_repeat_enabled,
             key_repeat_interval_ms: settings.key_repeat_interval_ms,
@@ -115,6 +119,7 @@ impl PortableAppSettings {
             scroll_repeat_interval_ms: self.scroll_repeat_interval_ms,
             mouse_movement: self.mouse_movement,
             mouse_block_size: self.mouse_block_size,
+            mouse_block_interval_ms: self.mouse_block_interval_ms,
             mouse_repeat_acceleration_duration_ms: self.mouse_repeat_acceleration_duration_ms,
             key_repeat_enabled: self.key_repeat_enabled,
             key_repeat_interval_ms: self.key_repeat_interval_ms,
@@ -245,7 +250,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             10 => upgrade_v10(value)?,
             11 => upgrade_v11(value)?,
             12 => upgrade_v12(value)?,
-            _ => upgrade_v13(value)?,
+            13 => upgrade_v13(value)?,
+            _ => upgrade_v14(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -465,6 +471,22 @@ fn upgrade_v13(mut value: Value) -> Result<Value, ParseError> {
         .ok_or_else(|| ParseError::Invalid("it does not match version 13 settings".into()))?;
     app.insert("mouseMovement".into(), Value::from("smooth"));
     app.insert("mouseBlockSize".into(), Value::from("medium"));
+    value["schemaVersion"] = Value::from(14);
+    Ok(value)
+}
+
+/// Version 14 had no block speed: repeating blocks hopped at the mouse
+/// panel's scan speed.
+fn upgrade_v14(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(14)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let app = value
+        .get_mut("app")
+        .and_then(Value::as_object_mut)
+        .filter(|app| !app.contains_key("mouseBlockIntervalMs"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 14 settings".into()))?;
+    app.insert("mouseBlockIntervalMs".into(), Value::from(0));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -704,6 +726,12 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 15 {
+        value["app"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mouseBlockIntervalMs");
+    }
     if version < 14 {
         let app = value["app"].as_object_mut().unwrap();
         app.remove("mouseMovement");
@@ -1528,6 +1556,66 @@ mod tests {
         let parsed = parse(value, SCHEMA_VERSION).unwrap();
         assert_eq!(parsed.app.mouse_movement, MouseMovement::Blocks);
         assert_eq!(parsed.app.mouse_block_size, BlockSize::Small);
+    }
+
+    #[test]
+    fn version_fourteen_documents_read_with_scan_speed_blocks() {
+        use crate::mouse_repeat::{BlockSize, MouseMovement};
+        let mut local = local();
+        local.settings.mouse_movement = MouseMovement::Blocks;
+        local.settings.mouse_block_size = BlockSize::Large;
+        local.settings.mouse_block_interval_ms = 2000;
+        let current = serde_json::to_value(local.document()).unwrap();
+        let older = written_by(current, 14);
+        let parsed = parse(older.clone(), 14).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.app.mouse_movement, MouseMovement::Blocks);
+        assert_eq!(parsed.app.mouse_block_size, BlockSize::Large);
+        assert_eq!(parsed.app.mouse_block_interval_ms, 0);
+        let settings = plan(&local, parsed).unwrap().settings.unwrap();
+        assert_eq!(settings.mouse_block_interval_ms, 0);
+
+        // Version 14 never had the field, and version 15 needs it.
+        let mut early = older.clone();
+        early["app"]["mouseBlockIntervalMs"] = json!(1000);
+        assert!(matches!(parse(early, 14), Err(ParseError::Invalid(_))));
+        let mut missing = older;
+        missing["schemaVersion"] = json!(SCHEMA_VERSION);
+        assert!(matches!(
+            parse(missing, SCHEMA_VERSION),
+            Err(ParseError::Invalid(_))
+        ));
+        // An older merge base without the field still loads.
+        let base: Document = serde_json::from_value(written_by(
+            serde_json::to_value(local.document()).unwrap(),
+            14,
+        ))
+        .unwrap();
+        assert_eq!(base.app.mouse_block_interval_ms, 0);
+    }
+
+    #[test]
+    fn block_speed_round_trips_and_rejects_unknown_speeds() {
+        let mut local = local();
+        local.settings.mouse_block_interval_ms = 1500;
+        let value = serde_json::to_value(local.document()).unwrap();
+        assert_eq!(value["app"]["mouseBlockIntervalMs"], json!(1500));
+        let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+        assert_eq!(parsed.app.mouse_block_interval_ms, 1500);
+        let mut other = local.clone();
+        other.settings.mouse_block_interval_ms = 0;
+        assert_eq!(
+            plan(&other, parsed)
+                .unwrap()
+                .settings
+                .map(|s| s.mouse_block_interval_ms),
+            Some(1500)
+        );
+
+        let mut odd = value;
+        odd["app"]["mouseBlockIntervalMs"] = json!(1234);
+        let parsed = parse(odd, SCHEMA_VERSION).unwrap();
+        assert!(plan(&local, parsed).is_err());
     }
 
     #[test]
