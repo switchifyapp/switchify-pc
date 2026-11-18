@@ -744,6 +744,9 @@ fieldset:disabled :is(.color-options, .scanner-colours) label:not(:has(input:che
 .scan-rate-stepper:not(:has(.btn:enabled)) output { color: var(--ink-disabled); }
 .exact-speed { flex-direction: column; align-items: stretch; }
 .exact-speed > span:first-child { color: var(--text); font-size: 18px; font-weight: 600; }
+/* A timing setting set with a stepper: a fieldset named by its legend. */
+.time-stepper { min-width: 0; margin: 0; border: 0; padding: 0; }
+.time-stepper > legend { margin-bottom: 8px; padding: 0; color: var(--text); font-size: 18px; font-weight: 600; }
 
 /* --- Mobile -------------------------------------------------------------------
    Two equal tiles under the connection band: getting the app, then pairing.

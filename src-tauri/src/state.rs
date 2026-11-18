@@ -152,15 +152,13 @@ impl AppSettings {
         if !crate::mouse_repeat::valid_block_interval(self.mouse_block_interval_ms) {
             return Err("Block speed is invalid.".into());
         }
-        if ![100, 250, 500, 1000].contains(&self.key_repeat_interval_ms) {
+        if !crate::timing::KEY_REPEAT_INTERVAL.contains(self.key_repeat_interval_ms) {
             return Err("Key repeat interval is invalid.".into());
         }
-        if ![0, 250, 500, 1000].contains(&self.key_repeat_initial_delay_ms) {
+        if !crate::timing::KEY_REPEAT_INITIAL_DELAY.contains(self.key_repeat_initial_delay_ms) {
             return Err("Key repeat initial delay is invalid.".into());
         }
-        if ![500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000]
-            .contains(&self.dwell_click_delay_ms)
-        {
+        if !crate::timing::DWELL_CLICK_DELAY.contains(self.dwell_click_delay_ms) {
             return Err("Dwell click delay is invalid.".into());
         }
         if !["small", "medium", "large"].contains(&self.cursor_overlay_size.as_str())
@@ -1440,21 +1438,21 @@ mod tests {
 
     #[test]
     fn settings_reject_invalid_key_repeat_cadence() {
-        for interval in [0, 50, 200, 2000] {
+        for interval in [0, 50, 125, 1050, 2000] {
             let value = AppSettings {
                 key_repeat_interval_ms: interval,
                 ..AppSettings::default()
             };
             assert!(value.normalized().is_err(), "interval {interval}");
         }
-        for delay in [100, 400, 2000] {
+        for delay in [25, 410, 2050] {
             let value = AppSettings {
                 key_repeat_initial_delay_ms: delay,
                 ..AppSettings::default()
             };
             assert!(value.normalized().is_err(), "delay {delay}");
         }
-        for interval in [100, 250, 500, 1000] {
+        for interval in [100, 150, 250, 500, 1000] {
             let value = AppSettings {
                 key_repeat_interval_ms: interval,
                 ..AppSettings::default()

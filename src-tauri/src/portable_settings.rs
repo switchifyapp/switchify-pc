@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 16;
+pub const SCHEMA_VERSION: u32 = 17;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -252,7 +252,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             12 => upgrade_v12(value)?,
             13 => upgrade_v13(value)?,
             14 => upgrade_v14(value)?,
-            _ => upgrade_v15(value)?,
+            15 => upgrade_v15(value)?,
+            _ => upgrade_v16(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -497,15 +498,61 @@ fn upgrade_v14(mut value: Value) -> Result<Value, ParseError> {
 /// those documents carry a newer version.
 const VERSION_15_BLOCK_INTERVALS_MS: [u64; 6] = [0, 500, 1000, 1500, 2000, 3000];
 
+/// Requires the number at `pointer` to be one of the choices a version
+/// offered. A later version takes any value in a range, which the earlier
+/// version would reject, so a document holding one carries the later version.
+fn require_choice(
+    value: &Value,
+    pointer: &str,
+    choices: &[u64],
+    version: u32,
+) -> Result<(), ParseError> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_u64)
+        .filter(|ms| choices.contains(ms))
+        .map(|_| ())
+        .ok_or_else(|| ParseError::Invalid(format!("it does not match version {version} settings")))
+}
+
 fn upgrade_v15(mut value: Value) -> Result<Value, ParseError> {
     if value.get("schemaVersion") != Some(&Value::from(15)) {
         return Err(ParseError::Invalid("version mismatch".into()));
     }
-    value
-        .pointer("/app/mouseBlockIntervalMs")
-        .and_then(Value::as_u64)
-        .filter(|ms| VERSION_15_BLOCK_INTERVALS_MS.contains(ms))
-        .ok_or_else(|| ParseError::Invalid("it does not match version 15 settings".into()))?;
+    require_choice(
+        &value,
+        "/app/mouseBlockIntervalMs",
+        &VERSION_15_BLOCK_INTERVALS_MS,
+        15,
+    )?;
+    value["schemaVersion"] = Value::from(16);
+    Ok(value)
+}
+
+/// Version 16 offered fixed choices for the dwell wait and key repeat timing.
+/// Version 17 sets them with steppers.
+fn upgrade_v16(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(16)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    require_choice(
+        &value,
+        "/app/dwellClickDelayMs",
+        &[500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000],
+        16,
+    )?;
+    require_choice(
+        &value,
+        "/app/keyRepeatInitialDelayMs",
+        &[0, 250, 500, 1000],
+        16,
+    )?;
+    require_choice(
+        &value,
+        "/app/keyRepeatIntervalMs",
+        &[100, 250, 500, 1000],
+        16,
+    )?;
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -1611,6 +1658,71 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(base.app.mouse_block_interval_ms, 0);
+    }
+
+    #[test]
+    fn version_sixteen_documents_keep_their_dwell_and_key_repeat_timing() {
+        let mut local = local();
+        local.settings.dwell_click_delay_ms = 4000;
+        local.settings.key_repeat_initial_delay_ms = 250;
+        local.settings.key_repeat_interval_ms = 100;
+        let older = written_by(serde_json::to_value(local.document()).unwrap(), 16);
+        assert_eq!(older["schemaVersion"], json!(16));
+        let parsed = parse(older.clone(), 16).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.app.dwell_click_delay_ms, 4000);
+        assert_eq!(parsed.app.key_repeat_initial_delay_ms, 250);
+        assert_eq!(parsed.app.key_repeat_interval_ms, 100);
+
+        // Version 16 offered only its fixed choices.
+        for (field, ms) in [
+            ("dwellClickDelayMs", 2500),
+            ("keyRepeatInitialDelayMs", 750),
+            ("keyRepeatIntervalMs", 150),
+        ] {
+            let mut odd = older.clone();
+            odd["app"][field] = json!(ms);
+            assert!(
+                matches!(parse(odd, 16), Err(ParseError::Invalid(_))),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn stepped_dwell_and_key_repeat_timing_syncs_in_the_current_version() {
+        let mut local = local();
+        local.settings.dwell_click_delay_ms = 2500;
+        local.settings.key_repeat_initial_delay_ms = 750;
+        local.settings.key_repeat_interval_ms = 150;
+        let value = serde_json::to_value(local.document()).unwrap();
+        let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+        let settings = plan(
+            &super::Local {
+                settings: Default::default(),
+                ..local.clone()
+            },
+            parsed,
+        )
+        .unwrap()
+        .settings
+        .unwrap();
+        assert_eq!(settings.dwell_click_delay_ms, 2500);
+        assert_eq!(settings.key_repeat_initial_delay_ms, 750);
+        assert_eq!(settings.key_repeat_interval_ms, 150);
+
+        for (field, ms) in [
+            ("dwellClickDelayMs", 10_100),
+            ("dwellClickDelayMs", 50),
+            ("keyRepeatInitialDelayMs", 2050),
+            ("keyRepeatIntervalMs", 1050),
+            ("keyRepeatIntervalMs", 125),
+        ] {
+            let mut odd = value.clone();
+            odd["app"][field] = json!(ms);
+            let parsed = parse(odd, SCHEMA_VERSION).unwrap();
+            assert!(plan(&local, parsed).is_err(), "{field} {ms}");
+        }
     }
 
     #[test]

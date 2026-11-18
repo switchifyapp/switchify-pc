@@ -2,6 +2,7 @@ import { Button, Input } from "../ui/controls";
 import type { AppSettings } from "../types";
 import { useId, useState, type ReactNode, type Ref } from "react";
 import type { SettingId } from "../find/index";
+import { formatSeconds, stepTime, type TimeRange } from "./timing";
 
 // With labelledBy, the row's own heading (and optional description) names
 // the switch, which then sits alone at the end of the row.
@@ -22,19 +23,12 @@ export function SettingGroup({ title, description, children, id, sectionRef, foc
 }
 
 export const repeatIntervalOptions = [100, 250, 500, 1000] as const;
-export const keyRepeatDelayOptions = [
-  { value: 0, label: "None" },
-  { value: 250, label: "Short" },
-  { value: 500, label: "Medium" },
-  { value: 1000, label: "Long" },
-] as const;
 export const accelerationOptions = [
   { value: 0, label: "Off" },
   { value: 500, label: "Short" },
   { value: 1000, label: "Medium" },
   { value: 2000, label: "Long" },
 ] as const;
-export const dwellDelayOptions = [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000] as const;
 
 // `note` renders beside the fieldset rather than inside it, by construction: a
 // disclosure inside a disabled fieldset would inherit `disabled` and become
@@ -92,6 +86,33 @@ export function Disclosure({ label, expanded, onToggle, controls, children }: { 
 // leave a screen-reader or switch-access user with identically named controls
 // in their list.
 export type NoteProps = { summary: string; about?: string; detail?: ReactNode };
+
+// A time set a step at a time with − and +, for settings that take any value
+// in a range. `zeroLabel` names a time of 0, such as "Off".
+export function TimeStepper({ label, value, range, onChange, disabled = false, zeroLabel, note, setting }: {
+  label: string;
+  value: number;
+  range: TimeRange;
+  onChange: (next: number) => void;
+  disabled?: boolean;
+  zeroLabel?: string;
+  note?: NoteProps;
+  setting?: SettingId;
+}) {
+  const noteId = useId();
+  const step = Number((range.step / 1000).toFixed(3));
+  // A fieldset, like OptionGroup: the legend names the group, and disabling
+  // it disables both buttons.
+  const stepper = <fieldset className="exact-speed time-stepper" disabled={disabled} data-setting={setting} aria-describedby={note ? noteId : undefined}>
+    <legend>{label}</legend>
+    <div className="scan-rate-stepper">
+      <Button type="button" aria-label={`Decrease ${label.toLowerCase()} by ${step} seconds`} disabled={value <= range.min} onClick={() => onChange(stepTime(value, -1, range))}>−</Button>
+      <output aria-label={label} aria-live="polite">{value === 0 && zeroLabel ? zeroLabel : formatSeconds(value)}</output>
+      <Button type="button" aria-label={`Increase ${label.toLowerCase()} by ${step} seconds`} disabled={value >= range.max} onClick={() => onChange(stepTime(value, 1, range))}>+</Button>
+    </div>
+  </fieldset>;
+  return note ? <div className="option-with-note">{stepper}<SettingNote id={noteId} {...note} /></div> : stepper;
+}
 
 export function SettingNote({ id, summary, about, detail }: NoteProps & { id?: string }) {
   const [expanded, setExpanded] = useState(false);

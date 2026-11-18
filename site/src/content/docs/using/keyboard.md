@@ -42,7 +42,7 @@ After a full stop, comma, question mark or exclamation mark on the Letters or Sy
 
 ## Repeating keys
 
-Turn on **Repeat keys on the scanned keyboard** under **Settings**, **Input** to repeat Backspace, Delete, the arrows, Tab, Page Up and Page Down after choosing them. The key stays marked and shows **Repeating** until repetition stops. The delay and interval follow the key repeat timing under **More options**.
+Turn on **Repeat keys on the scanned keyboard** under **Settings**, **Input** to repeat Backspace, Delete, the arrows, Tab, Page Up and Page Down after choosing them. The key stays marked and shows **Repeating** until repetition stops. The delay and interval follow the key repeat timing under **More options**: set **Delay before repeating** from none to 2 seconds and **Key interval** from 0.1 to 1 second, with **−** and **+**, 0.05 seconds at a time.
 
 Use a switch to stop repeating. Choose whether repetition stops on switch press or release under **Scanning**, **Mouse pointer**, **Stop repeating**. The stop gesture does not run the switch's assigned action.
 

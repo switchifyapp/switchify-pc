@@ -65,6 +65,7 @@ mod switch_practice;
 mod switch_runtime;
 mod switches;
 mod telemetry;
+mod timing;
 mod tray_icon;
 mod updater;
 #[cfg(target_os = "windows")]

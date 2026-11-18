@@ -252,18 +252,17 @@ describe("Switchify PC settings", () => {
 
     const delay = screen.getByRole("group", { name: "Delay before repeating" });
     expect(delay).not.toBeDisabled();
-    for (const label of ["None", "Short", "Medium", "Long"]) {
-      expect(within(delay).getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    expect(within(delay).getByRole("button", { name: "Medium" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(delay).getByRole("status", { name: "Delay before repeating" })).toHaveTextContent("0.5 s");
 
+    // Each step is 0.05 seconds, and a delay of nothing reads None.
     const interval = screen.getByRole("group", { name: "Key interval" });
-    expect(within(interval).getByRole("button", { name: "0.25s" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(interval).getByRole("button", { name: "0.5s" }));
-    expect(within(interval).getByRole("button", { name: "0.5s" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(interval).getByRole("status", { name: "Key interval" })).toHaveTextContent("0.25 s");
+    fireEvent.click(within(interval).getByRole("button", { name: "Increase key interval by 0.05 seconds" }));
+    expect(within(interval).getByRole("status", { name: "Key interval" })).toHaveTextContent("0.3 s");
 
-    fireEvent.click(within(delay).getByRole("button", { name: "None" }));
-    expect(within(delay).getByRole("button", { name: "None" })).toHaveAttribute("aria-pressed", "true");
+    for (let i = 0; i < 10; i++) fireEvent.click(within(delay).getByRole("button", { name: "Decrease delay before repeating by 0.05 seconds" }));
+    expect(within(delay).getByRole("status", { name: "Delay before repeating" })).toHaveTextContent("None");
+    expect(within(delay).getByRole("button", { name: "Decrease delay before repeating by 0.05 seconds" })).toBeDisabled();
 
     // Turning the feature off must disable its cadence controls, matching the
     // mouse repeat and dwell blocks.
@@ -317,13 +316,9 @@ describe("Switchify PC settings", () => {
     fireEvent.click(dwell);
     const dwellDelay = screen.getByRole("group", { name: "Wait before clicking" });
     expect(dwellDelay).not.toBeDisabled();
-    expect(within(dwellDelay).getAllByRole("button")).toHaveLength(10);
-    for (const label of ["0.5s", "1s", "1.5s", "2s", "3s", "4s", "5s", "6s", "7s", "8s"]) {
-      expect(within(dwellDelay).getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    expect(within(dwellDelay).getByRole("button", { name: "1s" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(dwellDelay).getByRole("button", { name: "1.5s" }));
-    expect(within(dwellDelay).getByRole("button", { name: "1.5s" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(dwellDelay).getByRole("status", { name: "Wait before clicking" })).toHaveTextContent("1 s");
+    fireEvent.click(within(dwellDelay).getByRole("button", { name: "Increase wait before clicking by 0.1 seconds" }));
+    expect(within(dwellDelay).getByRole("status", { name: "Wait before clicking" })).toHaveTextContent("1.1 s");
     // Dwell's whole explanation fits one note, so it gets no disclosure, and
     // the group is described by it.
     const dwellNote = screen.getByText(/After mobile pointer movement stops/);
@@ -374,9 +369,9 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Click when I stop" }));
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 1000 })));
     const dwellDelay = screen.getByRole("group", { name: "Wait before clicking" });
-    fireEvent.click(within(dwellDelay).getByRole("button", { name: "8s" }));
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 8000 })));
-    expect(within(dwellDelay).getByRole("button", { name: "8s" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(dwellDelay).getByRole("button", { name: "Decrease wait before clicking by 0.1 seconds" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dwellClickEnabled: true, dwellClickDelayMs: 900 })));
+    expect(within(dwellDelay).getByRole("status", { name: "Wait before clicking" })).toHaveTextContent("0.9 s");
   });
 
   it("shows the version, licence and project links on the About tab", async () => {
