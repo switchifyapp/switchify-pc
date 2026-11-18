@@ -1,11 +1,9 @@
 import { Button, Input, MoreOptions } from "../ui/controls";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AppSettings } from "../types";
-import {
-  OptionGroup, SettingGroup, Toggle, accelerationOptions, repeatIntervalOptions,
-  secondsOptions, type SettingsUpdate,
-} from "./controls";
+import { OptionGroup, SettingGroup, TimeStepper, Toggle, type SettingsUpdate } from "./controls";
 import { speedLevel, speedLevelLabel, speedPercent } from "./pointerSpeedScale";
+import { mouseBlockIntervalRange, mouseRepeatAccelerationRange, mouseRepeatIntervalRange } from "./timing";
 
 const blockSizeOptions: { value: AppSettings["mouseBlockSize"]; label: string }[] = [
   { value: "small", label: "Small" },
@@ -13,11 +11,7 @@ const blockSizeOptions: { value: AppSettings["mouseBlockSize"]; label: string }[
   { value: "large", label: "Large" },
 ];
 
-// 0 keeps the mouse panel's scan speed; a set time is 0.1 to 10 seconds in tenths.
-// Mirrors `valid_block_interval` in src-tauri/src/mouse_repeat.rs.
-const BLOCK_INTERVAL_MIN_MS = 100;
-const BLOCK_INTERVAL_MAX_MS = 10000;
-const BLOCK_INTERVAL_STEP_MS = 100;
+// 0 keeps the mouse panel's scan speed; a set time is in mouseBlockIntervalRange.
 const BLOCK_INTERVAL_DEFAULT_MS = 1000;
 type BlockSpeedChoice = "scan" | "time";
 const blockSpeedOptions: { value: BlockSpeedChoice; label: string }[] = [
@@ -65,19 +59,18 @@ export function PointerSection({ settings, update, children, title = "Movement",
         <OptionGroup<BlockSpeedChoice> legend="Block speed" columns="three" disabled={!settings.mouseRepeatEnabled} options={blockSpeedOptions} value={blockInterval ? "time" : "scan"}
           onChange={(next) => update("mouseBlockIntervalMs", next === "scan" ? 0 : blockInterval || BLOCK_INTERVAL_DEFAULT_MS)}
           note={{ about: "block speed", summary: settings.mouseRepeatEnabled ? "How long the pointer waits between blocks when it keeps moving." : "Turn on Repeat mouse movement and scrolling to use this.", detail: "Scan speed waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Set a time to make blocks move faster or slower than that, from 0.1 to 10 seconds." }} />
-        {blockInterval > 0 && <div className="exact-speed"><span>Time between blocks</span><div className="scan-rate-stepper">
-          <Button type="button" aria-label="Decrease time between blocks by 0.1 seconds" disabled={!settings.mouseRepeatEnabled || blockInterval <= BLOCK_INTERVAL_MIN_MS} onClick={() => update("mouseBlockIntervalMs", Math.max(BLOCK_INTERVAL_MIN_MS, blockInterval - BLOCK_INTERVAL_STEP_MS))}>−</Button>
-          <output aria-label="Time between blocks" aria-live="polite">{blockInterval / 1000} s</output>
-          <Button type="button" aria-label="Increase time between blocks by 0.1 seconds" disabled={!settings.mouseRepeatEnabled || blockInterval >= BLOCK_INTERVAL_MAX_MS} onClick={() => update("mouseBlockIntervalMs", Math.min(BLOCK_INTERVAL_MAX_MS, blockInterval + BLOCK_INTERVAL_STEP_MS))}>+</Button>
-        </div></div>}
+        {blockInterval > 0 && <TimeStepper label="Time between blocks" range={mouseBlockIntervalRange} disabled={!settings.mouseRepeatEnabled} value={blockInterval} onChange={(next) => update("mouseBlockIntervalMs", next)} />}
       </div>
       <div className="repeat-settings" data-setting="repeat">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
         {children}
         <MoreOptions label="Repeat timing"><div className="repeat-options">
-          <OptionGroup<number> legend="Movement interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)} />
-          <OptionGroup<number> legend="Movement acceleration" columns="four" disabled={!settings.mouseRepeatEnabled} options={accelerationOptions} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)} />
-          <OptionGroup<number> legend="Scroll interval" columns="four" disabled={!settings.mouseRepeatEnabled} options={secondsOptions(repeatIntervalOptions)} value={settings.scrollRepeatIntervalMs} onChange={(next) => update("scrollRepeatIntervalMs", next)} />
+          <TimeStepper label="Movement interval" range={mouseRepeatIntervalRange} disabled={!settings.mouseRepeatEnabled} value={settings.moveRepeatIntervalMs} onChange={(next) => update("moveRepeatIntervalMs", next)}
+            note={{ summary: "How often the pointer moves while it keeps going, from 0.1 to 2 seconds." }} />
+          <TimeStepper label="Movement acceleration" range={mouseRepeatAccelerationRange} zeroLabel="Off" disabled={!settings.mouseRepeatEnabled} value={settings.mouseRepeatAccelerationDurationMs} onChange={(next) => update("mouseRepeatAccelerationDurationMs", next)}
+            note={{ summary: "How long the pointer takes to build up to full speed, up to 3 seconds. Off moves at full speed straight away." }} />
+          <TimeStepper label="Scroll interval" range={mouseRepeatIntervalRange} disabled={!settings.mouseRepeatEnabled} value={settings.scrollRepeatIntervalMs} onChange={(next) => update("scrollRepeatIntervalMs", next)}
+            note={{ summary: "How often the page scrolls while scrolling keeps going, from 0.1 to 2 seconds." }} />
         </div></MoreOptions>
       </div>
   </SettingGroup>;

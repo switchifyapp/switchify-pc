@@ -188,19 +188,10 @@ impl BlockSize {
     }
 }
 
-/// The shortest set time between repeating block hops.
-pub const BLOCK_INTERVAL_MIN_MS: u32 = 100;
-/// The longest set time between repeating block hops.
-pub const BLOCK_INTERVAL_MAX_MS: u32 = 10_000;
-/// Set times move in tenths of a second.
-pub const BLOCK_INTERVAL_STEP_MS: u32 = 100;
-
 /// Whether `ms` is a time between repeating block hops: 0 to hop at the
 /// mouse panel's scan speed, or 0.1 to 10 seconds in tenths of a second.
 pub fn valid_block_interval(ms: u32) -> bool {
-    ms == 0
-        || ((BLOCK_INTERVAL_MIN_MS..=BLOCK_INTERVAL_MAX_MS).contains(&ms)
-            && ms.is_multiple_of(BLOCK_INTERVAL_STEP_MS))
+    ms == 0 || crate::timing::MOUSE_BLOCK_INTERVAL.contains(ms)
 }
 
 /// One block on a display of this size, in the display's own units, which

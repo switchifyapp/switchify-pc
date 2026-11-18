@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 17;
+pub const SCHEMA_VERSION: u32 = 18;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -253,7 +253,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             13 => upgrade_v13(value)?,
             14 => upgrade_v14(value)?,
             15 => upgrade_v15(value)?,
-            _ => upgrade_v16(value)?,
+            16 => upgrade_v16(value)?,
+            _ => upgrade_v17(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -552,6 +553,25 @@ fn upgrade_v16(mut value: Value) -> Result<Value, ParseError> {
         "/app/keyRepeatIntervalMs",
         &[100, 250, 500, 1000],
         16,
+    )?;
+    value["schemaVersion"] = Value::from(17);
+    Ok(value)
+}
+
+/// Version 17 offered fixed choices for the mouse repeat intervals and
+/// acceleration. Version 18 sets them with steppers.
+fn upgrade_v17(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(17)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    for pointer in ["/app/moveRepeatIntervalMs", "/app/scrollRepeatIntervalMs"] {
+        require_choice(&value, pointer, &[100, 250, 500, 1000], 17)?;
+    }
+    require_choice(
+        &value,
+        "/app/mouseRepeatAccelerationDurationMs",
+        &[0, 500, 1000, 2000],
+        17,
     )?;
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
@@ -1717,6 +1737,71 @@ mod tests {
             ("keyRepeatInitialDelayMs", 2050),
             ("keyRepeatIntervalMs", 1050),
             ("keyRepeatIntervalMs", 125),
+        ] {
+            let mut odd = value.clone();
+            odd["app"][field] = json!(ms);
+            let parsed = parse(odd, SCHEMA_VERSION).unwrap();
+            assert!(plan(&local, parsed).is_err(), "{field} {ms}");
+        }
+    }
+
+    #[test]
+    fn version_seventeen_documents_keep_their_mouse_repeat_timing() {
+        let mut local = local();
+        local.settings.move_repeat_interval_ms = 500;
+        local.settings.scroll_repeat_interval_ms = 1000;
+        local.settings.mouse_repeat_acceleration_duration_ms = 2000;
+        let older = written_by(serde_json::to_value(local.document()).unwrap(), 17);
+        assert_eq!(older["schemaVersion"], json!(17));
+        let parsed = parse(older.clone(), 17).unwrap();
+        assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+        assert_eq!(parsed.app.move_repeat_interval_ms, 500);
+        assert_eq!(parsed.app.scroll_repeat_interval_ms, 1000);
+        assert_eq!(parsed.app.mouse_repeat_acceleration_duration_ms, 2000);
+
+        // Version 17 offered only its fixed choices.
+        for (field, ms) in [
+            ("moveRepeatIntervalMs", 150),
+            ("scrollRepeatIntervalMs", 2000),
+            ("mouseRepeatAccelerationDurationMs", 300),
+        ] {
+            let mut odd = older.clone();
+            odd["app"][field] = json!(ms);
+            assert!(
+                matches!(parse(odd, 17), Err(ParseError::Invalid(_))),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn stepped_mouse_repeat_timing_syncs_in_the_current_version() {
+        let mut local = local();
+        local.settings.move_repeat_interval_ms = 150;
+        local.settings.scroll_repeat_interval_ms = 2000;
+        local.settings.mouse_repeat_acceleration_duration_ms = 300;
+        let value = serde_json::to_value(local.document()).unwrap();
+        let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+        let settings = plan(
+            &super::Local {
+                settings: Default::default(),
+                ..local.clone()
+            },
+            parsed,
+        )
+        .unwrap()
+        .settings
+        .unwrap();
+        assert_eq!(settings.move_repeat_interval_ms, 150);
+        assert_eq!(settings.scroll_repeat_interval_ms, 2000);
+        assert_eq!(settings.mouse_repeat_acceleration_duration_ms, 300);
+
+        for (field, ms) in [
+            ("moveRepeatIntervalMs", 2050),
+            ("moveRepeatIntervalMs", 125),
+            ("scrollRepeatIntervalMs", 50),
+            ("mouseRepeatAccelerationDurationMs", 3100),
+            ("mouseRepeatAccelerationDurationMs", 250),
         ] {
             let mut odd = value.clone();
             odd["app"][field] = json!(ms);

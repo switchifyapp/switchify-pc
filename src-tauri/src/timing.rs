@@ -27,6 +27,16 @@ pub const KEY_REPEAT_INITIAL_DELAY: TimeRange = TimeRange::new(0, 2000, 50);
 /// Repeat held keys: the time between repeats. Switchify Remote is told
 /// 100 to 1000 ms, so the range stays inside it.
 pub const KEY_REPEAT_INTERVAL: TimeRange = TimeRange::new(100, 1000, 50);
+/// Repeat mouse movement and scrolling: the time between moves, and between
+/// scrolls. Switchify Remote is told 100 to 2000 ms, so the range stays
+/// inside it.
+pub const MOUSE_REPEAT_INTERVAL: TimeRange = TimeRange::new(100, 2000, 50);
+/// Repeat mouse movement: how long the pointer takes to reach full speed.
+/// 0 turns acceleration off.
+pub const MOUSE_REPEAT_ACCELERATION: TimeRange = TimeRange::new(0, 3000, 100);
+/// Move in blocks: a set time between block hops. 0, the mouse panel's scan
+/// speed, is allowed beside this range.
+pub const MOUSE_BLOCK_INTERVAL: TimeRange = TimeRange::new(100, 10_000, 100);
 
 #[cfg(test)]
 mod tests {
@@ -53,6 +63,12 @@ mod tests {
         }
         for ms in [100, 250, 500, 1000] {
             assert!(KEY_REPEAT_INTERVAL.contains(ms), "interval {ms}");
+        }
+        for ms in [100, 250, 500, 1000] {
+            assert!(MOUSE_REPEAT_INTERVAL.contains(ms), "mouse interval {ms}");
+        }
+        for ms in [0, 500, 1000, 2000] {
+            assert!(MOUSE_REPEAT_ACCELERATION.contains(ms), "acceleration {ms}");
         }
     }
 }
