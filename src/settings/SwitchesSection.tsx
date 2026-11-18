@@ -9,7 +9,7 @@ import type { DemoPlatform } from "../help/demonstrations";
 import { interfaceModeAdvice, keysNotLearned, reservedKeyAdvice, switchKeyLabel, unavailableKeyReason } from "../help/keyAvailability";
 import { SwitchPractice } from "../scanning/SwitchPractice";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useRemoteSwitches, type RemoteSlot } from "../scanning/useRemoteSwitches";
 import {
   actionLabel,
@@ -158,161 +158,191 @@ function SwitchEditor({
     ];
     onChange({ ...binding, holdActions });
   };
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [showHow, setShowHow] = useState(false);
+  const identityId = useId();
+  const actionsId = useId();
+  const holdId = useId();
+  const howId = useId();
+  const tilesRef = useRef<HTMLUListElement>(null);
+  const holds = binding.holdActions;
+  const holdAt = (index: number) => seconds(acceptMs + holdIntervalMs * (index + 1));
+  const holdName = (index: number) => actionLabel(holds[index], panels);
+  // A tile or the add tile takes focus once the list has rendered.
+  const focusTile = (index: number) => requestAnimationFrame(() => {
+    const tiles = tilesRef.current?.querySelectorAll<HTMLButtonElement>("button");
+    tiles?.[Math.min(index, tiles.length - 1)]?.focus();
+  });
+  const choose = (index: number | null) => setChosen(index);
+  const selected = chosen !== null && chosen < holds.length ? chosen : null;
   return (
     <fieldset id={id} className="switch-editor" disabled={disabled}>
-      {!remote && <Demonstration kind="learn" />}<Demonstration kind="select" />
-      <FormField label="Name">{(field) => <Input {...field}
-          ref={nameRef}
-          aria-label={isNew ? "New switch name" : `Name for ${switchKeyLabel(binding.key)}`}
-          value={binding.name}
-          maxLength={64}
-          placeholder="Head switch, foot pedal, sip..."
-          onChange={(e) => onChange({ ...binding, name: e.target.value })}
-        />}</FormField>
-      <div className="field">
-        <p className="setting-note">
-          Switches on this computer can appear as keys to other apps. To type a
-          name with the computer keyboard, choose Type with keyboard. Switch
-          control pauses until you resume or close this editor. You can use Tab
-          and Enter to reach and activate Resume switch control.
-        </p>
-        <p className="setting-note">If you rely on switches, keep switch control on and use the scanning keyboard from the point action menu to enter the name.</p>
-        <Button type="button" className="secondary" disabled={entryPending}
-          aria-pressed={keyboardEntry} onClick={() => onKeyboardEntry(!keyboardEntry)}>
-          {keyboardEntry ? "Resume switch control" : "Type with keyboard"}
-        </Button>
-        {keyboardEntry && <p role="status">Keyboard typing is on. Assigned keys type normally; switch scanning is paused.</p>}
-      </div>
-      {remote ? (
-        <label className="field">
-          <span>Remote switch</span>
-          <Select
-            aria-label={`Remote switch number for ${name}`}
-            value={remote.slot}
-            onChange={(e) => remote.onSlot(Number(e.target.value))}
-          >
-            {[remote.slot, ...remote.free]
-              .sort((a, b) => a - b)
-              .map((slot) => (
-                <option key={slot} value={slot}>
-                  Switch {slot + 1} on the Forwarding screen
-                </option>
-              ))}
-          </Select>
-        </label>
-      ) : (
-        <div className="field">
-          <span>Key</span>
-          <div className="key-row">
-            <KeyBadge value={binding.key} unavailable={unavailable} />
-            <Button
-              type="button"
-              className="secondary"
-              aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
-              aria-describedby={keyError || unavailable ? keyErrorId : undefined}
-              disabled={keyboardEntry || entryPending}
-              onClick={onLearn}
-            >
-              {binding.key ? "Change key" : "Learn key"}
-            </Button>
-          </div>
-          {(keyError || unavailable) && (
-            <FeedbackMessage variant="inline" className="field-error" id={keyErrorId}>
-              {keyError ?? unavailableReason ??
-                "This key is unavailable on this computer. Learn another key."}
-            </FeedbackMessage>
-          )}
+      <section className="switch-editor-section" aria-labelledby={identityId}>
+        <div className="switch-editor-heading">
+          <h3 id={identityId}>This switch</h3>
+          <Button type="button" className="text-button" aria-expanded={showHow} aria-controls={showHow ? howId : undefined} onClick={() => setShowHow(!showHow)}>
+            {showHow ? "Hide how-to" : "Show me how"}
+          </Button>
         </div>
-      )}
-      <label className="field">
-        <span>Press and release</span>
-        <ActionSelect
-          panels={panels}
-          label={isNew ? "New switch action" : `Normal action for ${name}`}
-          value={binding.pressAction}
-          onChange={(pressAction) => onChange({ ...binding, pressAction })}
-        />
-      </label>
-      <div className="field hold-actions">
-        <span>Hold</span>
-        {binding.holdActions.length > 0 && (
-          <ol className="hold-list">
-            {binding.holdActions.map((action, index) => (
+        {showHow && <div id={howId} className="switch-editor-how">
+          {!remote && <Demonstration kind="learn" />}<Demonstration kind="select" />
+        </div>}
+        <div className="switch-identity">
+          {remote ? (
+            <label className="field">
+              <span>Remote switch</span>
+              <Select
+                aria-label={`Remote switch number for ${name}`}
+                value={remote.slot}
+                onChange={(e) => remote.onSlot(Number(e.target.value))}
+              >
+                {[remote.slot, ...remote.free]
+                  .sort((a, b) => a - b)
+                  .map((slot) => (
+                    <option key={slot} value={slot}>
+                      Switch {slot + 1} on the Forwarding screen
+                    </option>
+                  ))}
+              </Select>
+            </label>
+          ) : (
+            <div className="field">
+              <span>Key</span>
+              <div className="key-row">
+                <KeyBadge value={binding.key} unavailable={unavailable} />
+                <Button
+                  type="button"
+                  className="secondary"
+                  aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
+                  aria-describedby={keyError || unavailable ? keyErrorId : undefined}
+                  disabled={keyboardEntry || entryPending}
+                  onClick={onLearn}
+                >
+                  {binding.key ? "Change key" : "Learn key"}
+                </Button>
+              </div>
+            </div>
+          )}
+          <FormField label="Name">{(field) => <Input {...field}
+              ref={nameRef}
+              aria-label={isNew ? "New switch name" : `Name for ${switchKeyLabel(binding.key)}`}
+              value={binding.name}
+              maxLength={64}
+              placeholder="Head switch, foot pedal, sip..."
+              onChange={(e) => onChange({ ...binding, name: e.target.value })}
+            />}</FormField>
+        </div>
+        {!remote && (keyError || unavailable) && (
+          <FeedbackMessage variant="inline" className="field-error" id={keyErrorId}>
+            {keyError ?? unavailableReason ??
+              "This key is unavailable on this computer. Learn another key."}
+          </FeedbackMessage>
+        )}
+        <p className="setting-note switch-typing">
+          Typing the name with the computer keyboard?{" "}
+          <Button type="button" className="text-button" disabled={entryPending}
+            aria-pressed={keyboardEntry} onClick={() => onKeyboardEntry(!keyboardEntry)}>
+            {keyboardEntry ? "Resume switch control" : "Type with keyboard"}
+          </Button>{" "}
+          pauses switch control while you type. If you rely on switches, keep switch control on and type the name with the scanning keyboard instead.
+        </p>
+        {keyboardEntry && <p role="status">Keyboard typing is on. Assigned keys type normally; switch scanning is paused.</p>}
+      </section>
+      <section className="switch-editor-section" aria-labelledby={actionsId}>
+        <h3 id={actionsId}>What it does</h3>
+        <label className="field">
+          <span>Press and release</span>
+          <ActionSelect
+            panels={panels}
+            label={isNew ? "New switch action" : `Normal action for ${name}`}
+            value={binding.pressAction}
+            onChange={(pressAction) => onChange({ ...binding, pressAction })}
+          />
+        </label>
+        <div className="field hold-actions">
+          <span id={holdId}>Hold</span>
+          <ul className="hold-tiles" ref={tilesRef} aria-labelledby={holdId}>
+            {holds.map((action, index) => (
               <li key={index}>
-                <span className="hold-step" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <ActionSelect
-                  panels={panels}
-                  label={`Hold action ${index + 1} for ${name}`}
-                  value={action}
-                  onChange={(value) =>
-                    onChange({
-                      ...binding,
-                      holdActions: binding.holdActions.map((a, i) =>
-                        i === index ? value : a,
-                      ),
-                    })
-                  }
-                />
-                <IconButton
+                <Button
                   type="button"
-                  disabled={index === 0}
-                  label={`Move hold action ${index + 1} up`}
-                  onClick={() => move(index, -1)}
+                  className="hold-tile"
+                  aria-pressed={selected === index}
+                  aria-label={`Hold ${holdAt(index)}: ${actionLabel(action, panels)}`}
+                  onClick={() => choose(selected === index ? null : index)}
                 >
-                  <ChevronUp size={18} />
-                </IconButton>
-                <IconButton
-                  type="button"
-                  disabled={index === binding.holdActions.length - 1}
-                  label={`Move hold action ${index + 1} down`}
-                  onClick={() => move(index, 1)}
-                >
-                  <ChevronDown size={18} />
-                </IconButton>
-                <IconButton
-                  type="button"
-                  className="danger-icon"
-                  label={`Remove hold action ${index + 1}`}
-                  onClick={() =>
-                    onChange({
-                      ...binding,
-                      holdActions: binding.holdActions.filter(
-                        (_, i) => i !== index,
-                      ),
-                    })
-                  }
-                >
-                  <X size={18} />
-                </IconButton>
+                  <span className="hold-tile-when">Hold {holdAt(index)}</span>
+                  <span className="hold-tile-action">{actionLabel(action, panels)}</span>
+                </Button>
               </li>
             ))}
-          </ol>
-        )}
-        <p className="setting-note">
-          {binding.holdActions.length
-            ? `Hold ${binding.holdActions
-                .map((a, i) => `${seconds(acceptMs + holdIntervalMs * (i + 1))} for ${actionLabel(a, panels)}`)
-                .join(", ")}. Release to run the action shown.`
-            : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
-        </p>
-        <Button
-          type="button"
-          className="disclosure"
-          disabled={binding.holdActions.length >= 32}
-          aria-label={`Add hold action for ${name}`}
-          onClick={() =>
-            onChange({ ...binding, holdActions: [...binding.holdActions, "next"] })
-          }
-        >
-          Add hold action
-        </Button>
-      </div>
+            {holds.length < 32 && (
+              <li>
+                <Button
+                  type="button"
+                  className="hold-tile hold-tile-add"
+                  aria-label={`Add hold action for ${name}`}
+                  onClick={() => {
+                    onChange({ ...binding, holdActions: [...holds, "next"] });
+                    choose(holds.length);
+                  }}
+                >
+                  + Add a hold for {holdAt(holds.length)}
+                </Button>
+              </li>
+            )}
+          </ul>
+          {selected !== null && (
+            <div className="hold-panel" role="group" aria-label={`Hold action ${selected + 1}: hold ${holdAt(selected)}`}>
+              <div className="hold-panel-heading">
+                <strong>Hold {holdAt(selected)}: {holdName(selected)}</strong>
+                <Button type="button" className="secondary" onClick={() => { choose(null); focusTile(selected); }}>Close</Button>
+              </div>
+              <label className="field">
+                <span>Action</span>
+                <ActionSelect
+                  panels={panels}
+                  label={`Hold action ${selected + 1} for ${name}`}
+                  value={holds[selected]}
+                  onChange={(value) =>
+                    onChange({ ...binding, holdActions: holds.map((a, i) => (i === selected ? value : a)) })
+                  }
+                />
+              </label>
+              <div className="hold-panel-actions">
+                <Button type="button" className="secondary" disabled={selected === 0}
+                  aria-label={`Move hold action ${selected + 1} earlier`}
+                  onClick={() => { move(selected, -1); choose(selected - 1); }}>
+                  Move earlier
+                </Button>
+                <Button type="button" className="secondary" disabled={selected === holds.length - 1}
+                  aria-label={`Move hold action ${selected + 1} later`}
+                  onClick={() => { move(selected, 1); choose(selected + 1); }}>
+                  Move later
+                </Button>
+                <Button type="button" className="secondary danger"
+                  aria-label={`Remove hold action ${selected + 1}`}
+                  onClick={() => {
+                    onChange({ ...binding, holdActions: holds.filter((_, i) => i !== selected) });
+                    choose(null);
+                    focusTile(selected);
+                  }}>
+                  Remove
+                </Button>
+              </div>
+            </div>
+          )}
+          <p className="setting-note">
+            {holds.length
+              ? "Keep holding to move along the holds, then release to run the action shown. Choose a hold to change, move or remove it."
+              : "Holding pauses the scan highlight. Add actions to offer them one by one while held; Mouse repeat follows the Stop repeating choice under Scanning, Mouse pointer instead."}
+          </p>
+        </div>
+      </section>
       <div className="switch-editor-footer">
         <Button
           type="button"
-          className={isNew ? "primary" : "secondary"}
+          className="primary"
           disabled={!canSave}
           onClick={onDone}
         >
@@ -324,7 +354,7 @@ function SwitchEditor({
           aria-label={isNew ? "Cancel new switch" : `Remove ${name}`}
           onClick={onRemove}
         >
-          {isNew ? "Cancel" : "Remove"}
+          {isNew ? "Cancel" : "Remove switch"}
         </Button>
       </div>
     </fieldset>

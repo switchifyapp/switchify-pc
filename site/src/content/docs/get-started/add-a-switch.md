@@ -26,7 +26,7 @@ Switchify PC sees a switch as a key press or a gamepad button press. Anything th
 
    ![A new switch after learning the Space key, named Head switch, with Press and release set to Select and Save switch and Cancel buttons.](../../../assets/screenshots/add-switch-learned.png)
 
-While the learning dialog is open it holds keyboard focus, so a press cannot scroll Settings or activate a button. Press Escape to cancel. If you need to type the name with the keyboard, choose **Type with keyboard**, which pauses switch control while you do.
+While the learning dialog is open it holds keyboard focus, so a press cannot scroll Settings or activate a button. Press Escape to cancel. If you need to type the name with the keyboard, choose **Type with keyboard** next to the name, which pauses switch control while you do. **Show me how** at the top of the editor shows how to learn a switch and how to select with one.
 
 Each key belongs to one switch, but several switches can run the same action.
 
@@ -56,11 +56,13 @@ To change a saved switch later, choose **Edit** next to it on the Switches page.
 
 A switch can also have an ordered list of **hold actions**. Keep the switch down and each action is offered in turn on screen, one per interval. Release while an action is offered to run it. The interval is 1 second by default. Set it under **More options** on the Switches page, in **Hold timing**, with **Hold action interval**: use **−** and **+** to set it from 0.25 to 5 seconds, 0.05 seconds at a time. Holding on its own never runs anything; only the release does.
 
-To open a panel with a hold, choose **Add hold action** and pick the panel under **Open a panel**, **Open a menu** or **My panels**. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
+To open a panel with a hold, add a hold and pick the panel under **Open a panel**, **Open a menu** or **My panels**. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
 
-Choose **Add hold action** to add one, and use the arrows to change the order. The editor spells out the timing, such as *Hold 1s for Open keyboard, 2s for Pause / resume*.
+In the switch editor, hold actions are tiles under **Hold**, in the order holding reaches them. Each tile shows how long to hold and the action, such as *Hold 1s, Open keyboard*. The last tile, **Add a hold**, adds another, ready to change.
 
-![Editing Head switch: a press and release runs Select, and two hold actions, Open keyboard then Pause / resume, are listed in order.](../../../assets/screenshots/switch-editor.png)
+Choose a tile to open its panel. There you can pick a different **Action**, **Move earlier** or **Move later** to change the order, or **Remove** it. **Close** closes the panel.
+
+![Editing Head switch: This switch shows the key and name side by side. Under What it does, a press and release runs Select, and two hold tiles follow: Hold 1s, Open keyboard, then Hold 2s, Pause / resume, with a tile to add another.](../../../assets/screenshots/switch-editor.png)
 
 ## Press timing
 
