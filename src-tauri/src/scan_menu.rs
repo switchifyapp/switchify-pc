@@ -1,7 +1,7 @@
 //! Menu rows and navigation are independent of native windows and input.
 use crate::{
     custom_panels::CustomPanel,
-    panel_actions::PanelAction,
+    panel_actions::{Category, PanelAction},
     scan_items::{ItemScanner, Policy},
     scan_panel::{Dock, Panel, PanelKey},
     scanning::{Action, Frame, Rect, TileRole},
@@ -425,94 +425,249 @@ pub enum Command {
     Restart,
 }
 impl Command {
+    fn spec(self) -> &'static CommandSpec {
+        COMMANDS
+            .iter()
+            .find(|spec| spec.command == self)
+            .expect("every command has a row in COMMANDS")
+    }
     pub fn label(self) -> &'static str {
-        match self {
-            Self::MiddleClick => "Middle click",
-            Self::TripleClick => "Triple click",
-            Self::ShiftClick => "Shift-click",
-            Self::CtrlClick => "Ctrl-click",
-            Self::AltClick => {
-                if cfg!(target_os = "macos") {
-                    "Option-click"
-                } else {
-                    "Alt-click"
-                }
-            }
-            Self::MetaClick => {
-                if cfg!(target_os = "macos") {
-                    "Command-click"
-                } else {
-                    "Windows-click"
-                }
-            }
-            Self::Copy => "Copy",
-            Self::Cut => "Cut",
-            Self::Paste => "Paste",
-            Self::SelectAll => "Select all",
-            Self::Undo => "Undo",
-            Self::Redo => "Redo",
-            Self::Save => "Save",
-            Self::Find => "Find",
-            Self::SwitchNext => "Switch app forward",
-            Self::SwitchPrevious => "Switch app backward",
-            Self::Overview => "App overview",
-            Self::Desktop => "Show desktop",
-            Self::Minimize => "Minimize",
-            Self::Maximize => {
-                if cfg!(target_os = "macos") {
-                    "Toggle full screen"
-                } else {
-                    "Maximize / restore"
-                }
-            }
-            Self::CloseWindow => "Close window",
-            Self::BrowserBack => "Back",
-            Self::BrowserForward => "Forward",
-            Self::Reload => "Reload",
-            Self::NewTab => "New tab",
-            Self::CloseTab => "Close tab",
-            Self::ReopenTab => "Reopen closed tab",
-            Self::NextTab => "Next tab",
-            Self::PreviousTab => "Previous tab",
-            Self::Address => "Address bar",
-            Self::ZoomIn => "Zoom in",
-            Self::ZoomOut => "Zoom out",
-            Self::ZoomReset => "Reset zoom",
-            Self::PlayPause => "Play / pause",
-            Self::NextTrack => "Next track",
-            Self::PreviousTrack => "Previous track",
-            Self::VolumeUp => "Volume up",
-            Self::VolumeDown => "Volume down",
-            Self::Mute => "Mute",
-            Self::ShutDown => "Shut down now",
-            Self::Restart => "Restart now",
+        let spec = self.spec();
+        match spec.mac_label {
+            Some(label) if cfg!(target_os = "macos") => label,
+            _ => spec.label,
         }
+    }
+    /// Where the command sits in the panel action picker.
+    pub fn category(self) -> Category {
+        self.spec().category
+    }
+    /// Extra words the panel action picker matches when searching.
+    pub fn keywords(self) -> &'static [&'static str] {
+        self.spec().keywords
+    }
+    /// The keys the command presses, if it is a keyboard shortcut on this
+    /// platform, with `PRIMARY` resolved to Meta on macOS or Ctrl elsewhere.
+    pub fn shortcut(self, mac: bool) -> Option<Vec<&'static str>> {
+        let spec = self.spec();
+        let primary = if mac { "Meta" } else { "Ctrl" };
+        let keys = if mac { spec.mac_keys } else { spec.other_keys }?;
+        Some(
+            keys.iter()
+                .map(|&key| if key == PRIMARY { primary } else { key })
+                .collect(),
+        )
     }
     /// Clicks with a modifier act at a point; every other command acts on
     /// the window in front.
     pub fn at_point(self) -> bool {
-        matches!(
-            self,
-            Self::MiddleClick
-                | Self::TripleClick
-                | Self::ShiftClick
-                | Self::CtrlClick
-                | Self::AltClick
-                | Self::MetaClick
-        )
+        self.spec().at_point
     }
     pub fn stays_open(self) -> bool {
-        matches!(
-            self,
-            Self::PlayPause
-                | Self::NextTrack
-                | Self::PreviousTrack
-                | Self::VolumeUp
-                | Self::VolumeDown
-                | Self::Mute
-        )
+        self.spec().stays_open
     }
 }
+
+/// Stands for Command on macOS and Ctrl elsewhere in a shortcut.
+const PRIMARY: &str = "Primary";
+
+/// Everything fixed about one [`Command`]. See [`COMMANDS`].
+struct CommandSpec {
+    command: Command,
+    label: &'static str,
+    /// The label on macOS, when it differs.
+    mac_label: Option<&'static str>,
+    category: Category,
+    keywords: &'static [&'static str],
+    /// The shortcut on macOS. `None` means the command does something else
+    /// there, such as a click or a media key.
+    mac_keys: Option<&'static [&'static str]>,
+    /// The shortcut on Windows, with the same rule.
+    other_keys: Option<&'static [&'static str]>,
+    at_point: bool,
+    stays_open: bool,
+}
+
+impl CommandSpec {
+    const fn new(
+        command: Command,
+        label: &'static str,
+        category: Category,
+        keywords: &'static [&'static str],
+    ) -> Self {
+        Self {
+            command,
+            label,
+            mac_label: None,
+            category,
+            keywords,
+            mac_keys: None,
+            other_keys: None,
+            at_point: false,
+            stays_open: false,
+        }
+    }
+    const fn on_mac_called(mut self, label: &'static str) -> Self {
+        self.mac_label = Some(label);
+        self
+    }
+    /// The same shortcut on every platform.
+    const fn keys(self, keys: &'static [&'static str]) -> Self {
+        self.mac_keys(keys).other_keys(keys)
+    }
+    const fn mac_keys(mut self, keys: &'static [&'static str]) -> Self {
+        self.mac_keys = Some(keys);
+        self
+    }
+    const fn other_keys(mut self, keys: &'static [&'static str]) -> Self {
+        self.other_keys = Some(keys);
+        self
+    }
+    const fn acts_at_point(mut self) -> Self {
+        self.at_point = true;
+        self
+    }
+    const fn keeps_menu_open(mut self) -> Self {
+        self.stays_open = true;
+        self
+    }
+}
+
+/// Every scan menu command, listed once in picker order. Adding a command
+/// means adding its enum variant, a row here, and its menu placement in
+/// `Kind::rows`. A command without a shortcut also needs an arm in
+/// `scan_executor::execute_command`.
+const COMMANDS: &[CommandSpec] = {
+    use Category::{Browser, Editing, Media, Mouse, Power, Windows};
+    use Command as C;
+    use CommandSpec as S;
+    const P: &str = PRIMARY;
+    const MODIFIER_CLICK: &[&str] = &["modifier click"];
+    const TABS: &[&str] = &["tabs"];
+    const ZOOM: &[&str] = &["magnify", "text size"];
+    const SOUND: &[&str] = &["sound", "audio"];
+    &[
+        S::new(C::MiddleClick, "Middle click", Mouse, MODIFIER_CLICK).acts_at_point(),
+        S::new(C::TripleClick, "Triple click", Mouse, MODIFIER_CLICK).acts_at_point(),
+        S::new(C::ShiftClick, "Shift-click", Mouse, MODIFIER_CLICK).acts_at_point(),
+        S::new(C::CtrlClick, "Ctrl-click", Mouse, MODIFIER_CLICK).acts_at_point(),
+        S::new(C::AltClick, "Alt-click", Mouse, MODIFIER_CLICK)
+            .on_mac_called("Option-click")
+            .acts_at_point(),
+        S::new(C::MetaClick, "Windows-click", Mouse, MODIFIER_CLICK)
+            .on_mac_called("Command-click")
+            .acts_at_point(),
+        S::new(C::Copy, "Copy", Editing, &["clipboard", "ctrl c"]).keys(&[P, "C"]),
+        S::new(C::Cut, "Cut", Editing, &["clipboard", "ctrl x"]).keys(&[P, "X"]),
+        S::new(C::Paste, "Paste", Editing, &["clipboard", "ctrl v"]).keys(&[P, "V"]),
+        S::new(C::SelectAll, "Select all", Editing, &["ctrl a"]).keys(&[P, "A"]),
+        S::new(C::Undo, "Undo", Editing, &["ctrl z"]).keys(&[P, "Z"]),
+        S::new(C::Redo, "Redo", Editing, &["ctrl y"])
+            .mac_keys(&[P, "Shift", "Z"])
+            .other_keys(&[P, "Y"]),
+        S::new(C::Save, "Save", Editing, &["ctrl s"]).keys(&[P, "S"]),
+        S::new(C::Find, "Find", Editing, &["search", "ctrl f"]).keys(&[P, "F"]),
+        S::new(
+            C::SwitchNext,
+            "Switch app forward",
+            Windows,
+            &["alt tab", "application"],
+        )
+        .mac_keys(&["Meta", "Tab"])
+        .other_keys(&["Alt", "Tab"]),
+        S::new(
+            C::SwitchPrevious,
+            "Switch app backward",
+            Windows,
+            &["alt tab", "application"],
+        )
+        .mac_keys(&["Meta", "Shift", "Tab"])
+        .other_keys(&["Alt", "Shift", "Tab"]),
+        S::new(
+            C::Overview,
+            "App overview",
+            Windows,
+            &["task view", "mission control"],
+        )
+        .mac_keys(&["Ctrl", "ArrowUp"])
+        .other_keys(&["Meta", "Tab"]),
+        S::new(C::Desktop, "Show desktop", Windows, &["minimise all"])
+            .mac_keys(&["Meta", "F3"])
+            .other_keys(&["Meta", "D"]),
+        // Windows minimizes through the window adapter instead.
+        S::new(
+            C::Minimize,
+            "Minimize",
+            Windows,
+            &["minimise", "hide window"],
+        )
+        .mac_keys(&["Meta", "M"]),
+        // Windows maximizes through the window adapter instead.
+        S::new(
+            C::Maximize,
+            "Maximize / restore",
+            Windows,
+            &["maximise", "full screen", "restore"],
+        )
+        .on_mac_called("Toggle full screen")
+        .mac_keys(&["Ctrl", "Meta", "F"]),
+        // macOS closes through the window adapter instead.
+        S::new(C::CloseWindow, "Close window", Windows, &["alt f4", "quit"])
+            .other_keys(&["Alt", "F4"]),
+        S::new(C::BrowserBack, "Back", Browser, &["history", "navigate"])
+            .mac_keys(&[P, "["])
+            .other_keys(&["Alt", "ArrowLeft"]),
+        S::new(
+            C::BrowserForward,
+            "Forward",
+            Browser,
+            &["history", "navigate"],
+        )
+        .mac_keys(&[P, "]"])
+        .other_keys(&["Alt", "ArrowRight"]),
+        S::new(C::Reload, "Reload", Browser, &["refresh"]).keys(&[P, "R"]),
+        S::new(C::NewTab, "New tab", Browser, TABS).keys(&[P, "T"]),
+        S::new(C::CloseTab, "Close tab", Browser, TABS).keys(&[P, "W"]),
+        S::new(C::ReopenTab, "Reopen closed tab", Browser, TABS).keys(&[P, "Shift", "T"]),
+        S::new(C::NextTab, "Next tab", Browser, TABS).keys(&["Ctrl", "Tab"]),
+        S::new(C::PreviousTab, "Previous tab", Browser, TABS).keys(&["Ctrl", "Shift", "Tab"]),
+        S::new(
+            C::Address,
+            "Address bar",
+            Browser,
+            &["url", "location", "address bar"],
+        )
+        .keys(&[P, "L"]),
+        S::new(C::ZoomIn, "Zoom in", Browser, ZOOM).keys(&[P, "="]),
+        S::new(C::ZoomOut, "Zoom out", Browser, ZOOM).keys(&[P, "-"]),
+        S::new(C::ZoomReset, "Reset zoom", Browser, ZOOM).keys(&[P, "0"]),
+        S::new(C::PlayPause, "Play / pause", Media, &["music", "video"]).keeps_menu_open(),
+        S::new(C::NextTrack, "Next track", Media, &["music", "skip"]).keeps_menu_open(),
+        S::new(
+            C::PreviousTrack,
+            "Previous track",
+            Media,
+            &["music", "skip"],
+        )
+        .keeps_menu_open(),
+        S::new(C::VolumeUp, "Volume up", Media, SOUND).keeps_menu_open(),
+        S::new(C::VolumeDown, "Volume down", Media, SOUND).keeps_menu_open(),
+        S::new(C::Mute, "Mute", Media, SOUND).keeps_menu_open(),
+        S::new(
+            C::ShutDown,
+            "Shut down now",
+            Power,
+            &["power off", "turn off"],
+        ),
+        S::new(C::Restart, "Restart now", Power, &["reboot"]),
+    ]
+};
+
+/// Every command in picker order.
+pub fn all_commands() -> impl Iterator<Item = Command> {
+    COMMANDS.iter().map(|spec| spec.command)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Setting {
@@ -720,6 +875,33 @@ impl Kind {
 mod tests {
     use super::*;
     use crate::scanning::FrameTile;
+
+    /// Fails to compile when a `Command` is added, as a reminder to give it a
+    /// row in `COMMANDS`.
+    fn command_count() -> usize {
+        use Command::*;
+        match Command::Copy {
+            MiddleClick | TripleClick | ShiftClick | CtrlClick | AltClick | MetaClick | Copy
+            | Cut | Paste | SelectAll | Undo | Redo | Save | Find | SwitchNext | SwitchPrevious
+            | Overview | Desktop | Minimize | Maximize | CloseWindow | BrowserBack
+            | BrowserForward | Reload | NewTab | CloseTab | ReopenTab | NextTab | PreviousTab
+            | Address | ZoomIn | ZoomOut | ZoomReset | PlayPause | NextTrack | PreviousTrack
+            | VolumeUp | VolumeDown | Mute | ShutDown | Restart => 41,
+        }
+    }
+
+    #[test]
+    fn every_command_has_exactly_one_row() {
+        assert_eq!(COMMANDS.len(), command_count());
+        for spec in COMMANDS {
+            let rows = COMMANDS
+                .iter()
+                .filter(|s| s.command == spec.command)
+                .count();
+            assert_eq!(rows, 1, "{:?}", spec.command);
+            assert!(!spec.label.is_empty(), "{:?}", spec.command);
+        }
+    }
 
     /// The message floating beside the panel, if there is one.
     fn message(frame: &Frame) -> Option<String> {
