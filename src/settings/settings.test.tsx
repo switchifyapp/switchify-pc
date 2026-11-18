@@ -655,13 +655,42 @@ describe("Switchify PC settings", () => {
 
     const speed = screen.getByRole("group", { name: "Block speed" });
     expect(within(speed).getByRole("button", { name: "Scan speed" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(speed).getByRole("button", { name: "1.5s" }));
-    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 1500 })));
+    expect(screen.queryByRole("status", { name: "Time between blocks" })).not.toBeInTheDocument();
+
+    // Setting a time starts at one second, then moves a tenth at a time.
+    fireEvent.click(within(speed).getByRole("button", { name: "Set a time" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 1000 })));
+    const time = await screen.findByRole("status", { name: "Time between blocks" });
+    expect(time).toHaveTextContent("1 s");
+    fireEvent.click(screen.getByRole("button", { name: "Increase time between blocks by 0.1 seconds" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 1100 })));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Time between blocks" })).toHaveTextContent("1.1 s"));
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(screen.getByRole("button", { name: "Decrease time between blocks by 0.1 seconds" }));
+      await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 1000 - i * 100 })));
+    }
+    await waitFor(() => expect(screen.getByRole("status", { name: "Time between blocks" })).toHaveTextContent("0.9 s"));
+
     fireEvent.click(within(speed).getByRole("button", { name: "Scan speed" }));
     await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ mouseBlockIntervalMs: 0 })));
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Time between blocks" })).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" }));
     await waitFor(() => expect(screen.getByRole("group", { name: "Block speed" })).toBeDisabled());
+  });
+
+  it("stops the block speed stepper at 0.1 seconds", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Switchify PC" });
+    await openMouse();
+    fireEvent.click(within(screen.getByRole("group", { name: "Block speed" })).getByRole("button", { name: "Set a time" }));
+    await screen.findByRole("status", { name: "Time between blocks" });
+    for (let i = 0; i < 9; i++) {
+      fireEvent.click(screen.getByRole("button", { name: "Decrease time between blocks by 0.1 seconds" }));
+      await waitFor(() => expect(screen.getByRole("status", { name: "Time between blocks" })).toHaveTextContent(`${(900 - i * 100) / 1000} s`));
+    }
+    expect(screen.getByRole("button", { name: "Decrease time between blocks by 0.1 seconds" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Increase time between blocks by 0.1 seconds" })).toBeEnabled();
   });
 
   it("keeps a pending Mouse edit across pages and saves it", async () => {

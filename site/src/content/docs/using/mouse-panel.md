@@ -34,7 +34,7 @@ The switch action works while scanning is running, whether or not the mouse pane
 
 Choose **Small**, **Medium** or **Large** blocks in the Mouse pointer section. A block is a twentieth, a tenth or a fifth of the shorter side of the display the pointer is on. Pointer speed doesn't change the size of a block.
 
-**Block speed** sets how long the pointer waits between hops when repeat is on. **Scan speed**, the default, waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Choose 0.5, 1, 1.5, 2 or 3 seconds to make the hops faster or slower than scanning. Block speed is greyed out while repeat is off.
+**Block speed** sets how long the pointer waits between hops when repeat is on. **Scan speed**, the default, waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Choose **Set a time** to make the hops faster or slower than scanning, then use **−** and **+** to set the time between blocks, from 0.1 to 10 seconds, a tenth of a second at a time. Choosing **Set a time** starts at 1 second. Block speed is greyed out while repeat is off.
 
 The panel can move itself out of the way when the pointer approaches it.
 

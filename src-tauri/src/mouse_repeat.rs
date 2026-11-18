@@ -188,9 +188,20 @@ impl BlockSize {
     }
 }
 
-/// The choices for the time between repeating block hops. 0 hops at the
-/// mouse panel's scan speed.
-pub const BLOCK_INTERVALS_MS: [u32; 6] = [0, 500, 1000, 1500, 2000, 3000];
+/// The shortest set time between repeating block hops.
+pub const BLOCK_INTERVAL_MIN_MS: u32 = 100;
+/// The longest set time between repeating block hops.
+pub const BLOCK_INTERVAL_MAX_MS: u32 = 10_000;
+/// Set times move in tenths of a second.
+pub const BLOCK_INTERVAL_STEP_MS: u32 = 100;
+
+/// Whether `ms` is a time between repeating block hops: 0 to hop at the
+/// mouse panel's scan speed, or 0.1 to 10 seconds in tenths of a second.
+pub fn valid_block_interval(ms: u32) -> bool {
+    ms == 0
+        || ((BLOCK_INTERVAL_MIN_MS..=BLOCK_INTERVAL_MAX_MS).contains(&ms)
+            && ms.is_multiple_of(BLOCK_INTERVAL_STEP_MS))
+}
 
 /// One block on a display of this size, in the display's own units, which
 /// are the units a relative pointer move uses. Blocks are square, so a
@@ -627,6 +638,16 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::time::Duration;
+
+    #[test]
+    fn block_speed_is_scan_speed_or_a_tenth_of_a_second_up_to_ten_seconds() {
+        for ms in [0, 100, 500, 1200, 3000, 9900, 10_000] {
+            assert!(valid_block_interval(ms), "{ms}");
+        }
+        for ms in [1, 50, 99, 150, 1250, 10_100, u32::MAX] {
+            assert!(!valid_block_interval(ms), "{ms}");
+        }
+    }
 
     #[test]
     fn blocks_are_a_share_of_the_shorter_display_side() {

@@ -13,11 +13,21 @@ const blockSizeOptions: { value: AppSettings["mouseBlockSize"]; label: string }[
   { value: "large", label: "Large" },
 ];
 
-// 0 keeps the mouse panel's scan speed. Mirrors `BLOCK_INTERVALS_MS` in src-tauri/src/mouse_repeat.rs.
-const blockSpeedOptions = [{ value: 0, label: "Scan speed" }, ...secondsOptions([500, 1000, 1500, 2000, 3000])];
+// 0 keeps the mouse panel's scan speed; a set time is 0.1 to 10 seconds in tenths.
+// Mirrors `valid_block_interval` in src-tauri/src/mouse_repeat.rs.
+const BLOCK_INTERVAL_MIN_MS = 100;
+const BLOCK_INTERVAL_MAX_MS = 10000;
+const BLOCK_INTERVAL_STEP_MS = 100;
+const BLOCK_INTERVAL_DEFAULT_MS = 1000;
+type BlockSpeedChoice = "scan" | "time";
+const blockSpeedOptions: { value: BlockSpeedChoice; label: string }[] = [
+  { value: "scan", label: "Scan speed" },
+  { value: "time", label: "Set a time" },
+];
 
 export function PointerSection({ settings, update, children, title = "Movement", description = "", section }: { settings: AppSettings; update: SettingsUpdate; children?: ReactNode; title?: string; description?: string; section?: string }) {
   const percent = settings.pointerScalePercent;
+  const blockInterval = settings.mouseBlockIntervalMs;
   const level = speedLevelLabel(percent);
   const [sliderLevel, setSliderLevel] = useState(level);
   useEffect(() => { setSliderLevel(level); }, [level, percent]);
@@ -52,8 +62,14 @@ export function PointerSection({ settings, update, children, title = "Movement",
         <Toggle label="Move in blocks" checked={settings.mouseMovement === "blocks"} onChange={(value) => update("mouseMovement", value ? "blocks" : "smooth")} />
         <p className="setting-note">The mouse panel's arrows jump the pointer a block at a time instead of gliding. You can also switch this with the Blocks tile on the panel's Speed and more page, or with a switch set to Move in blocks on / off.</p>
         <OptionGroup<AppSettings["mouseBlockSize"]> legend="Block size" columns="three" disabled={false} options={blockSizeOptions} value={settings.mouseBlockSize} onChange={(next) => update("mouseBlockSize", next)} />
-        <OptionGroup<number> legend="Block speed" columns="three" disabled={!settings.mouseRepeatEnabled} options={blockSpeedOptions} value={settings.mouseBlockIntervalMs} onChange={(next) => update("mouseBlockIntervalMs", next)}
-          note={{ about: "block speed", summary: settings.mouseRepeatEnabled ? "How long the pointer waits between blocks when it keeps moving." : "Turn on Repeat mouse movement and scrolling to use this.", detail: "Scan speed waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Pick a time to make blocks move faster or slower than that." }} />
+        <OptionGroup<BlockSpeedChoice> legend="Block speed" columns="three" disabled={!settings.mouseRepeatEnabled} options={blockSpeedOptions} value={blockInterval ? "time" : "scan"}
+          onChange={(next) => update("mouseBlockIntervalMs", next === "scan" ? 0 : blockInterval || BLOCK_INTERVAL_DEFAULT_MS)}
+          note={{ about: "block speed", summary: settings.mouseRepeatEnabled ? "How long the pointer waits between blocks when it keeps moving." : "Turn on Repeat mouse movement and scrolling to use this.", detail: "Scan speed waits as long as the mouse panel takes to move between tiles, so you have as long to stop the pointer as to choose a tile. Set a time to make blocks move faster or slower than that, from 0.1 to 10 seconds." }} />
+        {blockInterval > 0 && <div className="exact-speed"><span>Time between blocks</span><div className="scan-rate-stepper">
+          <Button type="button" aria-label="Decrease time between blocks by 0.1 seconds" disabled={!settings.mouseRepeatEnabled || blockInterval <= BLOCK_INTERVAL_MIN_MS} onClick={() => update("mouseBlockIntervalMs", Math.max(BLOCK_INTERVAL_MIN_MS, blockInterval - BLOCK_INTERVAL_STEP_MS))}>−</Button>
+          <output aria-label="Time between blocks" aria-live="polite">{blockInterval / 1000} s</output>
+          <Button type="button" aria-label="Increase time between blocks by 0.1 seconds" disabled={!settings.mouseRepeatEnabled || blockInterval >= BLOCK_INTERVAL_MAX_MS} onClick={() => update("mouseBlockIntervalMs", Math.min(BLOCK_INTERVAL_MAX_MS, blockInterval + BLOCK_INTERVAL_STEP_MS))}>+</Button>
+        </div></div>}
       </div>
       <div className="repeat-settings" data-setting="repeat">
         <Toggle label="Repeat mouse movement and scrolling" checked={settings.mouseRepeatEnabled} onChange={(value) => update("mouseRepeatEnabled", value)} />
