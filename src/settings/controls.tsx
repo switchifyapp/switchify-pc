@@ -22,14 +22,6 @@ export function SettingGroup({ title, description, children, id, sectionRef, foc
   return <section className="setting-group" id={id} ref={sectionRef} tabIndex={focusable ? -1 : undefined} aria-labelledby={headingId} data-section={section} data-setting={setting}><header><h2 id={headingId}>{title}</h2><p>{description}</p></header><div className="setting-controls">{children}</div></section>;
 }
 
-export const repeatIntervalOptions = [100, 250, 500, 1000] as const;
-export const accelerationOptions = [
-  { value: 0, label: "Off" },
-  { value: 500, label: "Short" },
-  { value: 1000, label: "Medium" },
-  { value: 2000, label: "Long" },
-] as const;
-
 // `note` renders beside the fieldset rather than inside it, by construction: a
 // disclosure inside a disabled fieldset would inherit `disabled` and become
 // unreachable. The fieldset keeps its programmatic link to the note through

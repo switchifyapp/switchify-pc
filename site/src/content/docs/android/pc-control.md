@@ -22,7 +22,7 @@ Next and previous app, task view, show desktop, minimise, maximise and close, wi
 These apply while a phone is controlling the computer. Pointer speed and repeat are in the **Mouse pointer** section of the Scanning page, Click when I stop is under **Input** in Settings, and the cursor overlay is under **Cursor overlay** on the Mobile page. **Find a setting** at the top of the window takes you to any of them.
 
 - **Pointer speed**: a slider from Slow to Fast, shown as a level from 1 to 10. **Fine tune speed** moves it in smaller steps with **Slower** and **Faster**.
-- **Repeat**: movement, scrolling and key repeat, with an interval and gradual acceleration.
+- **Repeat**: movement, scrolling and key repeat, with an interval and gradual acceleration. Set the movement and scroll intervals from 0.1 to 2 seconds and acceleration from Off to 3 seconds with **−** and **+**.
 - **Click when I stop**: a left click after the pointer stops moving, with a countdown you can set from 0.1 to 10 seconds with **−** and **+** under **Wait before clicking**.
 - **Cursor overlay**: show a high-visibility marker or crosshairs, choose its size and one of five colours, and show it on input or whenever the phone is controlling.
 

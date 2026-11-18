@@ -1576,6 +1576,10 @@ pub fn pointer_profile_response(
                     "minIntervalMs": 100,
                     "maxIntervalMs": 2000,
                     "accelerationDurationMs": settings.mouse_repeat_acceleration_duration_ms,
+                    // The earlier fixed choices, kept for clients that read
+                    // them. Each is still accepted, but Settings now sets any
+                    // tenth of a second up to 3 s, so accelerationDurationMs
+                    // need not be one of them.
                     "accelerationDurationOptionsMs": [0, 500, 1000, 2000],
                     "accelerationInitialScalePercent": 25
                 },

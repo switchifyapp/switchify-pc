@@ -294,8 +294,21 @@ describe("Switchify PC settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Repeat timing" }));
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("5.0");
     expect(screen.getByRole("checkbox", { name: "Repeat mouse movement and scrolling" })).toBeChecked();
-    expect(screen.getByRole("group", { name: "Movement acceleration" })).not.toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Medium" })[0]).toHaveAttribute("aria-pressed", "true");
+    const acceleration = screen.getByRole("group", { name: "Movement acceleration" });
+    expect(acceleration).not.toBeDisabled();
+    expect(within(acceleration).getByRole("status", { name: "Movement acceleration" })).toHaveTextContent("1 s");
+    // Acceleration moves a tenth of a second at a time, and none reads Off.
+    for (let i = 0; i < 10; i++) fireEvent.click(within(acceleration).getByRole("button", { name: "Decrease movement acceleration by 0.1 seconds" }));
+    expect(within(acceleration).getByRole("status", { name: "Movement acceleration" })).toHaveTextContent("Off");
+    expect(within(acceleration).getByRole("button", { name: "Decrease movement acceleration by 0.1 seconds" })).toBeDisabled();
+    // The intervals move a twentieth of a second at a time.
+    const movement = screen.getByRole("group", { name: "Movement interval" });
+    expect(within(movement).getByRole("status", { name: "Movement interval" })).toHaveTextContent("0.25 s");
+    fireEvent.click(within(movement).getByRole("button", { name: "Increase movement interval by 0.05 seconds" }));
+    expect(within(movement).getByRole("status", { name: "Movement interval" })).toHaveTextContent("0.3 s");
+    const scroll = screen.getByRole("group", { name: "Scroll interval" });
+    fireEvent.click(within(scroll).getByRole("button", { name: "Decrease scroll interval by 0.05 seconds" }));
+    expect(within(scroll).getByRole("status", { name: "Scroll interval" })).toHaveTextContent("0.2 s");
     setPointerSpeed(50);
     expect(screen.getByRole("slider", { name: "Pointer speed" })).toHaveValue("4.1");
     fireEvent.click(screen.getByRole("button", { name: "Fine tune speed" }));

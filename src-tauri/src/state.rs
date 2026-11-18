@@ -141,12 +141,14 @@ impl AppSettings {
         {
             return Err("Pointer speed must be between 5 and 1350 in steps of 5.".into());
         }
-        if ![100, 250, 500, 1000].contains(&self.move_repeat_interval_ms)
-            || ![100, 250, 500, 1000].contains(&self.scroll_repeat_interval_ms)
+        if !crate::timing::MOUSE_REPEAT_INTERVAL.contains(self.move_repeat_interval_ms)
+            || !crate::timing::MOUSE_REPEAT_INTERVAL.contains(self.scroll_repeat_interval_ms)
         {
             return Err("Mouse repeat interval is invalid.".into());
         }
-        if ![0, 500, 1000, 2000].contains(&self.mouse_repeat_acceleration_duration_ms) {
+        if !crate::timing::MOUSE_REPEAT_ACCELERATION
+            .contains(self.mouse_repeat_acceleration_duration_ms)
+        {
             return Err("Mouse repeat acceleration is invalid.".into());
         }
         if !crate::mouse_repeat::valid_block_interval(self.mouse_block_interval_ms) {
@@ -1479,11 +1481,43 @@ mod tests {
     }
     #[test]
     fn settings_reject_unknown_repeat_acceleration() {
-        let value = AppSettings {
-            mouse_repeat_acceleration_duration_ms: 750,
-            ..AppSettings::default()
-        };
-        assert!(value.normalized().is_err());
+        for acceleration in [50, 750, 3100] {
+            let value = AppSettings {
+                mouse_repeat_acceleration_duration_ms: acceleration,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_err(), "acceleration {acceleration}");
+        }
+        for acceleration in [0, 300, 500, 1000, 2000, 3000] {
+            let value = AppSettings {
+                mouse_repeat_acceleration_duration_ms: acceleration,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_ok(), "acceleration {acceleration}");
+        }
+    }
+    #[test]
+    fn mouse_repeat_intervals_step_by_a_twentieth_of_a_second() {
+        for interval in [50, 125, 2050] {
+            let move_value = AppSettings {
+                move_repeat_interval_ms: interval,
+                ..AppSettings::default()
+            };
+            assert!(move_value.normalized().is_err(), "move {interval}");
+            let scroll_value = AppSettings {
+                scroll_repeat_interval_ms: interval,
+                ..AppSettings::default()
+            };
+            assert!(scroll_value.normalized().is_err(), "scroll {interval}");
+        }
+        for interval in [100, 150, 250, 500, 1000, 1750, 2000] {
+            let value = AppSettings {
+                move_repeat_interval_ms: interval,
+                scroll_repeat_interval_ms: interval,
+                ..AppSettings::default()
+            };
+            assert!(value.normalized().is_ok(), "interval {interval}");
+        }
     }
     #[test]
     fn dwell_click_defaults_are_safe_and_delays_are_bounded() {
