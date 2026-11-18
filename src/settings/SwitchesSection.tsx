@@ -173,6 +173,14 @@ function SwitchEditor({
     const tiles = tilesRef.current?.querySelectorAll<HTMLButtonElement>("button");
     tiles?.[Math.min(index, tiles.length - 1)]?.focus();
   });
+  const panelRef = useRef<HTMLDivElement>(null);
+  // The panel's Action list takes focus when a new hold opens, and when a
+  // move disables the button that was pressed, so focus is never dropped.
+  const focusAction = (always: boolean) => requestAnimationFrame(() => {
+    const active = document.activeElement as HTMLButtonElement | null;
+    if (always || !active || active.disabled || !panelRef.current?.contains(active))
+      panelRef.current?.querySelector("select")?.focus();
+  });
   const choose = (index: number | null) => setChosen(index);
   const selected = chosen !== null && chosen < holds.length ? chosen : null;
   return (
@@ -238,14 +246,16 @@ function SwitchEditor({
               "This key is unavailable on this computer. Learn another key."}
           </FeedbackMessage>
         )}
-        <p className="setting-note switch-typing">
-          Typing the name with the computer keyboard?{" "}
-          <Button type="button" className="text-button" disabled={entryPending}
+        <div className="switch-typing">
+          <p className="setting-note">
+            Typing the name with the computer keyboard? Type with keyboard pauses switch control while you type. If you rely on switches, keep switch control on and type the name with the scanning keyboard instead.
+          </p>
+          {/* A full-size button: it pauses switch control, so it must be easy to reach. */}
+          <Button type="button" className="secondary" disabled={entryPending}
             aria-pressed={keyboardEntry} onClick={() => onKeyboardEntry(!keyboardEntry)}>
             {keyboardEntry ? "Resume switch control" : "Type with keyboard"}
-          </Button>{" "}
-          pauses switch control while you type. If you rely on switches, keep switch control on and type the name with the scanning keyboard instead.
-        </p>
+          </Button>
+        </div>
         {keyboardEntry && <p role="status">Keyboard typing is on. Assigned keys type normally; switch scanning is paused.</p>}
       </section>
       <section className="switch-editor-section" aria-labelledby={actionsId}>
@@ -285,6 +295,7 @@ function SwitchEditor({
                   onClick={() => {
                     onChange({ ...binding, holdActions: [...holds, "next"] });
                     choose(holds.length);
+                    focusAction(true);
                   }}
                 >
                   + Add a hold for {holdAt(holds.length)}
@@ -293,7 +304,7 @@ function SwitchEditor({
             )}
           </ul>
           {selected !== null && (
-            <div className="hold-panel" role="group" aria-label={`Hold action ${selected + 1}: hold ${holdAt(selected)}`}>
+            <div className="hold-panel" ref={panelRef} role="group" aria-label={`Hold action ${selected + 1}: hold ${holdAt(selected)}`}>
               <div className="hold-panel-heading">
                 <strong>Hold {holdAt(selected)}: {holdName(selected)}</strong>
                 <Button type="button" className="secondary" onClick={() => { choose(null); focusTile(selected); }}>Close</Button>
@@ -312,12 +323,12 @@ function SwitchEditor({
               <div className="hold-panel-actions">
                 <Button type="button" className="secondary" disabled={selected === 0}
                   aria-label={`Move hold action ${selected + 1} earlier`}
-                  onClick={() => { move(selected, -1); choose(selected - 1); }}>
+                  onClick={() => { move(selected, -1); choose(selected - 1); focusAction(false); }}>
                   Move earlier
                 </Button>
                 <Button type="button" className="secondary" disabled={selected === holds.length - 1}
                   aria-label={`Move hold action ${selected + 1} later`}
-                  onClick={() => { move(selected, 1); choose(selected + 1); }}>
+                  onClick={() => { move(selected, 1); choose(selected + 1); focusAction(false); }}>
                   Move later
                 </Button>
                 <Button type="button" className="secondary danger"

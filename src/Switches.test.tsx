@@ -227,6 +227,18 @@ it("edits hold actions from a panel opened by choosing their tile", async () => 
   await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "stop", "next"]));
   expect(screen.getByRole("group", { name: "Hold action 3: hold 3s" })).toBeTruthy();
   expect(screen.getByLabelText("Hold action 3 for Head switch")).toHaveValue("next");
+  await waitFor(() => expect(screen.getByLabelText("Hold action 3 for Head switch")).toHaveFocus());
+
+  // A move that reaches the end disables its button, so focus goes to the action.
+  fireEvent.click(screen.getByRole("button", { name: "Move hold action 3 earlier" }));
+  await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "next", "stop"]));
+  screen.getByRole("button", { name: "Move hold action 2 earlier" }).focus();
+  fireEvent.click(screen.getByRole("button", { name: "Move hold action 2 earlier" }));
+  await waitFor(() => expect(screen.getByLabelText("Hold action 1 for Head switch")).toHaveFocus());
+  expect(screen.getByRole("button", { name: "Move hold action 1 earlier" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Move hold action 1 later" }));
+  fireEvent.click(screen.getByRole("button", { name: "Move hold action 2 later" }));
+  await waitFor(() => expect(current.settings.bindings[0].holdActions).toEqual(["next", "stop", "next"]));
 
   // Removing it closes the panel and leaves focus on the tiles.
   fireEvent.click(screen.getByRole("button", { name: "Remove hold action 3" }));

@@ -26,7 +26,7 @@ Switchify PC sees a switch as a key press or a gamepad button press. Anything th
 
    ![A new switch after learning the Space key, named Head switch, with Press and release set to Select and Save switch and Cancel buttons.](../../../assets/screenshots/add-switch-learned.png)
 
-While the learning dialog is open it holds keyboard focus, so a press cannot scroll Settings or activate a button. Press Escape to cancel. If you need to type the name with the keyboard, choose **Type with keyboard** next to the name, which pauses switch control while you do. **Show me how** at the top of the editor shows how to learn a switch and how to select with one.
+While the learning dialog is open it holds keyboard focus, so a press cannot scroll Settings or activate a button. Press Escape to cancel. If you need to type the name with the keyboard, choose **Type with keyboard** under the name, which pauses switch control while you do. **Show me how** at the top of the editor shows how to learn a switch and how to select with one.
 
 Each key belongs to one switch, but several switches can run the same action.
 
@@ -58,7 +58,7 @@ A switch can also have an ordered list of **hold actions**. Keep the switch down
 
 To open a panel with a hold, add a hold and pick the panel under **Open a panel**, **Open a menu** or **My panels**. Create and save custom panels on the **Panels** page first. Opening a menu or custom panel starts its scan, including when scanning was waiting or paused. Back returns to Home. If a custom panel is deleted, replace its unavailable assignment in the switch editor.
 
-In the switch editor, hold actions are tiles under **Hold**, in the order holding reaches them. Each tile shows how long to hold and the action, such as *Hold 1s, Open keyboard*. The last tile, **Add a hold**, adds another, ready to change.
+In the switch editor, hold actions are tiles under **Hold**, in the order holding reaches them. Each tile shows how long to hold and the action, such as *Hold 1s, Open keyboard*. The last tile, **Add a hold for…**, adds another and opens it ready to change.
 
 Choose a tile to open its panel. There you can pick a different **Action**, **Move earlier** or **Move later** to change the order, or **Remove** it. **Close** closes the panel.
 
