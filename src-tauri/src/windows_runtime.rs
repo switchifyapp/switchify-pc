@@ -22,19 +22,17 @@ use windows::Security::Cryptography::CryptographicBuffer;
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
 use crate::ble_lifecycle::{RecoveryCoordinator, RECOVERY_DELAYS};
+use crate::desktop_dispatch::DesktopHost;
 use crate::display_navigation::{self, NavigationError};
 use crate::dwell::DwellController;
-use crate::input::{
-    execute_desktop_command, execute_dwell_click, DesktopCommandOutcome, DesktopInput,
-    MobileTypingRoute, PointerFeedback,
-};
+use crate::input::{execute_dwell_click, DesktopInput, MobileTypingRoute, PointerFeedback};
 use crate::modifier_overlay::ModifierOverlay;
 use crate::mouse_repeat::{MouseRepeatController, RepeatCommand, MOVE_TICK_INTERVAL_MS};
 use crate::overlay::CursorOverlay;
 use crate::protocol::{
-    bluetooth_status_payload, create_notification_frames, pointer_profile_response,
-    switch_profile_catalog_response, DesktopCommand, EngineEvent, MouseClickCommand,
-    MouseMoveCommand, NotificationTarget, PairingCentralRegistry, PointerProfile, TextCommand,
+    bluetooth_status_payload, create_notification_frames, pointer_profile_response, DesktopCommand,
+    EngineEvent, MouseClickCommand, MouseMoveCommand, NotificationTarget, PairingCentralRegistry,
+    PointerProfile, TextCommand,
 };
 use crate::state::{
     emit_state, set_activity, AccessibilityState, ActivityKind, AppModel, BluetoothState,
@@ -1737,148 +1735,58 @@ fn complete_desktop(
     shared: &SharedModel,
     command: DesktopCommand,
 ) -> Option<String> {
-    if command.command_type == "switch.session.start" {
-        stop_all_repeats(app);
-        if let Err(error) = with_runtime_input(|input| input.release_all()) {
-            return shared
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .engine
-                .complete_desktop_command_with_error(
-                    &command,
-                    Err(("input_failed", error.as_str())),
-                );
-        }
+    // Windows does not record activity for desktop commands, so the outcome is
+    // not used here.
+    crate::desktop_dispatch::dispatch(&mut Host { app, shared }, command).response
+}
+
+/// The Windows steps for [`crate::desktop_dispatch::dispatch`]. Input and
+/// repeats live behind the global runtime lock, which each method takes and
+/// releases itself.
+struct Host<'a> {
+    app: &'a AppHandle,
+    shared: &'a SharedModel,
+}
+
+impl DesktopHost for Host<'_> {
+    fn app(&self) -> &AppHandle {
+        self.app
     }
-    if let Some(result) = crate::remote_scan::route(
-        app,
-        &command.device_id,
-        &command.command_type,
-        &command.payload,
-    ) {
-        return shared
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .engine
-            .complete_desktop_command_with_error(
-                &command,
-                result
-                    .as_ref()
-                    .map(|_| ())
-                    .map_err(|e| ("input_failed", e.as_str())),
-            );
+
+    fn shared(&self) -> &SharedModel {
+        self.shared
     }
-    if command.command_type == "mouse.repeat.start" {
-        return complete_repeat_start(app, shared, command);
+
+    fn settings(&self) -> crate::state::AppSettings {
+        overlay_settings(self.shared)
     }
-    if command.command_type == "mouse.repeat.stop" {
-        return complete_repeat_stop(app, shared, command);
+
+    fn stop_repeats(&mut self) {
+        stop_all_repeats(self.app);
     }
-    if matches!(
-        command.command_type.as_str(),
-        "mouse.scroll"
-            | "mouse.dragStart"
-            | "mouse.dragEnd"
-            | "mouse.click"
-            | "mouse.doubleClick"
-            | "mouse.rightClick"
-            | "switch.session.start"
-            | "connection.disconnecting"
-    ) {
-        app.state::<DwellController>().cancel(app);
+
+    fn release_input(&mut self) -> Result<(), String> {
+        with_runtime_input(|input| input.release_all())
     }
-    let typing_route = MobileTypingRoute::for_command(&command.command_type);
-    let profiles = shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .profiles
-        .clone();
-    if command.command_type == "switch.profile.list" {
-        stop_all_repeats(app);
-        return Some(crate::remote_scan::catalog(
-            app,
-            &command.payload,
-            switch_profile_catalog_response(&command.id, &profiles),
-        ));
+
+    fn start_repeat(&mut self, command: DesktopCommand) -> Option<String> {
+        complete_repeat_start(self.app, self.shared, command)
     }
-    let (result, error_code) = if command.command_type == "pointer.display.move" {
-        let direction = command.payload["direction"].as_str().unwrap_or_default();
-        let mut context = (app, shared);
-        match display_navigation::run_navigation_command(
-            &mut context,
-            direction,
-            |(app, _)| stop_all_repeats(app),
-            |(app, _), direction| navigate_display(app, direction),
-            |(app, shared), feedback| {
-                app.state::<CursorOverlay>()
-                    .show(feedback, overlay_settings(shared));
-            },
-        ) {
-            Ok(feedback) => (
-                Ok(DesktopCommandOutcome {
-                    pointer_feedback: Some(feedback),
-                    typing_injected: false,
-                }),
-                "input_failed",
-            ),
-            Err(error) => (Err(error.message), error.code),
-        }
-    } else {
-        if typing_route.is_eligible() {
-            typing_route.prepare(
-                || app.state::<DwellController>().cancel(app),
-                || stop_all_repeats(app),
-            );
-        } else {
-            stop_all_repeats(app);
-        }
-        let model = app.state::<AppModel>();
-        (
-            with_runtime_input(|input| {
-                execute_desktop_command(
-                    input,
-                    &model,
-                    &command.device_id,
-                    &command.command_type,
-                    &command.payload,
-                    &profiles,
-                )
-            }),
-            "input_failed",
-        )
-    };
-    if command.command_type != "pointer.display.move" {
-        if let Ok(outcome) = &result {
-            let settings = overlay_settings(shared);
-            let overlay = app.state::<CursorOverlay>();
-            typing_route.finish(outcome.typing_injected, || overlay.hide_for_typing());
-            if !outcome.typing_injected {
-                if let Some(feedback) = &outcome.pointer_feedback {
-                    overlay.show(*feedback, settings);
-                } else {
-                    overlay.mark_control_active(settings);
-                }
-            }
-            if command.command_type == "connection.disconnecting" {
-                crate::scanning_runtime::cancel(app);
-                overlay.end_session();
-            }
-        }
+
+    fn stop_repeat(&mut self, command: DesktopCommand) -> Option<String> {
+        complete_repeat_stop(self.app, self.shared, command)
     }
-    if command.command_type == "pointer.display.move" && result.is_ok() {
-        app.state::<DwellController>().arm(app);
+
+    fn move_to_display(&mut self, direction: &str) -> Result<PointerFeedback, NavigationError> {
+        navigate_display(self.app, direction)
     }
-    shared
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .engine
-        .complete_desktop_command_with_error(
-            &command,
-            result
-                .as_ref()
-                .map(|_| ())
-                .map_err(|error| (error_code, error.as_str())),
-        )
+
+    fn with_input<T>(
+        &mut self,
+        operation: impl FnOnce(&mut DesktopInput<Enigo>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        with_runtime_input(operation)
+    }
 }
 
 fn navigate_display(app: &AppHandle, direction: &str) -> Result<PointerFeedback, NavigationError> {
