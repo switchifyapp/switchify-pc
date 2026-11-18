@@ -221,7 +221,7 @@ function SwitchEditor({
                 <Button
                   type="button"
                   className="secondary"
-                  aria-label={isNew ? "Learn switch key" : `Learn another key for ${name}`}
+                  aria-label={`${binding.key ? "Change key" : "Learn key"} for ${name}`}
                   aria-describedby={keyError || unavailable ? keyErrorId : undefined}
                   disabled={keyboardEntry || entryPending}
                   onClick={onLearn}
@@ -362,7 +362,7 @@ function SwitchEditor({
         <Button
           type="button"
           className="secondary danger"
-          aria-label={isNew ? "Cancel new switch" : `Remove ${name}`}
+          aria-label={isNew ? "Cancel new switch" : `Remove switch: ${name}`}
           onClick={onRemove}
         >
           {isNew ? "Cancel" : "Remove switch"}

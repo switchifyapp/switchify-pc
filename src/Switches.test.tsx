@@ -305,7 +305,7 @@ it("does not reuse an old learned key when starting another capture", async () =
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
   fireEvent.click(
-    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+    screen.getByRole("button", { name: "Change key for Head switch" }),
   );
   await screen.findByRole("button", { name: "Cancel capture" });
   expect(current.settings.bindings[0].key).toBe("Space");
@@ -317,7 +317,7 @@ it("cancels learning when the panel unmounts and retains pending edits", async (
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
   fireEvent.click(
-    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+    screen.getByRole("button", { name: "Change key for Head switch" }),
   );
   await screen.findByRole("button", { name: "Cancel capture" });
   view.rerender(<Shell visible={false} />);
@@ -331,7 +331,7 @@ it("holds focus in a modal and swallows keys while learning", async () => {
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
   fireEvent.click(
-    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+    screen.getByRole("button", { name: "Change key for Head switch" }),
   );
   const dialog = await screen.findByRole("dialog", {
     name: "Press and release your switch",
@@ -350,7 +350,7 @@ it.each(["learned", "cancelled"])("returns focus to Learn key after capture is %
   render(<Shell />);
   await screen.findByRole("heading", { name: "Head switch" });
   open("Head switch");
-  const learn = screen.getByRole("button", { name: "Learn another key for Head switch" });
+  const learn = screen.getByRole("button", { name: "Change key for Head switch" });
   learn.focus(); fireEvent.click(learn);
   await screen.findByRole("dialog", { name: "Press and release your switch" });
   expect(learn).toBeDisabled();
@@ -366,7 +366,7 @@ it("keeps a refused capture's error on its own row and releases the target", asy
     throw "Focus Switchify PC before learning a switch.";
   });
   fireEvent.click(
-    screen.getByRole("button", { name: "Learn another key for Head switch" }),
+    screen.getByRole("button", { name: "Change key for Head switch" }),
   );
   await screen.findByText("Focus Switchify PC before learning a switch.");
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -408,12 +408,12 @@ it("rejects a duplicate learned onto an existing switch and says so on that row"
   fireEvent.click(screen.getByRole("button", { name: "Save switch" }));
   await waitFor(() => expect(current.settings.bindings).toHaveLength(2));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Foot" }));
-  fireEvent.click(screen.getByRole("button", { name: "Learn another key for Foot" }));
+  fireEvent.click(screen.getByRole("button", { name: "Change key for Foot" }));
   await screen.findByRole("dialog");
   event({ ...current, capture: { active: false, key: "Space", error: null } });
   await screen.findByText("That key already belongs to another switch.");
   expect(current.settings.bindings[1].key).toBe("Enter");
-  expect(screen.getByLabelText("Learn another key for Foot").getAttribute("aria-describedby")).toBeTruthy();
+  expect(screen.getByLabelText("Change key for Foot").getAttribute("aria-describedby")).toBeTruthy();
 });
 it("announces an unavailable key in the collapsed row", async () => {
   render(<Shell />);
@@ -496,7 +496,7 @@ it("pauses capture only by explicit choice, saves mapped characters and resumes 
   fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
   await screen.findByText("Keyboard typing is on. Assigned keys type normally; switch scanning is paused.");
   expect(name).toHaveFocus();
-  expect(screen.getByRole("button", { name: "Learn another key for Head switch" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Change key for Head switch" })).toBeDisabled();
   fireEvent.change(name, { target: { value: "Big blue switch" } });
   await waitFor(() => expect(current.settings.bindings[0].name).toBe("Big blue switch"));
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -528,7 +528,7 @@ it("keeps the name draft and normal switch control if keyboard entry is refused"
   fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
   await screen.findByText("Stop forwarding on Remote before typing with the keyboard.");
   expect(screen.getByRole("textbox", { name: "Name for Space" })).toHaveValue("Head switch");
-  expect(screen.getByRole("button", { name: "Learn another key for Head switch" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Change key for Head switch" })).toBeEnabled();
 });
 
 
@@ -563,7 +563,7 @@ it.each([["Remote switch 1", 0], ["Remote switch 1", 1], ["Head switch", 0], ["H
   fireEvent.click(await screen.findByRole("button", { name: `Edit ${name}` }));
   fireEvent.click(screen.getByRole("button", { name: "Type with keyboard" }));
   await screen.findByRole("button", { name: "Resume switch control" });
-  fireEvent.click(screen.getAllByRole("button", { name: `Remove ${name}` })[index]);
+  fireEvent.click([`Remove ${name}`, `Remove switch: ${name}`].map((label) => screen.getByRole("button", { name: label }))[index]);
   expect(current.keyboardEntry).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
   await waitFor(() => expect(current.keyboardEntry).toBe(false));
@@ -616,7 +616,7 @@ it.each(["Head switch", "Remote switch 1"])("protects both removal controls for 
   fireEvent.click(screen.getByRole("button", { name: "Keep switch" }));
   await waitFor(() => expect(remove).toHaveFocus());
   open(name);
-  fireEvent.click(screen.getAllByRole("button", { name: `Remove ${name}` })[1]);
+  fireEvent.click(screen.getByRole("button", { name: `Remove switch: ${name}` }));
   fireEvent.click(screen.getByRole("button", { name: "Remove switch" }));
   await waitFor(() => expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument());
 });
