@@ -1,0 +1,4413 @@
+use super::*;
+use crate::{point_scan::Config, scanning::Session};
+
+/// The area Radar highlights. Its fill sits just inside, under the rounded outline.
+fn radar_highlight(frame: &Frame) -> Rect {
+    let fill = frame.fills[0];
+    let by = frame.sketch.as_ref().unwrap().width * 1.5;
+    Rect {
+        x: fill.x - by,
+        y: fill.y - by,
+        width: fill.width + by * 2.0,
+        height: fill.height + by * 2.0,
+    }
+}
+
+/// Select starts the last mode, as these scans were written for.
+fn last_mode() -> Config {
+    Config {
+        start_with: crate::point_scan::StartWith::LastMode,
+        ..Config::default()
+    }
+}
+fn home_session() -> Session<Workflow> {
+    Session::new(
+        Workflow::new(
+            Config {
+                block_interval_ms: 250,
+                ..Config::default()
+            }
+            .point(),
+            Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            },
+            1.0,
+        )
+        .unwrap(),
+        false,
+    )
+}
+/// The next scan, made the way the runtime makes it when Select starts one.
+fn next_session(previous: &Session<Workflow>) -> Session<Workflow> {
+    let mut next = home_session();
+    next.technique.resume_from(&previous.technique);
+    next
+}
+fn choose_in(s: &mut Session<Workflow>, row: usize, column: usize) -> Option<Request> {
+    for _ in 0..row {
+        s.action(Action::Next);
+    }
+    assert_eq!(s.action(Action::Select), None);
+    for _ in 0..column {
+        s.action(Action::Next);
+    }
+    s.action(Action::Select)
+}
+
+#[test]
+fn select_opens_home_until_an_action_lets_the_next_select_continue() {
+    let mut s = home_session();
+    assert_eq!(s.action(Action::Select), None);
+    assert!(s.technique.home_open());
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.follows_foreground());
+    let frame = s.technique.frame();
+    // Home is docked like the panels, at the bottom of the screen by default.
+    let panel = frame.tiles[0].rect;
+    assert!(frame.tiles[0].is_panel_background());
+    assert!((panel.x + panel.width / 2.0 + 500.0).abs() < 0.001);
+    assert!((panel.y + panel.height - 820.0).abs() < 0.001);
+    assert!(frame.label.is_none());
+    // No chosen point is marked, because Home has none.
+    assert!(frame.strips.is_empty());
+
+    assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+    assert!(matches!(s.technique.phase(), Phase::Point(_)));
+    assert!(s.technique.follows_foreground());
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert!(!s.technique.home_open());
+    assert!(matches!(
+        choose_in(&mut s, 0, 0),
+        Some(Request::Click { right: false, .. })
+    ));
+    assert!(!s.active());
+
+    // After an action, Select carries on with point scanning.
+    let mut s = next_session(&s);
+    s.action(Action::Select);
+    assert!(matches!(s.technique.phase(), Phase::Point(_)));
+    // Stopping means starting afresh from Home.
+    s.action(Action::Stop);
+    let mut s = next_session(&s);
+    s.action(Action::Select);
+    assert!(s.technique.home_open());
+}
+
+#[test]
+fn a_point_scan_that_times_out_starts_afresh_from_home() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    choose_in(&mut s, 0, 0);
+    s.technique.resume = true;
+    for _ in 0..100_000 {
+        if !s.active() {
+            break;
+        }
+        s.tick(100, false);
+        assert_eq!(s.take_selection(), None);
+    }
+    assert!(!s.active());
+    let mut s = next_session(&s);
+    s.action(Action::Select);
+    assert!(s.technique.home_open());
+}
+
+#[test]
+fn home_commands_return_to_home_and_close_or_switchify_end_scanning() {
+    use crate::scan_menu::Command;
+    let mut s = home_session();
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Windows);
+    assert!(s.technique.home_open());
+    assert!(s.technique.follows_foreground());
+    assert_eq!(
+        choose_in(&mut s, 0, 0),
+        Some(Request::Command {
+            command: Command::SwitchNext,
+            point: (0, 0),
+        })
+    );
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.parent_menu.is_empty());
+    assert!(s.active());
+
+    // Close menu shares Home's last row with Scanning.
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert!(!s.active());
+
+    // Open Switchify is the first item in Scanning.
+    let mut s = next_session(&s);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 3, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Scanning);
+    assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenSwitchify));
+    assert!(!s.active());
+
+    let mut s = next_session(&s);
+    s.action(Action::Select);
+    assert!(s.technique.home_open());
+    // Back from a Home group returns to Home.
+    choose_in(&mut s, 1, 1);
+    assert_eq!(s.technique.menu.kind, Kind::Editing);
+    assert_eq!(choose_in(&mut s, 3, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.home_open());
+}
+
+#[test]
+fn keyboard_from_home_returns_home_and_failures_stay_in_home() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 0, 2), Some(Request::OpenKeyboard));
+    assert!(!s.technique.home_open());
+    s.technique.execution_succeeded();
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Keyboard)
+    );
+    s.technique.keyboard_closed();
+    assert!(s.technique.home_open());
+    assert!(!s.technique.return_to_home);
+
+    assert_eq!(choose_in(&mut s, 0, 2), Some(Request::OpenKeyboard));
+    s.execution_failed("Keyboard unavailable.".into());
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.error.is_some());
+    assert!(!s.technique.return_to_home);
+
+    // A failed Home command is reported in Home too.
+    s.action(Action::Select);
+    choose_in(&mut s, 1, 0);
+    choose_in(&mut s, 0, 0);
+    s.execution_failed("Action is unavailable on this platform.".into());
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+}
+
+fn board(id: &str, name: &str, cells: Vec<Vec<(&str, PanelAction)>>) -> CustomPanel {
+    CustomPanel {
+        id: id.into(),
+        version: 1,
+        name: name.into(),
+        description: String::new(),
+        rows: cells
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|(label, action)| crate::custom_panels::Cell {
+                        label: label.into(),
+                        action,
+                        span: 1,
+                    })
+                    .collect()
+            })
+            .collect(),
+    }
+}
+
+/// A scan whose menus start from the top again after each action, so a
+/// test can choose by row and column every time.
+fn board_session(panels: Vec<CustomPanel>) -> Session<Workflow> {
+    let mut config = Config {
+        block_interval_ms: 250,
+        ..Config::default()
+    };
+    config.scan_preferences.start_from = crate::scan_preferences::StartFrom::Beginning;
+    let mut session = Session::new(
+        Workflow::new(
+            config.point(),
+            Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            },
+            1.0,
+        )
+        .unwrap(),
+        false,
+    );
+    session.technique.set_panels(panels);
+    session
+}
+
+#[test]
+fn home_lists_the_users_panels_only_once_there_are_some() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    let last = s.technique.menu.frame_labels().pop().unwrap();
+    assert_eq!(last, ["Scanning", "Close menu"]);
+    s.technique
+        .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    // The open Home gains the item there and then.
+    assert_eq!(
+        s.technique.menu.frame_labels().pop().unwrap(),
+        ["Scanning", "My panels", "Close menu"]
+    );
+    s.action(Action::Stop);
+    let mut s = next_session(&s);
+    s.technique
+        .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.action(Action::Select);
+    assert_eq!(
+        s.technique.menu.frame_labels().pop().unwrap(),
+        ["Scanning", "My panels", "Close menu"]
+    );
+}
+
+/// A panel with one Left click tile and a Back tile.
+fn clicking_panel() -> CustomPanel {
+    use crate::custom_panels::Cell;
+    let cell = |label: &str, action: PanelAction| Cell {
+        label: label.into(),
+        action,
+        span: 1,
+    };
+    CustomPanel {
+        id: "clicker".into(),
+        version: 1,
+        name: "Clicker".into(),
+        description: String::new(),
+        rows: vec![
+            vec![cell(
+                "Click",
+                PanelAction::Click {
+                    button: MouseButton::Left,
+                    count: 1,
+                },
+            )],
+            vec![cell("Back", PanelAction::Back)],
+        ],
+    }
+}
+
+#[test]
+fn the_point_and_mouse_action_pages_reach_the_users_panels() {
+    let mut s = board_session(vec![clicking_panel()]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert_eq!(
+        s.technique.menu.frame_labels().pop().unwrap(),
+        ["New point", "My panels", "Close menu"]
+    );
+    // My panels lists the panels; a panel's clicks land at the chosen point,
+    // as the page's own do, and Back returns to the point's page, not Home.
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    // The list's first row holds the one panel, so the row press opens it.
+    assert_eq!(s.action(Action::Select), None);
+    assert!(s.technique.menu.custom_id.is_some());
+    // Rows of one tile select on the row press.
+    let point = s.technique.source;
+    assert_eq!(s.action(Action::Select), Some(default_click(point)));
+    assert!(s.technique.menu.custom_id.is_some(), "the panel stays open");
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert!(!s.technique.home_open());
+}
+
+#[test]
+fn close_ends_scanning_on_every_mouse_page_and_releases_a_drag() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    workflow.set_pointer(Some((321.4, 246.6)));
+    // Close menu on More clicks ends scanning, as on every menu.
+    assert_eq!(workflow.mouse_key(Key::More), None);
+    assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
+    assert_eq!(workflow.menu.kind, Kind::Mouse);
+    assert_eq!(workflow.selected(Item::Cancel), None);
+    assert!(workflow.stage == Stage::Idle);
+    assert!(!workflow.mouse_open());
+    // The panel's own Close ends scanning too, asking for held input to be let go.
+    workflow.handle(Action::OpenMouse);
+    assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+    assert_eq!(workflow.mouse_key(Key::Close), Some(Request::Close));
+    assert!(workflow.stage == Stage::Idle);
+    assert!(!workflow.mouse.dragging);
+    assert_eq!(
+        workflow.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+}
+
+#[test]
+fn an_open_panel_follows_its_edit_and_leaves_when_deleted() {
+    let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+    // The edit shows at once, on the same page, scanning from its top.
+    let mut edited = crate::custom_panels::sample("greetings", "Greetings");
+    edited.rows[0][0].label = "Duplicate".into();
+    s.technique.set_panels(vec![edited.clone()]);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+    assert_eq!(s.technique.menu.frame_labels()[0][0], "Duplicate");
+    assert!(s.technique.menu_open());
+    // Saving something unchanged, or another page's tiles, keeps the
+    // scan where it is: the page is not rebuilt.
+    s.action(Action::Next);
+    let highlighted = s
+        .technique
+        .frame()
+        .tiles
+        .iter()
+        .position(|tile| tile.selected);
+    s.technique.set_panels(vec![edited]);
+    s.technique
+        .set_panel_extras(std::collections::BTreeMap::from([(
+            ExtraTarget::Keyboard,
+            crate::panel_extras::PanelExtras::rows(vec![vec![extra("Hi", PanelAction::Back, 1)]]),
+        )]));
+    assert_eq!(
+        s.technique
+            .frame()
+            .tiles
+            .iter()
+            .position(|tile| tile.selected),
+        highlighted
+    );
+    // A page waiting for a switch after a selection keeps waiting.
+    s.technique.menu.wait();
+    let mut again = crate::custom_panels::sample("greetings", "Greetings");
+    again.rows[0][0].label = "Twice".into();
+    s.technique.set_panels(vec![again]);
+    assert!(s.technique.menu.waiting());
+    // Deleting it leaves the page for the list, which no longer lists it.
+    s.technique.set_panels(vec![]);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(
+        s.technique.menu.frame_labels(),
+        vec![vec!["Back", "Close menu"]]
+    );
+    assert!(s.technique.error.is_none());
+}
+
+#[test]
+fn an_open_menu_and_list_follow_their_edits() {
+    let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.action(Action::Select);
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    // Rearranging Home while it is open changes it there and then.
+    let mut home = crate::builtin_panels::default_document(Kind::Home);
+    home.rows.remove(0);
+    s.technique
+        .set_menu_overrides(std::collections::BTreeMap::from([(Kind::Home, home)]));
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert_ne!(s.technique.menu.frame_labels()[0][0], "Point");
+    assert!(s.technique.home_open());
+    // The list of panels follows a rename.
+    s.technique.set_menu_overrides(Default::default());
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    s.technique
+        .set_panels(vec![crate::custom_panels::sample("greetings", "Hellos")]);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(s.technique.menu.frame_labels()[0], vec!["Hellos"]);
+}
+
+#[test]
+fn an_open_mouse_panel_follows_its_extra_tiles() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    assert!(workflow.mouse_open());
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        crate::panel_extras::PanelExtras::rows(vec![vec![extra(
+            "Hello",
+            PanelAction::Text {
+                text: "Hello".into(),
+            },
+            1,
+        )]]),
+    )]));
+    assert!(workflow.mouse_open());
+    let frame = workflow.frame();
+    assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Home").y);
+    // Removing the tiles takes them off the open panel too.
+    workflow.set_panel_extras(Default::default());
+    assert!(!workflow
+        .frame()
+        .tiles
+        .iter()
+        .any(|tile| tile.text == "Hello"));
+}
+
+#[test]
+fn the_action_pages_leave_my_panels_out_until_there_is_a_panel() {
+    let mut s = board_session(vec![]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 0, 0), Some(Request::OpenPoint));
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert_eq!(
+        s.technique.menu.frame_labels().pop().unwrap(),
+        ["New point", "Close menu"]
+    );
+}
+
+#[test]
+fn a_users_panel_opens_from_home_runs_its_tiles_and_stays_open() {
+    use crate::scan_menu::Command;
+    let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.action(Action::Select);
+    // Home, last row: Switchify, My panels, Close menu.
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(
+        s.technique.menu.frame_labels(),
+        vec![vec!["Greetings"], vec!["Back", "Close menu"]]
+    );
+    // A row with one tile is chosen with a single Select.
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.kind, Kind::Custom);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("greetings"));
+    assert!(
+        s.technique.home_open(),
+        "a panel from Home acts on the window in front"
+    );
+    assert_eq!(
+        s.technique.menu.frame_labels(),
+        vec![vec!["Copy", "Hello"], vec!["Back"]]
+    );
+    // The wide tile is drawn twice as wide as its neighbour.
+    let frame = s.technique.frame();
+    let tiles: Vec<_> = frame
+        .tiles
+        .iter()
+        .filter(|t| t.text == "Copy" || t.text == "Hello")
+        .collect();
+    assert!((tiles[1].rect.width - 2.0 * tiles[0].rect.width).abs() < 0.01);
+
+    // A command runs with the panel left open for the next choice.
+    assert_eq!(
+        choose_in(&mut s, 0, 0),
+        Some(Request::Command {
+            command: Command::Copy,
+            point: (0, 0)
+        })
+    );
+    s.technique.execution_succeeded();
+    assert_eq!(s.technique.menu.kind, Kind::Custom);
+    assert!(s.active());
+    // Text is typed as it was written.
+    assert_eq!(
+        choose_in(&mut s, 0, 1),
+        Some(Request::Text("Hello there".into()))
+    );
+    s.technique.execution_succeeded();
+    assert_eq!(s.technique.menu.kind, Kind::Custom);
+    // Back goes to the list, and Back again to Home.
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.home_open());
+}
+
+#[test]
+fn panel_tiles_press_keys_click_scroll_link_and_close() {
+    let mut s = board_session(vec![
+        board(
+            "first",
+            "First",
+            vec![
+                vec![
+                    (
+                        "Save",
+                        PanelAction::Key {
+                            keys: vec!["Ctrl".into(), "S".into()],
+                        },
+                    ),
+                    (
+                        "Click",
+                        PanelAction::Click {
+                            button: MouseButton::Left,
+                            count: 2,
+                        },
+                    ),
+                    (
+                        "Up",
+                        PanelAction::Scroll {
+                            direction: ScrollDirection::Up,
+                        },
+                    ),
+                ],
+                vec![
+                    (
+                        "Second",
+                        PanelAction::OpenCustomPanel {
+                            id: "second".into(),
+                        },
+                    ),
+                    (
+                        "Gone",
+                        PanelAction::OpenCustomPanel {
+                            id: "missing".into(),
+                        },
+                    ),
+                    (
+                        "Editing",
+                        PanelAction::OpenPanel {
+                            panel: BuiltInPanel::Menu(Kind::Editing),
+                        },
+                    ),
+                ],
+                vec![("Close", PanelAction::Close)],
+            ],
+        ),
+        board("second", "Second", vec![vec![("Back", PanelAction::Back)]]),
+    ]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(choose_in(&mut s, 0, 0), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+    assert_eq!(
+        choose_in(&mut s, 0, 0),
+        Some(Request::Chord(vec!["Ctrl".into(), "S".into()]))
+    );
+    s.technique.execution_succeeded();
+    // Clicks and scrolls land where the pointer is, since no point was chosen.
+    s.technique.set_pointer(Some((-300.0, 200.0)));
+    assert_eq!(
+        choose_in(&mut s, 0, 1),
+        Some(Request::MouseClick {
+            right: false,
+            count: 2
+        })
+    );
+    s.technique.execution_succeeded();
+    assert_eq!(
+        choose_in(&mut s, 0, 2),
+        Some(Request::Scroll {
+            point: (-300, 200),
+            dx: 0,
+            dy: 3
+        })
+    );
+    s.technique.execution_succeeded();
+    // Without a known pointer a scroll tile cannot act, and says so. The
+    // highlight stays on the tile; Select clears the message.
+    s.technique.set_pointer(None);
+    assert_eq!(choose_in(&mut s, 0, 2), None);
+    assert!(s.technique.frame().label.is_some());
+    s.action(Action::Select);
+    assert!(s.technique.frame().label.is_none());
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None, "leaves the row");
+    s.technique.set_pointer(Some((-300.0, 200.0)));
+    // A link opens the other panel, and Back on it returns here.
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("second"));
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+    // A link to a deleted panel says so and leaves this panel open.
+    assert_eq!(choose_in(&mut s, 1, 1), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+    let label = s.technique.frame().label.map(|label| label.text);
+    assert!(
+        label
+            .as_deref()
+            .is_some_and(|text| text.starts_with("That panel no longer exists.")),
+        "{label:?}"
+    );
+    // Select clears the message and scanning carries on from the same tile.
+    s.action(Action::Select);
+    // A built-in menu opens from the next tile, and Back returns to the panel.
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.kind, Kind::Editing);
+    let back = s.technique.menu.frame_labels().len() - 1;
+    assert_eq!(choose_in(&mut s, back, 0), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("first"));
+    // Close ends the scan.
+    s.action(Action::Next);
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None);
+    assert!(!s.active());
+}
+
+#[test]
+fn the_panel_list_relists_when_a_panel_is_deleted() {
+    let mut s = board_session(vec![
+        crate::custom_panels::sample("a", "First"),
+        crate::custom_panels::sample("b", "Second"),
+    ]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    // The first panel is deleted while the list is showing: the list
+    // drops it at once, and the remaining tile opens its own panel.
+    s.technique
+        .set_panels(vec![crate::custom_panels::sample("b", "Second")]);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(s.technique.menu.frame_labels()[0], vec!["Second"]);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.custom_id.as_deref(), Some("b"));
+}
+
+#[test]
+fn a_my_panels_tile_on_any_menu_lists_the_panels_once_there_are_some() {
+    use crate::builtin_panels::{default_document, key};
+    let mut editing = default_document(Kind::Editing);
+    editing.rows[0][0] = crate::custom_panels::Cell {
+        label: "Mine".into(),
+        action: PanelAction::MyPanels,
+        span: 1,
+    };
+    let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([(
+        key(Kind::Editing),
+        editing,
+    )]));
+    // Without panels the tile is left out of Editing too.
+    let mut s = board_session(vec![]);
+    s.technique.set_menu_overrides(overrides.clone());
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 1, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Editing);
+    assert_eq!(s.technique.menu.frame_labels()[0], ["Cut", "Paste"]);
+    // With a panel it lists them, and Back returns to Editing.
+    let mut s = board_session(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.technique.set_menu_overrides(overrides);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 1, 1), None);
+    assert_eq!(s.technique.menu.frame_labels()[0], ["Mine", "Cut", "Paste"]);
+    assert_eq!(choose_in(&mut s, 0, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Panels);
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Editing);
+}
+
+#[test]
+fn rearranged_menus_scan_as_rearranged_and_keep_their_behaviour() {
+    use crate::builtin_panels::{default_document, key};
+    use crate::scan_menu::Command;
+    let mut s = board_session(vec![]);
+    // Home rearranged: Editing first, and its last row reversed.
+    let mut home = default_document(Kind::Home);
+    home.rows.swap(0, 1);
+    home.rows.last_mut().unwrap().reverse();
+    let mut editing = default_document(Kind::Editing);
+    editing.rows[0].reverse();
+    let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([
+        (key(Kind::Home), home),
+        (key(Kind::Editing), editing),
+    ]));
+    s.technique.set_menu_overrides(overrides);
+    s.action(Action::Select);
+    assert!(s.technique.home_open());
+    let labels = s.technique.menu.frame_labels();
+    assert_eq!(labels[0], ["Apps and windows", "Editing", "Browser"]);
+    // Without panels, My panels is left out of the rearranged row too.
+    assert_eq!(labels.last().unwrap(), &["Close menu", "Scanning"]);
+    // A command from a rearranged menu under Home still returns to Home.
+    assert_eq!(choose_in(&mut s, 0, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::Editing);
+    assert_eq!(s.technique.menu.frame_labels()[0], ["Paste", "Cut", "Copy"]);
+    assert_eq!(
+        choose_in(&mut s, 0, 2),
+        Some(Request::Command {
+            command: Command::Copy,
+            point: (0, 0)
+        })
+    );
+    s.technique.execution_succeeded();
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.home_open());
+    // Close menu, now first in its row, ends the scan as before.
+    assert_eq!(choose_in(&mut s, 3, 0), None);
+    assert!(!s.active());
+}
+
+#[test]
+fn with_the_usual_start_the_highlight_stays_on_the_chosen_tile() {
+    use crate::scan_menu::Command;
+    let mut s = home_session();
+    s.technique
+        .set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 3, 1), None);
+    assert_eq!(s.action(Action::Select), None);
+    let copy = Some(Request::Command {
+        command: Command::Copy,
+        point: (0, 0),
+    });
+    assert_eq!(choose_in(&mut s, 0, 0), copy);
+    s.technique.execution_succeeded();
+    // Select again repeats the tile; Next moves along the row.
+    assert_eq!(s.action(Action::Select), copy);
+    s.technique.execution_succeeded();
+    s.action(Action::Next);
+    assert_eq!(
+        s.action(Action::Select),
+        Some(Request::Text("Hello there".into()))
+    );
+}
+
+#[test]
+fn leaving_home_that_fails_returns_to_home_not_to_an_unchosen_point() {
+    for (scanning, request) in [(false, Request::OpenPoint), (true, Request::OpenSwitchify)] {
+        let mut s = home_session();
+        s.action(Action::Select);
+        if scanning {
+            assert_eq!(choose_in(&mut s, 3, 0), None);
+        }
+        assert_eq!(choose_in(&mut s, 0, 0), Some(request.clone()));
+        s.execution_failed("Input could not be released.".into());
+        assert_eq!(s.technique.menu.kind, Kind::Home, "{request:?}");
+        assert!(s.technique.home_open());
+        assert!(s.active());
+    }
+    // Once Point has opened, a failed click offers the action menu at its point as before.
+    let mut s = home_session();
+    s.action(Action::Select);
+    choose_in(&mut s, 0, 0);
+    s.technique.execution_succeeded();
+    s.action(Action::Select);
+    s.action(Action::Select);
+    choose_in(&mut s, 0, 0);
+    s.execution_failed("Click failed.".into());
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert!(!s.technique.home_open());
+}
+
+#[test]
+fn home_opens_from_the_point_action_menu_and_the_mouse_panel() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    choose_in(&mut s, 0, 0);
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 2, 2), None);
+    assert!(s.technique.home_open());
+    assert_eq!(s.technique.source, (0, 0));
+    assert!(s.technique.follows_foreground());
+
+    assert_eq!(choose_in(&mut s, 0, 1), Some(Request::OpenMouse));
+    s.technique.set_pointer(Some((100.0, 200.0)));
+    s.technique.mouse_key(crate::scan_mouse::Key::Home);
+    assert!(s.technique.home_open());
+    assert!(!s.technique.mouse_actions_open);
+    assert_eq!(s.technique.mouse_feedback(), None);
+    assert_eq!(
+        s.technique.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+}
+
+#[test]
+fn radar_moves_at_the_radar_speed_or_else_the_line_speed() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    // Very slow is 45 logical pixels a second; very fast is 270.
+    for (radar_speed, reach) in [(None, 45), (Some(4), 270), (Some(0), 45)] {
+        let config = Config {
+            speed: 0,
+            radar_speed,
+            ..last_mode()
+        };
+        let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+        workflow.handle(Action::OpenMouse);
+        workflow.set_pointer(Some((640.0, 360.0)));
+        workflow.mouse_key(Key::Radar);
+        // The whole display, then straight up from its centre.
+        for _ in 0..4 {
+            workflow.handle(Action::Next);
+        }
+        workflow.handle(Action::Select);
+        workflow.handle(Action::Select);
+        workflow.advance(1000);
+        assert_eq!(
+            workflow.radar.as_ref().unwrap().target(),
+            (640, 360 - reach),
+            "{radar_speed:?}"
+        );
+    }
+}
+
+#[test]
+fn radar_sweeps_from_the_chosen_area_and_returns_to_the_mouse_panel() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    // Without a pointer the display it is on may not be known.
+    assert_eq!(workflow.mouse_key(Key::Radar), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow
+            .mouse
+            .frame(screen, 1.0, Default::default(), false)
+            .label
+            .map(|label| label.text)
+            .as_deref(),
+        Some("Pointer unavailable · Try again")
+    );
+
+    workflow.set_pointer(Some((640.0, 360.0)));
+    assert_eq!(workflow.mouse_key(Key::Radar), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
+    assert!(workflow.mouse_open());
+    // Drawn in the mouse panel's colour until the cursor colour is known.
+    assert_eq!(
+        workflow.frame().color,
+        workflow.point.config.mouse_scan.color
+    );
+    workflow.set_cursor_color(crate::scanning::ScannerColor::Yellow);
+    let frame = workflow.frame();
+    assert_eq!(frame.color, crate::scanning::ScannerColor::Yellow);
+    assert!(frame.tiles.is_empty(), "the panel is hidden");
+    assert_eq!(frame.label.as_ref().unwrap().text, "Radar · Select an area");
+    assert_eq!(
+        radar_highlight(&frame),
+        Rect {
+            width: 640.0,
+            height: 360.0,
+            ..screen
+        },
+        "the top left quarter is highlighted first"
+    );
+    // A pointer moving the panel out of its way does not move the radar.
+    workflow.set_pointer(Some((10.0, 10.0)));
+
+    // The bottom right quarter, around (960, 540).
+    for _ in 0..3 {
+        assert_eq!(workflow.handle(Action::Next), None);
+    }
+    // The pointer goes to its centre and stays there while the beam turns.
+    assert_eq!(
+        workflow.handle(Action::Select),
+        Some(Request::MouseMoveAbsolute { x: 960, y: 540 })
+    );
+    assert_eq!(
+        workflow.frame().label.unwrap().text,
+        "Radar · Select a direction"
+    );
+    // Straight up, then four manual steps out, each taking the pointer along.
+    assert_eq!(workflow.handle(Action::Select), None);
+    for y in [520, 500, 480, 460] {
+        assert_eq!(
+            workflow.handle(Action::Next),
+            Some(Request::MouseMoveAbsolute { x: 960, y })
+        );
+    }
+    assert_eq!(
+        workflow.handle(Action::Select),
+        Some(Request::MouseMoveAbsolute { x: 960, y: 460 })
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(workflow.radar.is_none());
+
+    // A change of display ends the radar without moving the pointer.
+    workflow.mouse_key(Key::Radar);
+    workflow.set_mouse_area(
+        screen,
+        Rect {
+            x: 1280.0,
+            ..screen
+        },
+        1.0,
+        2,
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(workflow.radar.is_none());
+
+    // A held drag keeps its cue. Open Mouse goes back to choosing an area,
+    // then to the panel, without moving the pointer.
+    // (The runtime rebuilds the engine for Open Mouse, which also releases the drag.)
+    workflow.mouse.dragging = true;
+    workflow.mouse_key(Key::Radar);
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Drag)
+    );
+    assert!(!workflow.steps_back(Action::OpenMouse));
+    workflow.handle(Action::Next);
+    workflow.handle(Action::Select);
+    workflow.handle(Action::Select);
+    assert_eq!(
+        workflow.frame().label.unwrap().text,
+        "Radar · Select a distance"
+    );
+    // The runtime keeps this scan for Open Mouse instead of starting afresh.
+    assert!(workflow.steps_back(Action::OpenMouse));
+    assert!(!workflow.steps_back(Action::OpenKeyboard));
+    assert!(!workflow.steps_back(Action::OpenPoint));
+    assert_eq!(workflow.handle(Action::OpenMouse), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::MouseRadar));
+    let frame = workflow.frame();
+    assert_eq!(frame.label.as_ref().unwrap().text, "Radar · Select an area");
+    // On the display the pointer moved to, from the top left quarter again.
+    assert_eq!(
+        {
+            let highlight = radar_highlight(&frame);
+            (highlight.x, highlight.width)
+        },
+        (1280.0, 640.0),
+        "areas are highlighted from the start"
+    );
+    assert_eq!(workflow.handle(Action::OpenMouse), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(workflow.radar.is_none());
+}
+
+#[test]
+fn radar_divides_a_scaled_display_left_of_the_main_one() {
+    use crate::scan_mouse::Key;
+    let main = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let left = Rect {
+        x: -2561.0,
+        y: -301.0,
+        width: 2561.0,
+        height: 1441.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), main, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    workflow.set_mouse_area(left, left, 1.5, 2);
+    workflow.set_pointer(Some((-100.0, 1000.0)));
+    workflow.mouse_key(Key::Radar);
+    let frame = workflow.frame();
+    assert_eq!(
+        radar_highlight(&frame),
+        Rect {
+            width: 1280.0,
+            height: 720.0,
+            ..left
+        }
+    );
+    let cells = frame.sketch.as_ref().unwrap().cells();
+    assert!(!cells.is_empty());
+    assert!(cells
+        .iter()
+        .all(|rect| rect.x >= left.x && rect.x + rect.width <= left.x + left.width));
+
+    // The bottom left quarter is -2561..-1282 by 419..1139, around (-1921, 779.5).
+    workflow.handle(Action::Next);
+    workflow.handle(Action::Next);
+    workflow.handle(Action::Select);
+    // Due left, in steps of 20 logical pixels (30 units). The quarter's
+    // edge is 640 units away, so the 22nd step wraps back to the centre.
+    for _ in 0..18 {
+        workflow.handle(Action::Back);
+    }
+    workflow.handle(Action::Select);
+    for _ in 0..30 {
+        workflow.handle(Action::Next);
+    }
+    let Some(Request::MouseMoveAbsolute { x, y }) = workflow.handle(Action::Select) else {
+        panic!("the radar chooses a point");
+    };
+    assert_eq!(x, -1921 - 8 * 30);
+    assert!((419..=1139).contains(&y));
+}
+
+#[test]
+fn stepping_back_from_a_paused_direction_resumes_picking_an_area() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut s = Session::new(
+        Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+        false,
+    );
+    s.action(Action::Select);
+    s.technique.handle(Action::OpenMouse);
+    s.technique.set_pointer(Some((640.0, 360.0)));
+    s.technique.mouse_key(Key::Radar);
+    s.action(Action::Select);
+    s.action(Action::Pause);
+    assert!(s.paused());
+    assert_eq!(s.action(Action::OpenMouse), None);
+    assert!(!s.paused());
+    assert!(s.active());
+    let first = radar_highlight(&s.frame());
+    assert_eq!(first.x, 0.0, "the top left quarter is highlighted");
+    for _ in 0..10 {
+        s.tick(100, false);
+    }
+    let next = radar_highlight(&s.frame());
+    assert_eq!(
+        (next.x, next.y),
+        (640.0, 0.0),
+        "the highlight moves on to the top right quarter"
+    );
+}
+
+#[test]
+fn radar_returns_to_the_panel_after_unattended_passes() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut s = Session::new(
+        Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+        false,
+    );
+    s.action(Action::Select);
+    s.technique.handle(Action::OpenMouse);
+    s.technique.set_pointer(Some((640.0, 360.0)));
+    s.technique.mouse_key(Key::Radar);
+    s.action(Action::Select);
+    // An unattended direction goes back to choosing an area, and that back to the panel.
+    let mut phases = vec![];
+    for _ in 0..100_000 {
+        let Some(radar) = s.technique.radar.as_ref() else {
+            break;
+        };
+        if phases.last() != Some(&radar.phase) {
+            phases.push(radar.phase);
+        }
+        s.tick(100, false);
+        assert_eq!(s.take_selection(), None);
+    }
+    use crate::scan_radar::Phase::{Angle, Area};
+    assert_eq!(phases, [Angle, Area]);
+    assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(s.active());
+}
+
+#[test]
+fn power_actions_confirm_on_their_own_page_then_return_to_home_or_mouse() {
+    use crate::scan_menu::Command;
+    // From Home: Apps and windows, then Shut down opens its page; Back returns.
+    let mut s = home_session();
+    s.action(Action::Select);
+    assert_eq!(choose_in(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Windows);
+    assert_eq!(choose_in(&mut s, 2, 1), None);
+    assert_eq!(s.technique.menu.kind, Kind::ShutDown);
+    assert_eq!(choose_in(&mut s, 0, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Windows);
+    // Back scans Apps and windows from the top again, like any freshly
+    // opened menu, so Restart is reached by the same moves as before.
+    assert_eq!(choose_in(&mut s, 2, 2), None);
+    assert_eq!(s.technique.menu.kind, Kind::Restart);
+    assert_eq!(
+        choose_in(&mut s, 0, 1),
+        Some(Request::Command {
+            command: Command::Restart,
+            point: (0, 0),
+        })
+    );
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert!(s.technique.parent_menu.is_empty());
+    assert!(s.active());
+}
+#[test]
+fn more_clicks_use_the_current_pointer_and_return_to_mouse() {
+    use crate::scan_menu::Command;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    workflow.set_pointer(Some((321.4, 246.6)));
+    open_more_clicks(&mut workflow);
+    assert_eq!(workflow.menu.kind, Kind::Mouse);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Menu));
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Move)
+    );
+    workflow.set_pointer(Some((400.0, 500.0)));
+    assert_eq!(
+        workflow.selected(Item::Command(Command::ShiftClick)),
+        Some(Request::Command {
+            command: Command::ShiftClick,
+            point: (400, 500),
+        })
+    );
+    // Back on the Movement page, where the pointer is moved.
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(!workflow.mouse.more);
+    assert_eq!(
+        workflow.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    assert!(workflow.parent_menu.is_empty());
+    open_more_clicks(&mut workflow);
+    workflow.selected(Item::Back);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+}
+
+/// Opens More clicks from the mouse panel's Speed and more page.
+fn open_more_clicks(workflow: &mut Workflow) {
+    use crate::scan_mouse::Key;
+    assert_eq!(workflow.mouse_key(Key::More), None);
+    assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
+}
+
+#[test]
+fn more_clicks_block_active_drag_and_return_from_keyboard_or_failure() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    workflow.set_pointer(Some((100.0, 200.0)));
+    assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+    assert_eq!(workflow.mouse_key(Key::More), None);
+    assert_eq!(workflow.mouse_key(Key::MoreClicks), None);
+    assert!(workflow.mouse.dragging);
+    assert!(!workflow.mouse_actions_open);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+    open_more_clicks(&mut workflow);
+    assert_eq!(
+        workflow.selected(Item::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    workflow.execution_succeeded();
+    workflow.keyboard_closed();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Move)
+    );
+    open_more_clicks(&mut workflow);
+    workflow.execution_failed("failed".into());
+    assert_eq!(
+        workflow.phase(),
+        Phase::Workflow(WorkflowPhase::MouseSuspended)
+    );
+    // The panel comes back on its Movement page, not on Speed and more.
+    assert!(!workflow.mouse.more);
+    // A failure on Speed and more itself, such as no display to the left,
+    // keeps that page.
+    workflow.handle(Action::OpenMouse);
+    assert_eq!(workflow.mouse_key(Key::More), None);
+    assert_eq!(
+        workflow.mouse_key(Key::Monitor(-1, 0)),
+        Some(Request::MouseMonitor(-1, 0))
+    );
+    workflow.execution_failed("No display there.".into());
+    assert!(workflow.mouse.more);
+    assert!(!workflow.mouse_actions_open);
+    assert_eq!(workflow.mouse_feedback(), None);
+}
+
+#[test]
+fn more_clicks_stop_and_unavailable_pointer_never_reuse_an_old_target() {
+    use crate::scan_menu::Command;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut session = Session::new(
+        Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+        true,
+    );
+    session.action(Action::OpenMouse);
+    session.technique.set_pointer(Some((40.0, 50.0)));
+    open_more_clicks(&mut session.technique);
+    session.technique.set_pointer(None);
+    assert_eq!(
+        session
+            .technique
+            .selected(Item::Command(Command::MiddleClick)),
+        None
+    );
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Menu)
+    );
+    session.action(Action::Stop);
+    assert!(!session.active());
+    assert_eq!(session.technique.mouse_feedback(), None);
+    assert!(!session.technique.mouse_actions_open);
+    assert_eq!(
+        session.technique.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+}
+
+#[test]
+fn select_resumes_saved_mode_and_switching_updates_it() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let config = Config {
+        control_mode: crate::point_scan::ControlMode::Mouse,
+        ..last_mode()
+    };
+    let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+    assert_eq!(session.action(Action::Select), None);
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Mouse)
+    );
+    assert_eq!(
+        session.technique.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    assert_eq!(session.action(Action::OpenPoint), Some(Request::OpenPoint));
+    assert_eq!(
+        session.technique.control_mode(),
+        crate::point_scan::ControlMode::Point
+    );
+    assert!(matches!(session.technique.phase(), Phase::Point(_)));
+    assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
+    // Close ends scanning and keeps the mode, so Select brings Mouse back.
+    assert_eq!(
+        session.technique.mouse_key(crate::scan_mouse::Key::Close),
+        Some(Request::Close)
+    );
+    assert_eq!(session.technique.phase(), Phase::default());
+    assert_eq!(
+        session.technique.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    assert_eq!(session.action(Action::Stop), None);
+    assert_eq!(session.action(Action::Select), None);
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Mouse)
+    );
+}
+
+#[test]
+fn stopped_mouse_motion_waits_at_the_arrow_where_the_user_chose_to() {
+    use crate::scan_preferences::{NextScan, StartFrom};
+    let mut config = last_mode();
+    config.scan_preferences.mouse.next_scan = Some(NextScan::Wait);
+    config.scan_preferences.mouse.start_from = Some(StartFrom::Selection);
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut session = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+    // The message beside the panel: only a failure, never a wait.
+    let message =
+        |session: &Session<Workflow>| session.technique.frame().label.map(|label| label.text);
+    session.action(Action::OpenMouse);
+    assert_eq!(message(&session), None);
+    assert!(session.technique.mouse.suspended());
+    for action in [
+        Action::Select,
+        Action::Next,
+        Action::Next,
+        Action::Select,
+        Action::Next,
+        Action::Next,
+    ] {
+        assert_eq!(session.action(action), None);
+    }
+    assert!(matches!(
+        session.action(Action::Select),
+        Some(Request::MouseMove { dy: 0, .. })
+    ));
+    assert!(session.technique.stop_mouse_repeat());
+    // The wait is not written out.
+    assert_eq!(message(&session), None);
+    assert!(session.technique.mouse.suspended());
+    session.tick(5000, false);
+    assert_eq!(session.action(Action::Select), None);
+    assert_eq!(message(&session), None);
+    // Scanning resumed at the arrow the user chose.
+    let selected: Vec<_> = session
+        .technique
+        .frame()
+        .tiles
+        .into_iter()
+        .filter(|tile| tile.selected)
+        .map(|tile| tile.text)
+        .collect();
+    assert_eq!(selected, ["→"]);
+    // A move that fails starts again from the top.
+    assert!(session.action(Action::Select).is_some());
+    session.technique.stop_mouse_repeat();
+    session.action(Action::Select);
+    session.technique.mouse_repeat_enabled = false;
+    assert!(session.action(Action::Select).is_some());
+    session.technique.execution_failed(String::new());
+    assert_eq!(
+        message(&session).as_deref(),
+        Some("Mouse action failed · Select to resume")
+    );
+    session.action(Action::Select);
+    assert_eq!(message(&session), None);
+    // Back to scanning rows from the top.
+    let frame = session.technique.frame();
+    let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+    assert!(selected.len() > 1);
+    assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
+}
+#[test]
+fn panels_wait_on_opening_where_the_user_chose_to() {
+    use crate::scan_preferences::NextScan;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    for next_scan in [NextScan::Standard, NextScan::Automatic, NextScan::Wait] {
+        for automatic in [false, true] {
+            let waits = automatic && next_scan == NextScan::Wait;
+            let mut config = Config {
+                automatic,
+                control_mode: crate::point_scan::ControlMode::Mouse,
+                ..last_mode()
+            };
+            config.scan_preferences.mouse.next_scan = Some(next_scan);
+            config.scan_preferences.keyboard.next_scan = Some(next_scan);
+            let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+            // The Select that starts scanning is not waited after.
+            s.action(Action::Select);
+            assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            let mouse = Phase::Workflow(if waits {
+                WorkflowPhase::MouseSuspended
+            } else {
+                WorkflowPhase::Mouse
+            });
+            let keyboard = Phase::Workflow(if waits {
+                WorkflowPhase::KeyboardSuspended
+            } else {
+                WorkflowPhase::Keyboard
+            });
+            assert_eq!(
+                s.technique
+                    .choose_mouse_key(crate::scan_mouse::Key::Keyboard),
+                Some(Request::OpenKeyboard)
+            );
+            s.technique.execution_succeeded();
+            assert_eq!(s.technique.phase(), keyboard, "{next_scan:?} {automatic}");
+            // Suggestions turning on, then failing, do not end the wait.
+            let prediction = s.technique.prediction_keyboard().unwrap();
+            prediction.predictions(None, true);
+            // Nor does a layout changed elsewhere.
+            s.technique
+                .keyboard
+                .set_layout(crate::point_scan::KeyboardLayout::SimpleQwerty);
+            s.tick(5000, false);
+            assert_eq!(s.technique.phase(), keyboard);
+            if waits {
+                let frame = s.technique.frame();
+                assert!(frame.label.is_none(), "the wait is not written out");
+                assert!(frame.tiles.iter().all(|tile| !tile.selected));
+                // Select starts the scan without typing.
+                assert_eq!(s.action(Action::Select), None);
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Workflow(WorkflowPhase::Keyboard)
+                );
+            }
+            // Closing the keyboard returns to the mouse panel.
+            assert_eq!(
+                s.technique.choose_key(crate::scan_keyboard::Key::Close),
+                None
+            );
+            assert_eq!(s.technique.phase(), mouse);
+            if waits {
+                assert_eq!(s.action(Action::Next), None);
+                assert_eq!(s.technique.phase(), mouse);
+                assert_eq!(s.action(Action::Select), None);
+                assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            }
+            // So does leaving More clicks.
+            s.technique.pointer = Some((10.0, 10.0));
+            s.technique.choose_mouse_key(crate::scan_mouse::Key::More);
+            assert_eq!(
+                s.technique
+                    .choose_mouse_key(crate::scan_mouse::Key::MoreClicks),
+                None
+            );
+            s.technique.selected(Item::Back);
+            assert_eq!(s.technique.phase(), mouse);
+            // And leaving the radar without choosing a target.
+            s.technique.mouse.restart();
+            s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Workflow(WorkflowPhase::MouseRadar)
+            );
+            s.action(Action::OpenMouse);
+            assert_eq!(s.technique.phase(), mouse);
+            // Or when the screen changes under the radar.
+            s.technique.mouse.restart();
+            s.technique.choose_mouse_key(crate::scan_mouse::Key::Radar);
+            let left = Rect {
+                x: -1280.0,
+                ..screen
+            };
+            s.technique.set_mouse_area(left, left, 1.0, 2);
+            assert_eq!(s.technique.phase(), mouse);
+            // And a switch that opens the mouse panel from point scanning.
+            s.action(Action::OpenPoint);
+            s.action(Action::OpenMouse);
+            assert_eq!(s.technique.phase(), mouse);
+        }
+    }
+}
+#[test]
+fn a_refused_switch_click_shows_on_the_mouse_panel_and_keeps_the_drag_and_its_cue() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.handle(Action::OpenMouse);
+    workflow.mouse.dragging = true;
+    workflow.switch_click_refused();
+    assert!(workflow.mouse.error);
+    assert!(workflow.mouse.dragging);
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Drag)
+    );
+    assert!(workflow.mouse_open());
+}
+#[test]
+fn turning_auto_select_off_mid_countdown_opens_the_action_menu() {
+    let config = Config {
+        auto_select_enabled: true,
+        auto_select_delay_ms: 500,
+        ..last_mode()
+    };
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+    for _ in 0..3 {
+        s.action(Action::Select);
+    }
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::AutoSelecting)
+    );
+    s.technique.set_auto_select(false);
+    assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+    // No click follows once the countdown would have ended.
+    for _ in 0..30 {
+        s.tick(33, false);
+        assert!(!matches!(s.take_selection(), Some(Request::Click { .. })));
+    }
+    // Turned back on, the next chosen point counts down again.
+    s.technique.set_auto_select(true);
+    s.action(Action::Cancel);
+    for _ in 0..3 {
+        s.action(Action::Select);
+    }
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::AutoSelecting)
+    );
+}
+#[test]
+fn the_next_point_scan_starts_by_itself_where_the_user_chose_to() {
+    use crate::scan_preferences::NextScan;
+    for next_scan in [NextScan::Standard, NextScan::Wait, NextScan::Automatic] {
+        for auto_select in [false, true] {
+            let mut config = Config {
+                block_interval_ms: 250,
+                auto_select_enabled: auto_select,
+                auto_select_delay_ms: 500,
+                ..last_mode()
+            };
+            config.scan_preferences.point.next_scan = Some(next_scan);
+            // The menu's own choice does not decide this.
+            config.scan_preferences.menu.next_scan = Some(NextScan::Automatic);
+            let screen = Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            };
+            let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+            for _ in 0..3 {
+                assert_eq!(s.action(Action::Select), None);
+            }
+            let click = if auto_select {
+                (0..50).find_map(|_| {
+                    s.tick(33, false);
+                    s.take_selection()
+                })
+            } else {
+                choose(&mut s, 0, 0)
+            };
+            assert!(
+                matches!(click, Some(Request::Click { .. })),
+                "{next_scan:?} {click:?}"
+            );
+            let again = next_scan == NextScan::Automatic;
+            assert_eq!(s.active(), again, "{next_scan:?}");
+            assert_eq!(s.frame() != Frame::default(), again, "{next_scan:?}");
+            assert_eq!(s.technique.follows_foreground(), again);
+            if again {
+                // Once something is chosen, the window is held to.
+                s.tick(33, false);
+                assert!(s.technique.follows_foreground());
+                s.action(Action::Select);
+                assert!(!s.technique.follows_foreground());
+                s.action(Action::Cancel);
+                // A scan begun with Select follows until a switch is used in it.
+                s.action(Action::Select);
+                assert!(s.technique.follows_foreground());
+                s.action(Action::Next);
+                assert!(!s.technique.follows_foreground());
+                s.action(Action::Cancel);
+                s.action(Action::Select);
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Point(crate::point_scan::Phase::X)
+                );
+                // A click that failed is still reported.
+                s.technique.execution_failed("failed".into());
+                assert_eq!(
+                    s.technique.phase(),
+                    Phase::Workflow(WorkflowPhase::MenuSuspended)
+                );
+                s.action(Action::Select);
+                s.technique.selected(Item::NewPoint);
+                // And the pass limit still stops it.
+                for _ in 0..400 {
+                    s.tick(250, false);
+                }
+                assert_eq!(s.frame(), Frame::default());
+            }
+        }
+    }
+}
+#[test]
+fn a_drag_or_a_closing_command_is_followed_by_the_next_point_scan() {
+    use crate::scan_preferences::NextScan;
+    for next_scan in [NextScan::Standard, NextScan::Automatic] {
+        let again = next_scan == NextScan::Automatic;
+        let mut config = Config {
+            automatic: false,
+            block_interval_ms: 250,
+            ..last_mode()
+        };
+        config.scan_preferences.point.next_scan = Some(next_scan);
+        let screen = Rect {
+            x: -1000.0,
+            y: 20.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let new = || Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+        let mut s = new();
+        open(&mut s);
+        choose(&mut s, 1, 1);
+        for action in [Action::Next, Action::Select, Action::Next, Action::Select] {
+            s.action(action);
+        }
+        assert!(matches!(choose(&mut s, 0, 0), Some(Request::DragStart(_))));
+        s.tick(150, false);
+        assert!(matches!(s.take_selection(), Some(Request::DragMove(_))));
+        s.tick(150, false);
+        assert!(matches!(s.take_selection(), Some(Request::DragEnd(_))));
+        assert_eq!(s.active(), again);
+        assert_eq!(s.technique.follows_foreground(), again);
+        if again {
+            assert_eq!(
+                s.technique.phase(),
+                Phase::Point(crate::point_scan::Phase::X)
+            );
+            // The menus of the drag are not returned to.
+            assert!(s.technique.parent_menu.is_empty());
+        }
+        let mut s = new();
+        open(&mut s);
+        let copy = Item::Command(crate::scan_menu::Command::Copy);
+        assert!(matches!(
+            s.technique.selected(copy),
+            Some(Request::Command { .. })
+        ));
+        s.take_selection();
+        assert_eq!(s.active(), again);
+        // A command that leaves the menu open starts nothing.
+        let mut s = new();
+        open(&mut s);
+        let mute = Item::Command(crate::scan_menu::Command::Mute);
+        let before = s.frame();
+        assert!(s.technique.selected(mute).is_some());
+        assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+        assert_eq!(s.frame(), before);
+    }
+}
+#[test]
+fn scrolling_continues_in_the_menu_as_the_user_chose() {
+    use crate::scan_preferences::{NextScan, StartFrom};
+    for (next_scan, start_from) in [
+        (NextScan::Standard, StartFrom::Standard),
+        (NextScan::Wait, StartFrom::Selection),
+        (NextScan::Wait, StartFrom::Beginning),
+        (NextScan::Automatic, StartFrom::Beginning),
+    ] {
+        let mut config = Config {
+            automatic: true,
+            block_interval_ms: 250,
+            ..last_mode()
+        };
+        config.scan_preferences.menu.next_scan = Some(next_scan);
+        config.scan_preferences.menu.start_from = Some(start_from);
+        let screen = Rect {
+            x: -1000.0,
+            y: 20.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), true);
+        open(&mut s);
+        choose(&mut s, 1, 0);
+        assert!(matches!(choose(&mut s, 0, 1), Some(Request::Scroll { .. })));
+        let waits = next_scan == NextScan::Wait;
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(if waits {
+                WorkflowPhase::MenuSuspended
+            } else {
+                WorkflowPhase::Menu
+            })
+        );
+        if waits {
+            s.tick(5000, false);
+            assert_eq!(s.action(Action::Select), None);
+        }
+        assert_eq!(
+            matches!(s.action(Action::Select), Some(Request::Scroll { .. })),
+            start_from != StartFrom::Beginning,
+            "{start_from:?}"
+        );
+    }
+}
+#[test]
+fn mouse_motion_repeats_while_stop_switch_is_held_and_returns_to_first_row_on_release() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut session = Session::new(
+        Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+        true,
+    );
+    assert_eq!(session.action(Action::OpenMouse), Some(Request::OpenMouse));
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Mouse)
+    );
+    assert_eq!(
+        session
+            .technique
+            .mouse_key(crate::scan_mouse::Key::Move(1, 0)),
+        Some(Request::MouseMove { dx: 1, dy: 0 })
+    );
+    let mut moved = false;
+    for _ in 0..20 {
+        session.tick(33, false);
+        if matches!(session.take_selection(), Some(Request::MouseMove { dx, dy: 0 }) if dx > 0) {
+            moved = true;
+            break;
+        }
+    }
+    assert!(moved);
+    let frame = session.technique.frame();
+    assert!(frame.tiles.iter().all(|tile| !tile.selected));
+    assert!(frame.label.is_none(), "the move is not written out");
+    session.tick(1000, true);
+    assert!(matches!(session.take_selection(), Some(Request::MouseMove { dx, dy: 0 }) if dx > 0));
+    assert!(session.technique.mouse_repeating());
+    assert!(session.technique.stop_mouse_repeat());
+    assert!(!session.technique.stop_mouse_repeat());
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Mouse)
+    );
+    let selected: Vec<_> = session
+        .technique
+        .mouse
+        .frame(screen, 1.0, Default::default(), false)
+        .tiles
+        .into_iter()
+        .filter(|tile| tile.selected)
+        .map(|tile| tile.text)
+        .collect();
+    assert_eq!(
+        selected,
+        ["Left click", "Right click", "Double click", "Start drag"]
+    );
+}
+
+#[test]
+fn mouse_without_repeat_moves_once_and_keeps_scanning() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(50, 1000, 250, 250, false);
+    assert_eq!(
+        workflow.mouse_key(crate::scan_mouse::Key::Move(-1, 1)),
+        Some(Request::MouseMove { dx: -6, dy: 6 })
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Move)
+    );
+    workflow.update(
+        1000,
+        UpdateContext {
+            movement_enabled: true,
+            paused: false,
+            switch_held: false,
+        },
+    );
+    assert!(workflow.take_selection().is_none());
+    assert!(!workflow.stop_mouse_repeat());
+}
+
+#[test]
+fn blocks_without_repeat_jump_one_block_per_press_at_each_size() {
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    // Speed has no say in a block.
+    workflow.set_mouse_settings(50, 1000, 250, 250, false);
+    for (size, block) in [
+        (BlockSize::Small, 36),
+        (BlockSize::Medium, 72),
+        (BlockSize::Large, 144),
+    ] {
+        workflow.set_mouse_movement(MouseMovement::Blocks, size, 0);
+        assert_eq!(
+            workflow.mouse_key(Key::Move(-1, 1)),
+            Some(Request::MouseMove {
+                dx: -block,
+                dy: block
+            })
+        );
+        assert_eq!(
+            workflow.mouse_key(Key::Move(1, 0)),
+            Some(Request::MouseMove { dx: block, dy: 0 })
+        );
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        assert!(!workflow.mouse_repeating());
+    }
+    workflow.update(
+        5000,
+        UpdateContext {
+            movement_enabled: true,
+            paused: false,
+            switch_held: false,
+        },
+    );
+    assert!(workflow.take_selection().is_none());
+
+    // A tall display measures a block on its width, and smooth is as before.
+    let tall = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 800.0,
+        height: 1280.0,
+    };
+    workflow.set_mouse_area(tall, tall, 1.0, 1);
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    assert_eq!(
+        workflow.mouse_key(Key::Move(0, -1)),
+        Some(Request::MouseMove { dx: 0, dy: -80 })
+    );
+    workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Medium, 0);
+    assert_eq!(
+        workflow.mouse_key(Key::Move(0, -1)),
+        Some(Request::MouseMove { dx: 0, dy: -6 })
+    );
+}
+
+#[test]
+fn blocks_with_repeat_hop_at_the_scan_rate_until_a_switch_stops_them() {
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 250, true);
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Large, 0);
+    let block = crate::mouse_repeat::block_distance(
+        workflow.point.screen.width,
+        workflow.point.screen.height,
+        BlockSize::Large,
+    );
+    let interval = workflow.point.config.mouse_scan.interval_ms;
+    let context = UpdateContext {
+        movement_enabled: true,
+        paused: false,
+        switch_held: false,
+    };
+    // The first block moves at once.
+    assert_eq!(
+        workflow.mouse_key(Key::Move(0, 1)),
+        Some(Request::MouseMove { dx: 0, dy: block })
+    );
+    assert!(workflow.mouse_repeating());
+    assert!(workflow.move_repeat.is_none());
+    workflow.update(interval - 1, context);
+    assert!(workflow.take_selection().is_none());
+    workflow.update(1, context);
+    assert_eq!(
+        workflow.take_selection(),
+        Some(Request::MouseMove { dx: 0, dy: block })
+    );
+    // A stalled tick hops once.
+    workflow.update(interval * 4, context);
+    assert_eq!(
+        workflow.take_selection(),
+        Some(Request::MouseMove { dx: 0, dy: block })
+    );
+    workflow.update(0, context);
+    assert!(workflow.take_selection().is_none());
+
+    assert!(workflow.stop_mouse_repeat());
+    assert!(workflow.block_hop.is_none());
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    workflow.update(interval * 2, context);
+    assert!(!matches!(
+        workflow.take_selection(),
+        Some(Request::MouseMove { .. })
+    ));
+}
+
+#[test]
+fn blocks_with_a_chosen_speed_hop_at_that_interval() {
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 250, true);
+    let block_ms = 1500;
+    assert_ne!(
+        u64::from(block_ms),
+        workflow.point.config.mouse_scan.interval_ms
+    );
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, block_ms);
+    let block = crate::mouse_repeat::block_distance(
+        workflow.point.screen.width,
+        workflow.point.screen.height,
+        BlockSize::Medium,
+    );
+    let context = UpdateContext {
+        movement_enabled: true,
+        paused: false,
+        switch_held: false,
+    };
+    assert_eq!(
+        workflow.mouse_key(Key::Move(-1, 0)),
+        Some(Request::MouseMove { dx: -block, dy: 0 })
+    );
+    workflow.update(u64::from(block_ms) - 1, context);
+    assert!(workflow.take_selection().is_none());
+    workflow.update(1, context);
+    assert_eq!(
+        workflow.take_selection(),
+        Some(Request::MouseMove { dx: -block, dy: 0 })
+    );
+}
+
+#[test]
+fn changing_movement_or_display_ends_a_block_hop() {
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 250, true);
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    workflow.mouse_key(Key::Move(1, 0));
+    assert!(workflow.mouse_repeating());
+    // Saving the same choice again leaves the hop alone.
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    assert!(workflow.mouse_repeating());
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Small, 0);
+    assert!(!workflow.mouse_repeating());
+    assert!(workflow.block_hop.is_none());
+
+    workflow.mouse_key(Key::Move(1, 0));
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Small, 1000);
+    assert!(!workflow.mouse_repeating());
+    assert!(workflow.block_hop.is_none());
+
+    workflow.mouse_key(Key::Move(1, 0));
+    workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Small, 0);
+    assert!(!workflow.mouse_repeating());
+
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Small, 0);
+    workflow.mouse_key(Key::Move(1, 0));
+    let next_screen = Rect {
+        x: 1000.0,
+        y: 20.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+    assert!(!workflow.mouse_repeating());
+    assert!(workflow.block_hop.is_none());
+
+    // A scroll carries on through a movement change.
+    workflow.mouse_key(Key::Scroll(1));
+    workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Small, 0);
+    assert!(workflow.mouse_repeating());
+}
+
+#[test]
+fn a_hop_left_by_another_page_never_resumes_and_draws_no_acceleration() {
+    use crate::input::PointerFeedback;
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let context = UpdateContext {
+        movement_enabled: true,
+        paused: false,
+        switch_held: false,
+    };
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 250, true);
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    workflow.mouse_key(Key::Drag);
+    workflow.mouse_key(Key::Move(1, 0));
+    // A hop keeps one size and pace, and carries a held drag.
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(PointerFeedback::RepeatMove {
+            accelerated: false,
+            dragging: true
+        })
+    );
+    // A page such as the keyboard took over mid-hop and came back to
+    // the panel without ending it. Turning blocks off drops the hop.
+    workflow.stage = Stage::Mouse;
+    workflow.set_mouse_movement(MouseMovement::Smooth, BlockSize::Medium, 0);
+    assert!(workflow.block_hop.is_none());
+
+    // So does the next smooth move, however blocks came to be off.
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    workflow.mouse_key(Key::Move(1, 0));
+    workflow.stage = Stage::Mouse;
+    workflow.mouse.blocks = false;
+    assert_eq!(
+        workflow.mouse_key(Key::Move(0, 1)),
+        Some(Request::MouseMove { dx: 0, dy: 1 })
+    );
+    assert!(workflow.block_hop.is_none());
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(PointerFeedback::RepeatMove {
+            accelerated: true,
+            dragging: true
+        })
+    );
+    for _ in 0..40 {
+        workflow.update(33, context);
+        if let Some(Request::MouseMove { dx, dy }) = workflow.take_selection() {
+            assert_eq!(dx, 0, "the old hop came back");
+            assert!(dy > 0);
+        }
+    }
+}
+
+#[test]
+fn the_blocks_tile_label_follows_the_setting() {
+    use crate::mouse_repeat::{BlockSize, MouseMovement};
+    use crate::scan_mouse::Key;
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.mouse_key(Key::More);
+    assert_eq!(
+        workflow.mouse.rows_for_test()[0],
+        [Key::Speed(-1), Key::Speed(1), Key::Blocks, Key::MoreClicks]
+    );
+    assert_eq!(workflow.mouse.label_for_test(Key::Blocks), "Blocks\nOff");
+    assert_eq!(
+        workflow.mouse_key(Key::Blocks),
+        Some(Request::MouseMovementToggle)
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    workflow.set_mouse_movement(MouseMovement::Blocks, BlockSize::Medium, 0);
+    assert_eq!(workflow.mouse.label_for_test(Key::Blocks), "Blocks\nOn");
+    // The choice outlives the panel being rebuilt.
+    workflow.open_mouse(true);
+    assert!(workflow.mouse.blocks);
+}
+
+#[test]
+fn mouse_one_step_uses_the_shared_direction_distance_at_saved_speeds() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    for (speed, distance) in [(5, 1), (100, 12), (225, 27), (1350, 162)] {
+        for (x, y) in [
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (-1, 0),
+            (1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+        ] {
+            let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+            workflow.open_mouse(true);
+            workflow.set_mouse_settings(speed, 1000, 250, 250, false);
+            assert_eq!(
+                workflow.mouse_key(crate::scan_mouse::Key::Move(x, y)),
+                Some(Request::MouseMove {
+                    dx: i32::from(x) * distance,
+                    dy: i32::from(y) * distance,
+                })
+            );
+            assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        }
+    }
+}
+
+#[test]
+fn scanned_scroll_repeats_while_held_and_stops_on_release() {
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 120, true);
+    for (direction, dy) in [(1, 5), (-1, -5)] {
+        assert_eq!(
+            workflow.mouse_key(crate::scan_mouse::Key::Scroll(direction)),
+            Some(Request::MouseScroll { dy })
+        );
+        assert_eq!(
+            workflow.phase(),
+            Phase::Workflow(WorkflowPhase::MouseScrolling)
+        );
+        assert_eq!(
+            workflow.mouse_feedback(),
+            Some(crate::input::PointerFeedback::RepeatScroll { dx: 0, dy })
+        );
+        workflow.update(
+            119,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: false,
+            },
+        );
+        assert_eq!(workflow.take_selection(), None);
+        workflow.update(
+            1,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: false,
+            },
+        );
+        assert_eq!(workflow.take_selection(), Some(Request::MouseScroll { dy }));
+        workflow.update(
+            370,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: true,
+            },
+        );
+        assert_eq!(workflow.take_selection(), Some(Request::MouseScroll { dy }));
+        assert!(workflow.mouse_repeating());
+        assert!(workflow.stop_mouse_repeat());
+        assert!(!workflow.stop_mouse_repeat());
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+        workflow.update(
+            120,
+            UpdateContext {
+                movement_enabled: true,
+                paused: false,
+                switch_held: false,
+            },
+        );
+        assert_eq!(workflow.take_selection(), None);
+    }
+}
+
+#[test]
+fn scanned_scroll_single_step_and_cleanup_paths() {
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 80, false);
+    assert_eq!(
+        workflow.mouse_key(crate::scan_mouse::Key::Scroll(1)),
+        Some(Request::MouseScroll { dy: 5 })
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(!workflow.stop_mouse_repeat());
+    workflow.set_mouse_settings(100, 1000, 250, 80, true);
+    workflow.mouse_key(crate::scan_mouse::Key::Scroll(-1));
+    workflow.execution_failed("input failed".into());
+    assert_eq!(workflow.mouse_feedback(), None);
+    assert_eq!(
+        workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+        None
+    );
+    workflow.handle(Action::Select);
+    workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+    workflow.set_mouse_settings(100, 1000, 250, 80, false);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(!workflow.stop_mouse_repeat());
+    workflow.set_mouse_settings(100, 1000, 250, 80, true);
+    workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+    let next_screen = Rect {
+        x: 1000.0,
+        y: 20.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+        None
+    );
+    workflow.mouse_key(crate::scan_mouse::Key::Scroll(1));
+    workflow.reset();
+    assert_eq!(
+        workflow.scroll_repeat.as_ref().map(|repeat| repeat.dy()),
+        None
+    );
+    assert_eq!(workflow.mouse_feedback(), None);
+}
+
+#[test]
+fn changing_mouse_settings_or_display_ends_a_held_move_repeat() {
+    use crate::scan_mouse::Key;
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.set_mouse_settings(100, 1000, 250, 80, true);
+    assert!(matches!(
+        workflow.mouse_key(Key::Move(1, 0)),
+        Some(Request::MouseMove { .. })
+    ));
+    assert!(workflow.mouse_repeating());
+    workflow.set_mouse_settings(105, 1000, 250, 80, true);
+    assert!(!workflow.mouse_repeating());
+    assert!(!workflow.stop_mouse_repeat());
+
+    workflow.mouse_key(Key::Move(1, 0));
+    let next_screen = Rect {
+        x: 1000.0,
+        y: 20.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    workflow.set_mouse_area(next_screen, next_screen, 1.0, 2);
+    assert!(!workflow.mouse_repeating());
+    assert!(workflow.move_repeat.is_none());
+    assert!(!workflow.stop_mouse_repeat());
+}
+
+#[test]
+fn panel_position_is_shared_and_survives_rebuilding_panels() {
+    use crate::{scan_mouse::Key, scan_panel::Dock};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    let dock = Dock { column: 2, row: 1 };
+    assert_eq!(workflow.mouse_key(Key::Dock), None);
+    assert_eq!(workflow.mouse_key(Key::Position(dock)), None);
+    assert_eq!(workflow.mouse.dock, dock);
+    assert_eq!(
+        workflow.mouse_key(Key::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    assert_eq!(workflow.keyboard.dock, dock);
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    let dock = Dock { column: 0, row: 0 };
+    workflow.keyboard.dock = dock;
+    workflow.handle(Action::Next);
+    workflow.keyboard_closed();
+    assert_eq!(workflow.mouse.dock, dock, "keyboard choices move the mouse");
+    workflow.reset();
+    workflow.open_mouse(true);
+    assert_eq!((workflow.keyboard.dock, workflow.mouse.dock), (dock, dock));
+}
+
+#[test]
+fn a_saved_panel_position_is_restored_and_only_chosen_positions_are_saved() {
+    use crate::{scan_mouse::Key, scan_panel::Dock};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let config = Config {
+        panel_avoids_pointer: true,
+        ..last_mode()
+    };
+    let saved = Dock { column: 1, row: 0 };
+    let mut workflow = Workflow::new(config.point(), screen, 1.0)
+        .unwrap()
+        .with_dock(saved);
+    assert_eq!(workflow.unsaved_dock(), None, "a loaded dock is saved");
+    workflow.open_mouse(true);
+    assert_eq!(
+        (workflow.keyboard.dock, workflow.mouse.dock),
+        (saved, saved)
+    );
+    let panel = workflow.frame().tiles[0].rect;
+    assert_eq!(panel, saved.rect(screen, (panel.width, panel.height)));
+
+    // Moving out of the pointer's way is not a choice.
+    workflow.set_pointer(Some((640.0, 60.0)));
+    assert!(workflow.moved.is_some());
+    assert_eq!(workflow.unsaved_dock(), None);
+
+    let chosen = Dock { column: 2, row: 2 };
+    assert_eq!(workflow.mouse_key(Key::Dock), None);
+    assert_eq!(workflow.mouse_key(Key::Position(chosen)), None);
+    assert_eq!(workflow.unsaved_dock(), Some(chosen));
+    // A failed save leaves it to retry after the next action.
+    assert_eq!(workflow.unsaved_dock(), Some(chosen));
+    workflow.dock_saved(chosen);
+    assert_eq!(workflow.unsaved_dock(), None, "saved once");
+
+    // The next scan keeps the chosen dock.
+    let mut next = Workflow::new(config.point(), screen, 1.0)
+        .unwrap()
+        .with_dock(Dock::default());
+    next.resume_from(&workflow);
+    next.open_mouse(true);
+    assert_eq!(next.mouse.dock, chosen);
+    assert_eq!(next.unsaved_dock(), None);
+    // Home and the action menus open at the same dock, which they never change.
+    next.open_home();
+    let menu = next.frame().tiles[0].rect;
+    assert_eq!(menu, chosen.rect(screen, (menu.width, menu.height)));
+    let bar = crate::scan_panel::menu_bar(&next.frame()).unwrap();
+    assert!(next.menu_bar_contains((bar.x + 1.0, bar.y + 1.0)));
+    assert!(!next.menu_bar_contains((bar.x + 1.0, bar.y + bar.height + 1.0)));
+    assert!(!next.menu_bar_contains((bar.x - 1.0, bar.y + 1.0)));
+    next.set_pointer(Some((bar.x + 1.0, bar.y + 1.0)));
+    assert_eq!(
+        next.frame().tiles[0].rect,
+        menu,
+        "the pointer over the menu bar leaves Home where it is"
+    );
+    next.set_pointer(Some((menu.x + 1.0, menu.y + menu.height - 1.0)));
+    assert_ne!(next.frame().tiles[0].rect, menu, "Home avoids the pointer");
+    assert_eq!(next.unsaved_dock(), None);
+}
+
+#[test]
+fn back_scans_the_parent_from_the_top_with_the_current_preferences() {
+    use crate::scan_preferences::PanelSize;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    let selected_texts = |frame: &Frame| {
+        frame
+            .tiles
+            .iter()
+            .filter(|tile| tile.selected)
+            .map(|tile| tile.text.clone())
+            .collect::<Vec<_>>()
+    };
+    let mut config = last_mode();
+    let mut w = Workflow::new(config.point(), screen, 1.0).unwrap();
+    w.source = (120, 80);
+    w.stage = Stage::Menu;
+    w.selected(Item::Group(Kind::Mouse));
+    // Move well past the top before going down a level.
+    w.handle(Action::Next);
+    w.handle(Action::Next);
+    w.selected(Item::Group(Kind::Browser));
+    assert_eq!(w.menu.kind, Kind::Browser);
+    // Preferences change while the submenu is open.
+    config.scan_preferences.panel_size = PanelSize::Large;
+    w.apply_config(config.point(), false);
+    w.selected(Item::Back);
+    assert_eq!(w.menu.kind, Kind::Mouse);
+
+    // The same menu opened afresh with the same preferences looks identical.
+    let mut fresh = Workflow::new(config.point(), screen, 1.0).unwrap();
+    fresh.source = (120, 80);
+    fresh.stage = Stage::Menu;
+    fresh.selected(Item::Group(Kind::Mouse));
+    let (back, opened) = (w.frame(), fresh.frame());
+    assert_eq!(selected_texts(&back), selected_texts(&opened));
+    assert_eq!(back.tiles[0].rect, opened.tiles[0].rect);
+    // The larger size took effect: the menu grew past its default width.
+    let mut standard = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    standard.stage = Stage::Menu;
+    standard.selected(Item::Group(Kind::Mouse));
+    assert!(back.tiles[0].rect.width > standard.frame().tiles[0].rect.width);
+}
+#[test]
+fn size_changes_update_open_panels_without_resetting_the_scan() {
+    use crate::scan_preferences::PanelSize;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    let mut config = last_mode();
+    let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    workflow.handle(Action::Next);
+    let selected = workflow
+        .frame()
+        .tiles
+        .iter()
+        .filter(|tile| tile.selected)
+        .map(|tile| tile.text.clone())
+        .collect::<Vec<_>>();
+    config.scan_preferences.panel_size = PanelSize::Large;
+    workflow.apply_config(config.point(), false);
+    let frame = workflow.frame();
+    assert!((frame.tiles[0].rect.width - 568.0 * 1.2).abs() < 1e-8);
+    assert_eq!(
+        selected,
+        frame
+            .tiles
+            .iter()
+            .filter(|tile| tile.selected)
+            .map(|tile| tile.text.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+}
+
+#[test]
+fn open_panels_move_out_of_the_pointers_way_only_when_enabled() {
+    use crate::scan_panel::Dock;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let background = |workflow: &Workflow| workflow.frame().tiles[0].rect;
+    let bottom = Dock::default().rect(screen, (568.0, 372.0));
+    let top = Dock { column: 1, row: 0 }.rect(screen, (568.0, 372.0));
+    let over_bottom = Some((640.0, 700.0));
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    workflow.set_pointer(over_bottom);
+    assert_eq!(background(&workflow), bottom, "off by default");
+
+    let config = Config {
+        panel_avoids_pointer: true,
+        ..last_mode()
+    };
+    workflow.apply_config(config.point(), false);
+    assert!(workflow.panel_avoids_pointer());
+    workflow.set_pointer(over_bottom);
+    let frame = workflow.frame();
+    assert_eq!(frame.tiles[0].rect, top);
+    assert!(frame
+        .tiles
+        .iter()
+        .all(|tile| tile.rect.y < top.y + top.height));
+    assert_eq!(
+        workflow.mouse.dock,
+        Dock::default(),
+        "the chosen dock is kept"
+    );
+    workflow.set_pointer(Some((640.0, 100.0)));
+    assert_eq!(
+        background(&workflow),
+        bottom,
+        "returns once the pointer leaves"
+    );
+
+    workflow.mouse_key(crate::scan_mouse::Key::Keyboard);
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    let keyboard_bounds = background(&workflow);
+    let size = (keyboard_bounds.width, keyboard_bounds.height);
+    let top = Dock { column: 1, row: 0 }.rect(screen, size);
+    let bottom = Dock::default().rect(screen, size);
+    workflow.set_pointer(over_bottom);
+    assert_eq!(background(&workflow), top, "the keyboard also moves");
+    workflow.set_pointer(None);
+    assert_eq!(background(&workflow), bottom);
+
+    // A closed panel forgets where it moved, so a middle dock chooses afresh when reopened.
+    let middle = Dock { column: 1, row: 1 };
+    workflow.set_dock(middle);
+    let area = middle.rect(screen, size);
+    workflow.set_pointer(Some((640.0, area.y + 50.0)));
+    assert_eq!(workflow.moved, Some(Dock::default()));
+    workflow.keyboard_closed();
+    workflow.open_point();
+    workflow.set_pointer(Some((640.0, area.y + 50.0)));
+    assert_eq!(workflow.moved, None);
+}
+#[test]
+fn menus_share_the_panel_dock_avoid_the_pointer_and_mark_their_points() {
+    use crate::scan_panel::Dock;
+    let screen = Rect {
+        x: -1280.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let work = Rect {
+        height: 680.0,
+        ..screen
+    };
+    let config = Config {
+        panel_avoids_pointer: true,
+        ..last_mode()
+    };
+    let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+    workflow.set_keyboard_area(work);
+    let top = Dock { column: 1, row: 0 };
+    workflow.set_dock(top);
+    workflow.source = (-640, 100);
+    workflow.open(Kind::Actions);
+    let frame = workflow.frame();
+    let panel = frame.tiles[0].rect;
+    let size = (panel.width, panel.height);
+    assert_eq!(panel, top.rect(work, size), "docked in the work area");
+    assert_eq!(
+        frame.strips,
+        crosshair((-640, 100), screen, 1.0),
+        "the chosen point stays marked"
+    );
+    let bar = crate::scan_panel::menu_bar(&frame).expect("every panel has a menu bar");
+    workflow.set_pointer(Some((bar.x + 1.0, bar.y + 1.0)));
+    assert_eq!(
+        workflow.frame().tiles[0].rect,
+        panel,
+        "the pointer over the menu bar leaves the menu where it is"
+    );
+    workflow.set_pointer(Some((bar.x + 1.0, bar.y + bar.height + 1.0)));
+    let away = Dock { column: 1, row: 2 }.rect(work, size);
+    assert_eq!(
+        workflow.frame().tiles[0].rect,
+        away,
+        "the menu moves out of the pointer's way"
+    );
+    assert_eq!(workflow.dock, top, "the chosen dock is kept");
+    // The moved menu's bar is where its home bar is, shifted with the panel.
+    workflow.set_pointer(Some((bar.x + 1.0, bar.y - panel.y + away.y + 1.0)));
+    assert_eq!(
+        workflow.frame().tiles[0].rect,
+        away,
+        "the pointer over the moved menu's bar keeps it there"
+    );
+    workflow.set_pointer(None);
+    assert_eq!(workflow.frame().tiles[0].rect, panel);
+
+    // A docked menu is not beside the destination, so both ends of a drag are marked.
+    workflow.destination = (-200, 600);
+    workflow.open(Kind::ConfirmDrag);
+    let mut ends = crosshair((-640, 100), screen, 1.0);
+    ends.extend(crosshair((-200, 600), screen, 1.0));
+    assert_eq!(workflow.frame().strips, ends);
+
+    // A work area left on another display is passed over for this display.
+    workflow.set_keyboard_area(Rect { x: 0.0, ..work });
+    workflow.open(Kind::Home);
+    let frame = workflow.frame();
+    let panel = frame.tiles[0].rect;
+    assert_eq!(panel, top.rect(screen, (panel.width, panel.height)));
+    assert!(frame.strips.is_empty(), "Home acts at no point");
+}
+fn extra(label: &str, action: PanelAction, span: u8) -> crate::custom_panels::Cell {
+    crate::custom_panels::Cell {
+        label: label.into(),
+        action,
+        span,
+    }
+}
+#[test]
+fn close_keyboard_shows_where_it_goes_and_goes_there() {
+    use crate::point_scan::ControlMode;
+    use crate::scan_keyboard::Key;
+    let close_label = |workflow: &Workflow| {
+        workflow
+            .frame()
+            .tiles
+            .iter()
+            .find(|tile| tile.text.starts_with("Close to"))
+            .expect("a Close key")
+            .text
+            .clone()
+    };
+    let open = |workflow: &mut Workflow| {
+        assert_eq!(
+            workflow.selected(Item::Keyboard),
+            Some(Request::OpenKeyboard)
+        );
+        workflow.execution_succeeded();
+        assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    };
+
+    // From Home, back to Home.
+    let mut workflow = session(false).technique;
+    workflow.open_home();
+    open(&mut workflow);
+    assert_eq!(close_label(&workflow), "Close to\nHome");
+    assert_eq!(workflow.choose_key(Key::Close), None);
+    assert!(workflow.home_open());
+
+    // From the mouse panel, back to it.
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    assert_eq!(
+        workflow.choose_mouse_key(crate::scan_mouse::Key::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    workflow.execution_succeeded();
+    assert_eq!(close_label(&workflow), "Close to\nMouse");
+    assert_eq!(workflow.choose_key(Key::Close), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+
+    // From neither, to the mode used last.
+    let mut workflow = session(false).technique;
+    workflow.point.config.control_mode = ControlMode::Point;
+    workflow.reset();
+    open(&mut workflow);
+    assert_eq!(close_label(&workflow), "Close to\nPoint");
+    assert_eq!(workflow.choose_key(Key::Close), None);
+    assert!(matches!(workflow.phase(), Phase::Point(_)));
+
+    let mut workflow = session(false).technique;
+    workflow.point.config.control_mode = ControlMode::Mouse;
+    workflow.reset();
+    open(&mut workflow);
+    assert_eq!(close_label(&workflow), "Close to\nMouse");
+    assert_eq!(workflow.choose_key(Key::Close), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+}
+
+fn tile_rect(frame: &Frame, text: &str) -> Rect {
+    frame
+        .tiles
+        .iter()
+        .find(|tile| tile.text.starts_with(text))
+        .unwrap_or_else(|| panic!("no tile {text}"))
+        .rect
+}
+
+#[test]
+fn extra_tiles_on_the_mouse_panel_act_and_leave_as_their_action_says() {
+    use crate::scan_mouse::Key;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    let hello = extra(
+        "Hello",
+        PanelAction::Text {
+            text: "Hello".into(),
+        },
+        1,
+    );
+    let mine = extra("Mine", PanelAction::MyPanels, 2);
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        crate::panel_extras::PanelExtras::rows(vec![vec![hello, mine]]),
+    )]));
+    workflow.open_mouse(true);
+    // The row sits above the panel's bottom row; a span of two is twice as wide.
+    let frame = workflow.frame();
+    let (hello, mine, actions) = (
+        tile_rect(&frame, "Hello"),
+        tile_rect(&frame, "Mine"),
+        tile_rect(&frame, "Home"),
+    );
+    assert!(tile_rect(&frame, "Left click").y < hello.y && hello.y < actions.y);
+    assert_eq!(hello.y, mine.y);
+    assert!(mine.width > hello.width * 1.9);
+    // Typing leaves the panel open and scanning.
+    assert_eq!(
+        workflow.choose_mouse_key(Key::Extra(0, 0)),
+        Some(Request::Text("Hello".into()))
+    );
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert!(!workflow.mouse.suspended());
+    // My panels lists the panels, and Back returns to the mouse panel.
+    assert_eq!(workflow.choose_mouse_key(Key::Extra(0, 1)), None);
+    assert_eq!(workflow.menu.kind, Kind::Panels);
+    assert!(workflow.mouse_open());
+    assert_eq!(workflow.selected(Item::Back), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    // A tile that is gone from the row does nothing.
+    assert_eq!(workflow.choose_mouse_key(Key::Extra(3, 0)), None);
+    // A held drag is ended before a page can open over it.
+    assert_eq!(
+        workflow.choose_mouse_key(Key::Drag),
+        Some(Request::MouseDrag)
+    );
+    assert_eq!(workflow.choose_mouse_key(Key::Extra(0, 1)), None);
+    assert!(workflow.mouse.dragging && workflow.mouse_open());
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow.choose_mouse_key(Key::Drag),
+        Some(Request::MouseDrag)
+    );
+    assert!(!workflow.mouse.dragging);
+    // Close stops scanning and keeps Mouse mode, as the panel's own key does,
+    // letting go of a held drag.
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        crate::panel_extras::PanelExtras::rows(vec![vec![extra("Done", PanelAction::Close, 1)]]),
+    )]));
+    workflow.open_mouse(true);
+    assert_eq!(workflow.mouse_key(Key::Drag), Some(Request::MouseDrag));
+    assert_eq!(
+        workflow.choose_mouse_key(Key::Extra(0, 0)),
+        Some(Request::Close)
+    );
+    assert!(workflow.stage == Stage::Idle);
+    assert!(!workflow.mouse.dragging);
+    assert_eq!(
+        workflow.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    // An added Back tile leaves the same way.
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        crate::panel_extras::PanelExtras::rows(vec![vec![extra("Done", PanelAction::Back, 1)]]),
+    )]));
+    workflow.open_mouse(true);
+    assert_eq!(
+        workflow.choose_mouse_key(Key::Extra(0, 0)),
+        Some(Request::Close)
+    );
+    assert!(workflow.stage == Stage::Idle);
+    // The Speed and more page and the Position page keep their rows.
+    workflow.open_mouse(true);
+    workflow.choose_mouse_key(Key::More);
+    assert!(workflow
+        .frame()
+        .tiles
+        .iter()
+        .all(|tile| tile.text != "Done"));
+    // A row of wide tiles shares the panel's width; the keys decide it.
+    let plain = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    wide.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        crate::panel_extras::PanelExtras::rows(vec![(0..8)
+            .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
+            .collect()]),
+    )]));
+    let (mut plain, mut wide) = (plain, wide);
+    plain.open_mouse(true);
+    wide.open_mouse(true);
+    let (before, after) = (plain.frame(), wide.frame());
+    assert_eq!(before.tiles[0].rect.width, after.tiles[0].rect.width);
+    assert_eq!(
+        tile_rect(&after, "Tile 0").width,
+        tile_rect(&after, "Tile 7").width
+    );
+    assert!(tile_rect(&after, "Tile 0").width < tile_rect(&after, "Left click").width);
+}
+
+#[test]
+fn switch_panel_actions_start_resume_and_handle_deleted_panels() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    let mut session = Session::new(workflow, true);
+    assert_eq!(
+        session.action(Action::OpenCustomPanel("greetings".into())),
+        None
+    );
+    assert!(session.active());
+    assert_eq!(
+        session.technique.menu.custom_id.as_deref(),
+        Some("greetings")
+    );
+    session.action(Action::Pause);
+    assert!(session.paused());
+    session.action(Action::OpenMenu(Kind::Editing));
+    assert!(session.active());
+    assert!(!session.paused());
+    assert_eq!(session.technique.menu.kind, Kind::Editing);
+    session.technique.selected(Item::Back);
+    assert!(session.technique.home_open());
+    session.action(Action::OpenCustomPanel("gone".into()));
+    assert_eq!(
+        session.technique.error.as_deref(),
+        Some("That panel no longer exists.")
+    );
+    assert!(session.technique.home_open());
+}
+
+#[test]
+fn line_or_grid_chosen_from_home_keeps_home_open() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    assert!(s.technique.home_open());
+    let config = s.technique.point.config.clone();
+    s.technique.apply_config(config.clone(), true);
+    assert!(s.technique.home_open());
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    // After a point, the same change restarts the point scan as before.
+    choose_in(&mut s, 0, 0);
+    s.technique.execution_succeeded();
+    s.technique.apply_config(config, true);
+    assert!(matches!(s.technique.phase(), Phase::Point(_)));
+}
+
+#[test]
+fn switches_and_tiles_saved_for_more_actions_open_home() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    // A switch assigned to More actions before it was retired.
+    let action: Action = serde_json::from_str(r#"{"openMenu":"more"}"#).unwrap();
+    assert_eq!(action, Action::OpenMenu(Kind::More));
+    assert!(action.valid_assignment());
+    let mut session = Session::new(
+        Workflow::new(last_mode().point(), screen, 1.0).unwrap(),
+        true,
+    );
+    assert_eq!(session.action(action), None);
+    assert!(session.active());
+    assert_eq!(session.technique.menu.kind, Kind::Home);
+    assert!(session.technique.home_open());
+    assert_eq!(session.technique.error, None);
+    // A tile on one of the user's panels that opened More actions.
+    let mut panel = crate::custom_panels::sample("old", "Old");
+    panel.rows[0][0].action = PanelAction::OpenPanel {
+        panel: BuiltInPanel::Menu(Kind::More),
+    };
+    assert_eq!(panel.validate(), Ok(()));
+    session.technique.set_panels(vec![panel]);
+    session.action(Action::OpenCustomPanel("old".into()));
+    assert_eq!(session.technique.menu.custom_id.as_deref(), Some("old"));
+    session.technique.selected(Item::Custom(0));
+    assert_eq!(session.technique.menu.kind, Kind::Home);
+    assert!(session.technique.home_open());
+    // A saved rearrangement of More actions stays on disk and is not used.
+    let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([(
+        "more".to_string(),
+        crate::builtin_panels::default_document(Kind::Home),
+    )]));
+    assert!(overrides.is_empty());
+}
+
+#[test]
+fn a_trial_opens_the_page_over_home_so_back_returns_there() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panels(vec![crate::custom_panels::sample("greetings", "Greetings")]);
+    // One of the user's panels, with Back leading Home.
+    assert_eq!(
+        workflow.open_for_trial(&TrialTarget::Panel {
+            id: "greetings".into()
+        }),
+        Ok(None)
+    );
+    assert_eq!(workflow.menu.custom_id.as_deref(), Some("greetings"));
+    assert_eq!(workflow.selected(Item::Back), None);
+    assert!(workflow.home_open());
+    // A panel that is gone, and a menu that needs a point, are refused.
+    assert!(workflow
+        .open_for_trial(&TrialTarget::Panel { id: "gone".into() })
+        .is_err());
+    assert!(workflow
+        .open_for_trial(&TrialTarget::Menu {
+            menu: Kind::Actions
+        })
+        .is_err());
+    // A built-in menu, Home itself, and the native panels.
+    assert_eq!(
+        workflow.open_for_trial(&TrialTarget::Menu {
+            menu: Kind::Editing
+        }),
+        Ok(None)
+    );
+    assert_eq!(workflow.menu.kind, Kind::Editing);
+    assert_eq!(
+        workflow.open_for_trial(&TrialTarget::Menu { menu: Kind::Home }),
+        Ok(None)
+    );
+    assert!(workflow.home_open());
+    assert_eq!(
+        workflow.open_for_trial(&TrialTarget::Native {
+            panel: ExtraTarget::Mouse
+        }),
+        Ok(Some(Request::OpenMouse))
+    );
+    assert!(workflow.mouse_open());
+    assert_eq!(
+        workflow.open_for_trial(&TrialTarget::Native {
+            panel: ExtraTarget::Keyboard
+        }),
+        Ok(Some(Request::OpenKeyboard))
+    );
+    workflow.execution_succeeded();
+    assert!(workflow.keyboard_open());
+    workflow.keyboard_closed();
+    assert!(workflow.home_open(), "the keyboard closes back to Home");
+}
+
+#[test]
+fn extra_columns_run_down_the_right_of_both_panels() {
+    use crate::panel_extras::PanelExtras;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let hello = extra(
+        "Hello",
+        PanelAction::Text {
+            text: "Hello".into(),
+        },
+        1,
+    );
+    let column: Vec<_> = (0..6)
+        .map(|n| extra(&format!("C{n}"), PanelAction::Close, 1))
+        .collect();
+    // Mouse: a column of six beside five rows adds a sixth row below.
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Mouse,
+        PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![hello.clone()], column.clone()],
+        },
+    )]));
+    workflow.open_mouse(true);
+    let frame = workflow.frame();
+    let (drag, first, c0, c5, actions) = (
+        tile_rect(&frame, "Start drag"),
+        tile_rect(&frame, "Hello"),
+        tile_rect(&frame, "C0"),
+        tile_rect(&frame, "C5"),
+        tile_rect(&frame, "Home"),
+    );
+    assert_eq!(first.y, drag.y, "column 1 starts beside the top row");
+    assert!(first.x > drag.x + drag.width, "to the right of the keys");
+    assert!(c0.x > first.x + first.width, "column 2 further right");
+    assert!((c0.x - c5.x).abs() < 0.01, "a column lines up");
+    assert!(
+        c5.y > actions.y,
+        "the sixth tile makes a row below the panel"
+    );
+    assert_eq!(
+        workflow.choose_mouse_key(crate::scan_mouse::Key::Column(0, 0)),
+        Some(Request::Text("Hello".into()))
+    );
+    assert_eq!(
+        workflow.choose_mouse_key(crate::scan_mouse::Key::Column(1, 5)),
+        Some(Request::Close)
+    );
+    // Keyboard: the column lines up down rows of different widths, and
+    // a tile beside the suggestions can be chosen.
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Keyboard,
+        PanelExtras {
+            rows: Vec::new(),
+            columns: vec![column.clone()],
+        },
+    )]));
+    workflow.open_home();
+    workflow.selected(Item::Keyboard);
+    workflow.execution_succeeded();
+    let frame = workflow.frame();
+    let (c0, c4, space, letters) = (
+        tile_rect(&frame, "C0"),
+        tile_rect(&frame, "C4"),
+        tile_rect(&frame, "Space"),
+        tile_rect(&frame, "Letters"),
+    );
+    // Rows of different widths: within a key gap of each other.
+    assert!((c0.x - c4.x).abs() < 9.0, "lines up");
+    assert!((c0.width - c4.width).abs() < 9.0);
+    assert!(c0.x > space.x + space.width && c0.x > letters.x);
+    assert_eq!(
+        workflow.choose_key(crate::scan_keyboard::Key::Column(0, 0)),
+        None
+    );
+    assert!(!workflow.keyboard_open(), "Close closed the keyboard");
+}
+
+#[test]
+fn extra_tiles_on_the_keyboard_type_like_keys_and_close_it() {
+    use crate::scan_keyboard::{Key, Page};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Keyboard,
+        crate::panel_extras::PanelExtras::rows(vec![vec![
+            extra(
+                "Hello",
+                PanelAction::Text {
+                    text: "Hello".into(),
+                },
+                1,
+            ),
+            extra("Done", PanelAction::Close, 1),
+        ]]),
+    )]));
+    workflow.open_home();
+    assert_eq!(
+        workflow.selected(Item::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    // The row sits above the page row, on every page.
+    let frame = workflow.frame();
+    assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Letters").y);
+    assert!(tile_rect(&frame, "Hello").y > tile_rect(&frame, "Space").y);
+    assert_eq!(workflow.choose_key(Key::Page(Page::Numbers)), None);
+    let frame = workflow.frame();
+    assert!(tile_rect(&frame, "Hello").y < tile_rect(&frame, "Numbers").y);
+    // Typing waits for the result like a key, then scans on.
+    assert_eq!(
+        workflow.choose_key(Key::Extra(0, 0)),
+        Some(Request::Text("Hello".into()))
+    );
+    assert_eq!(
+        workflow.handle(Action::Select),
+        None,
+        "waiting for the text"
+    );
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    assert!(!workflow.keyboard.suspended());
+    // A tile that cannot act leaves the keyboard scanning.
+    workflow.set_panels(vec![]);
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Keyboard,
+        crate::panel_extras::PanelExtras::rows(vec![vec![
+            extra(
+                "Gone",
+                PanelAction::OpenCustomPanel {
+                    id: "greetings".into(),
+                },
+                1,
+            ),
+            extra("Done", PanelAction::Close, 1),
+        ]]),
+    )]));
+    workflow.open_home();
+    workflow.selected(Item::Keyboard);
+    workflow.execution_succeeded();
+    assert_eq!(workflow.choose_key(Key::Extra(0, 0)), None);
+    // So does a tile that opens the keyboard from the keyboard.
+    workflow.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Keyboard,
+        crate::panel_extras::PanelExtras::rows(vec![vec![
+            extra(
+                "Keys",
+                PanelAction::OpenPanel {
+                    panel: BuiltInPanel::Keyboard,
+                },
+                1,
+            ),
+            extra("Done", PanelAction::Close, 1),
+        ]]),
+    )]));
+    workflow.open_home();
+    workflow.selected(Item::Keyboard);
+    workflow.execution_succeeded();
+    assert_eq!(workflow.choose_key(Key::Extra(0, 0)), None);
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    assert!(!workflow.keyboard.suspended());
+    // Close closes the keyboard; opened from Home, it goes back there.
+    assert_eq!(workflow.choose_key(Key::Extra(0, 1)), None);
+    assert!(!workflow.keyboard_open());
+    assert!(workflow.home_open());
+    // A row of wide tiles shares the keyboard's width; the keys decide it.
+    let mut plain = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    plain.open_home();
+    plain.selected(Item::Keyboard);
+    plain.execution_succeeded();
+    let mut wide = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    wide.set_panel_extras(std::collections::BTreeMap::from([(
+        ExtraTarget::Keyboard,
+        crate::panel_extras::PanelExtras::rows(vec![(0..8)
+            .map(|n| extra(&format!("Tile {n}"), PanelAction::Close, 4))
+            .collect()]),
+    )]));
+    wide.open_home();
+    wide.selected(Item::Keyboard);
+    wide.execution_succeeded();
+    let (before, after) = (plain.frame(), wide.frame());
+    assert_eq!(before.tiles[0].rect.width, after.tiles[0].rect.width);
+    assert_eq!(
+        tile_rect(&after, "Tile 0").width,
+        tile_rect(&after, "Tile 7").width
+    );
+}
+
+#[test]
+fn mouse_keyboard_return_and_drag_state() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut workflow = Workflow::new(last_mode().point(), screen, 1.0).unwrap();
+    workflow.open_mouse(true);
+    assert_eq!(
+        workflow.mouse_key(crate::scan_mouse::Key::Drag),
+        Some(Request::MouseDrag)
+    );
+    assert!(workflow.mouse.dragging);
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Drag)
+    );
+    assert_eq!(
+        workflow.mouse_key(crate::scan_mouse::Key::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    assert!(!workflow.mouse.dragging);
+    assert_eq!(workflow.mouse_feedback(), None);
+    workflow.execution_succeeded();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    assert!(workflow.return_to_mouse);
+    workflow.keyboard_closed();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+    assert_eq!(
+        workflow.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Move)
+    );
+    workflow.reset();
+    assert_eq!(
+        workflow.control_mode(),
+        crate::point_scan::ControlMode::Mouse
+    );
+    workflow.start();
+    assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+}
+
+#[test]
+fn mouse_input_failure_clears_repeat_and_ring_until_resumed() {
+    let mut workflow = session(false).technique;
+    workflow.open_mouse(true);
+    workflow.mouse_key(crate::scan_mouse::Key::Move(1, 0));
+    assert!(matches!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::RepeatMove { .. })
+    ));
+    workflow.execution_failed("input failed".into());
+    assert_eq!(workflow.mouse_feedback(), None);
+    assert!(!workflow.stop_mouse_repeat());
+    workflow.handle(Action::Select);
+    assert_eq!(
+        workflow.mouse_feedback(),
+        Some(crate::input::PointerFeedback::Move)
+    );
+}
+fn session(automatic: bool) -> Session<Workflow> {
+    Session::new(
+        Workflow::new(
+            Config {
+                automatic,
+                block_interval_ms: 250,
+                ..last_mode()
+            }
+            .point(),
+            Rect {
+                x: -1000.0,
+                y: 20.0,
+                width: 1000.0,
+                height: 800.0,
+            },
+            1.0,
+        )
+        .unwrap(),
+        automatic,
+    )
+}
+#[test]
+fn direct_keyboard_opens_from_every_workflow_and_cancels_pending_actions() {
+    for stage in [
+        Stage::Idle,
+        Stage::Point,
+        Stage::Menu,
+        Stage::Countdown,
+        Stage::Destination,
+        Stage::Executing,
+    ] {
+        let mut s = session(false);
+        s.action(Action::Select);
+        s.action(Action::Pause);
+        s.technique.stage = stage;
+        s.technique.pending = Some(default_click((10, 20)));
+        assert_eq!(s.action(Action::OpenKeyboard), Some(Request::OpenKeyboard));
+        assert!(s.active());
+        assert!(!s.paused());
+        assert!(s.take_selection().is_none());
+        s.technique.execution_succeeded();
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+    }
+    let mut idle = session(false);
+    assert_eq!(
+        idle.action(Action::OpenKeyboard),
+        Some(Request::OpenKeyboard)
+    );
+    assert!(idle.active());
+}
+#[test]
+fn chosen_keyboard_layout_opens_from_point_and_mouse_and_survives_save_failure() {
+    use crate::point_scan::{ControlMode, KeyboardLayout};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    for mode in [ControlMode::Point, ControlMode::Mouse] {
+        for layout in [KeyboardLayout::CommonLetters, KeyboardLayout::SimpleQwerty] {
+            let config = Config {
+                control_mode: mode,
+                keyboard_layout: layout,
+                ..last_mode()
+            };
+            let mut workflow = Workflow::new(config.point(), screen, 1.0).unwrap();
+            if mode == ControlMode::Mouse {
+                workflow.handle(Action::OpenMouse);
+            }
+            assert_eq!(
+                workflow.handle(Action::OpenKeyboard),
+                Some(Request::OpenKeyboard)
+            );
+            workflow.execution_succeeded();
+            assert_eq!(workflow.keyboard.layout, layout);
+            workflow.keyboard_layout_pending = true;
+            workflow.execution_failed("Cannot save scanning settings.".into());
+            assert_eq!(workflow.keyboard.layout, layout);
+            assert!(!workflow.keyboard.suspended());
+            let next = Config {
+                keyboard_layout: KeyboardLayout::Qwerty,
+                ..config
+            };
+            workflow.apply_config(next.point(), false);
+            assert_eq!(workflow.keyboard.layout, KeyboardLayout::Qwerty);
+            workflow.keyboard_closed();
+            if mode == ControlMode::Mouse {
+                assert_eq!(workflow.phase(), Phase::Workflow(WorkflowPhase::Mouse));
+            }
+        }
+    }
+}
+#[test]
+fn a_point_scan_follows_the_window_only_while_nothing_is_chosen() {
+    let mut s = session(false);
+    s.action(Action::Select);
+    assert!(s.technique.follows_foreground());
+    // Pausing chooses nothing.
+    s.action(Action::Pause);
+    s.action(Action::Pause);
+    assert!(s.technique.follows_foreground());
+    s.action(Action::Select);
+    assert!(!s.technique.follows_foreground());
+    s.action(Action::Select);
+    // The source of a drag was chosen over a window.
+    s.technique.selected(Item::Drag);
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::DragDestination)
+    );
+    assert!(!s.technique.follows_foreground());
+    // A scan restarted by a change of mode has nothing chosen in it.
+    s.technique.apply_config(last_mode().point(), true);
+    assert!(s.technique.follows_foreground());
+}
+#[test]
+fn a_keyboard_that_fails_to_open_from_the_mouse_panel_returns_to_it() {
+    let mut s = session(false);
+    open(&mut s);
+    assert_ne!(s.technique.source, (0, 0));
+    assert_eq!(
+        s.technique.selected(Item::MousePanel),
+        Some(Request::OpenMouse)
+    );
+    // The point chosen before is not kept.
+    assert_eq!(s.technique.source, (0, 0));
+    assert_eq!(
+        s.technique.mouse_key(crate::scan_mouse::Key::Keyboard),
+        Some(Request::OpenKeyboard)
+    );
+    s.technique.execution_failed("Cleanup failed".into());
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::MouseSuspended)
+    );
+    assert!(!s.technique.return_to_mouse);
+    assert_eq!(
+        s.frame().label.map(|label| label.text).as_deref(),
+        Some("Mouse action failed · Select to resume")
+    );
+}
+#[test]
+fn another_window_in_front_takes_the_suggestions_and_nothing_else() {
+    let mut s = session(false);
+    s.action(Action::OpenKeyboard);
+    s.technique.execution_succeeded();
+    let keyboard = &mut s.technique.keyboard;
+    keyboard.modifiers[1] = crate::scan_keyboard::Modifier::Locked;
+    keyboard.caps = true;
+    keyboard.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 7,
+            words: crate::prediction::slots(vec!["water".to_owned()]),
+        }),
+        false,
+    );
+    s.action(Action::Next);
+    s.action(Action::Next);
+    s.action(Action::Select);
+    s.action(Action::Next);
+    let selected = |s: &Session<Workflow>| {
+        let tiles = s.frame().tiles;
+        let selected: Vec<_> = tiles.into_iter().filter(|t| t.selected).collect();
+        assert_eq!(selected.len(), 1);
+        selected[0].text.clone()
+    };
+    let key = selected(&s);
+    s.technique.typing_moved();
+    assert!(s.technique.keyboard_open());
+    assert_eq!(
+        s.technique.keyboard.modifiers[1],
+        crate::scan_keyboard::Modifier::Locked
+    );
+    assert!(s.technique.keyboard.caps);
+    assert_eq!(selected(&s), key);
+    assert!(!s.frame().tiles.iter().any(|t| t.text == "water"));
+    // The keyboard follows its display without closing.
+    let area = Rect {
+        x: 1920.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 680.0,
+    };
+    let before = s.frame().tiles[0].rect;
+    s.technique.set_keyboard_display(area, area, 1.0);
+    assert!(s.technique.keyboard_open());
+    assert_eq!(selected(&s), key);
+    let after = s.frame().tiles[0].rect;
+    assert_ne!(after, before);
+    assert!(after.x >= area.x && after.y + after.height <= area.y + area.height);
+}
+#[test]
+fn keyboard_opening_waits_for_cleanup_and_failure_stays_in_menu() {
+    let mut s = session(false);
+    let w = &mut s.technique;
+    w.source = (120, 230);
+    assert_eq!(w.selected(Item::Keyboard), Some(Request::OpenKeyboard));
+    assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::KeyboardOpening));
+    assert!(w.handle(Action::Select).is_none());
+    w.execution_failed("Cleanup failed".into());
+    assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::MenuSuspended));
+    w.error = None;
+    assert_eq!(w.selected(Item::Keyboard), Some(Request::OpenKeyboard));
+    w.execution_succeeded();
+    assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::Keyboard));
+    w.keyboard.modifiers[0] = crate::scan_keyboard::Modifier::Locked;
+    w.keyboard.caps = true;
+    w.execution_failed("Do not expose provider details".into());
+    assert_eq!(w.phase(), Phase::Workflow(WorkflowPhase::KeyboardSuspended));
+    assert_eq!(
+        w.keyboard.modifiers,
+        [crate::scan_keyboard::Modifier::Off; 4]
+    );
+    w.reset();
+    assert!(!w.keyboard.caps);
+    assert!(w.frame().tiles.is_empty());
+}
+#[test]
+fn typing_wait_survives_pause_hold_and_predictions_but_not_stop_or_config_reset() {
+    let mut s = session(true);
+    let config = Config {
+        keyboard_wait_after_typing: true,
+        block_interval_ms: 250,
+        ..last_mode()
+    };
+    s.technique.apply_config(config.point(), false);
+    s.action(Action::Select);
+    s.technique.selected(Item::Keyboard);
+    s.technique.execution_succeeded();
+    // The saved choice also waits when the keyboard opens.
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+    );
+    assert!(s.action(Action::Select).is_none());
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Keyboard)
+    );
+    assert!(s.action(Action::Select).is_none());
+    assert!(matches!(
+        s.action(Action::Select),
+        Some(Request::Keyboard(_))
+    ));
+    s.technique.execution_succeeded();
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+    );
+    let waiting = s.frame();
+    s.action(Action::Pause);
+    s.tick(250, false);
+    s.action(Action::Pause);
+    s.tick(250, true);
+    s.tick(250, false);
+    assert_eq!(s.frame(), waiting);
+    assert!(s.action(Action::Select).is_none());
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Keyboard)
+    );
+    let resumed = s.frame();
+    s.tick(249, false);
+    assert_eq!(s.frame(), resumed);
+    s.tick(1, false);
+    assert_ne!(s.frame(), resumed);
+    s.action(Action::Stop);
+    assert!(!s.active());
+    s.technique.execution_succeeded();
+    assert_eq!(s.technique.phase(), Phase::default());
+    s.technique.apply_config(config.point(), true);
+    s.technique.selected(Item::Keyboard);
+    s.technique.execution_succeeded();
+    // Only the wait to start scanning the newly opened keyboard.
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::KeyboardSuspended)
+    );
+    let frame = s.technique.frame();
+    assert!(frame.label.is_none(), "the wait is not written out");
+    assert!(frame.tiles.iter().all(|tile| !tile.selected));
+}
+fn keyboard_session(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
+    let config = Config {
+        automatic: false,
+        mouse_repeat_stop_edge: edge,
+        ..last_mode()
+    };
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let mut s = Session::new(Workflow::new(config.point(), screen, 1.0).unwrap(), false);
+    assert_eq!(s.action(Action::OpenKeyboard), Some(Request::OpenKeyboard));
+    s.technique.execution_succeeded();
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Keyboard)
+    );
+    s.technique.set_key_repeat_settings(true, 250, 500);
+    s
+}
+fn typed(request: Option<Request>, name: &'static str) -> bool {
+    matches!(
+        request,
+        Some(Request::Keyboard(stroke))
+            if stroke.key == crate::scan_keyboard::Key::Named(name)
+    )
+}
+/// Chooses Backspace and lets the first press succeed.
+fn repeating_backspace(edge: crate::point_scan::MouseRepeatStopEdge) -> Session<Workflow> {
+    let mut s = keyboard_session(edge);
+    let request = s
+        .technique
+        .choose_key(crate::scan_keyboard::Key::Named("Backspace"));
+    assert!(typed(request, "Backspace"));
+    // Nothing repeats until the first press has been typed.
+    assert!(!s.technique.mouse_repeating());
+    s.technique.execution_succeeded();
+    assert!(s.technique.mouse_repeating());
+    s
+}
+#[test]
+fn chosen_navigation_keys_repeat_until_a_switch_stops_them() {
+    use crate::point_scan::MouseRepeatStopEdge::{Press, Release};
+    for edge in [Press, Release] {
+        let mut s = repeating_backspace(edge);
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::KeyboardRepeating)
+        );
+        assert_eq!(s.technique.mouse_repeat_stop_edge(), edge);
+        let frame = s.frame();
+        assert!(frame.tiles.iter().all(|tile| !tile.selected));
+        assert!(frame.label.is_none());
+        let repeating: Vec<_> = frame
+            .tiles
+            .iter()
+            .filter(|tile| tile.text.ends_with("\nRepeating"))
+            .collect();
+        assert_eq!(repeating.len(), 1);
+        assert_eq!(repeating[0].text, "\u{232B}\nRepeating");
+        assert!(repeating[0].style.unwrap().active);
+
+        s.tick(250, false);
+        s.tick(249, false);
+        assert!(s.take_selection().is_none());
+        s.tick(1, false);
+        assert!(typed(s.take_selection(), "Backspace"));
+        s.technique.execution_succeeded();
+        assert!(s.technique.mouse_repeating());
+        s.tick(249, false);
+        assert!(s.take_selection().is_none());
+        s.tick(1, false);
+        assert!(typed(s.take_selection(), "Backspace"));
+        s.technique.execution_succeeded();
+
+        assert!(s.technique.stop_mouse_repeat());
+        assert!(s
+            .frame()
+            .tiles
+            .iter()
+            .all(|tile| !tile.text.ends_with("\nRepeating")));
+        assert!(!s.technique.stop_mouse_repeat());
+        assert_eq!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::Keyboard)
+        );
+        for _ in 0..4 {
+            s.tick(250, false);
+            assert!(s.take_selection().is_none());
+        }
+        assert!(!s.technique.mouse_repeating());
+    }
+}
+#[test]
+fn every_navigation_key_repeats_but_text_enter_and_other_keys_never_do() {
+    use crate::scan_keyboard::Key;
+    for name in [
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Tab",
+        "Backspace",
+        "Delete",
+        "PageUp",
+        "PageDown",
+    ] {
+        let mut s = keyboard_session(Default::default());
+        if name != "Backspace" {
+            s.technique
+                .choose_key(Key::Page(crate::scan_keyboard::Page::Functions));
+        }
+        assert!(typed(s.technique.choose_key(Key::Named(name)), name));
+        assert!(s
+            .frame()
+            .tiles
+            .iter()
+            .all(|tile| !tile.text.ends_with("\nRepeating")));
+        s.technique.execution_succeeded();
+        assert!(s.technique.mouse_repeating(), "{name}");
+        let frame = s.frame();
+        assert!(frame.label.is_none(), "{name}");
+        assert!(frame.tiles.iter().all(|tile| !tile.selected), "{name}");
+        let repeating: Vec<_> = frame
+            .tiles
+            .iter()
+            .filter(|tile| tile.text.ends_with("\nRepeating"))
+            .collect();
+        assert_eq!(repeating.len(), 1, "{name}");
+        assert!(repeating[0].style.unwrap().active, "{name}");
+    }
+    for key in [
+        Key::Named("Enter"),
+        Key::Named("Escape"),
+        Key::Named("Home"),
+        Key::Named("End"),
+        Key::Named("F5"),
+        Key::Character('a', 'A'),
+        Key::Character(' ', ' '),
+    ] {
+        let mut s = keyboard_session(Default::default());
+        assert!(matches!(
+            s.technique.choose_key(key),
+            Some(Request::Keyboard(_))
+        ));
+        s.technique.execution_succeeded();
+        assert!(!s.technique.mouse_repeating(), "{key:?}");
+        for _ in 0..8 {
+            s.tick(250, false);
+            assert!(s.take_selection().is_none(), "{key:?}");
+        }
+    }
+
+    // Turned off, a navigation key is typed once as before.
+    let mut s = keyboard_session(Default::default());
+    s.technique.set_key_repeat_settings(false, 250, 500);
+    assert!(typed(
+        s.technique.choose_key(Key::Named("ArrowDown")),
+        "ArrowDown"
+    ));
+    s.technique.execution_succeeded();
+    assert!(!s.technique.mouse_repeating());
+    for _ in 0..8 {
+        s.tick(250, false);
+        assert!(s.take_selection().is_none());
+    }
+
+    // A first press that fails never starts repeating.
+    let mut s = keyboard_session(Default::default());
+    s.technique.choose_key(Key::Named("Delete"));
+    s.execution_failed("Input failed.".into());
+    assert!(!s.technique.mouse_repeating());
+    for _ in 0..8 {
+        s.tick(250, false);
+        assert!(s.take_selection().is_none());
+    }
+}
+#[test]
+fn shift_and_ctrl_repeat_with_the_key_but_window_shortcuts_never_do() {
+    use crate::scan_keyboard::Key;
+    let mut s = keyboard_session(Default::default());
+    assert_eq!(s.technique.choose_key(Key::Modifier(0)), None);
+    assert!(matches!(
+        s.technique.choose_key(Key::Named("ArrowLeft")),
+        Some(Request::Keyboard(stroke)) if stroke.modifiers == [true, false, false, false]
+    ));
+    s.technique.execution_succeeded();
+    assert!(s.technique.mouse_repeating());
+    assert!(s.frame().label.is_none());
+    // The one-shot Shift goes with every repeated press.
+    s.tick(250, false);
+    s.tick(250, false);
+    assert!(matches!(
+        s.take_selection(),
+        Some(Request::Keyboard(stroke)) if stroke.modifiers[0]
+    ));
+
+    for modifier in [2, 3] {
+        let mut s = keyboard_session(Default::default());
+        assert_eq!(s.technique.choose_key(Key::Modifier(modifier)), None);
+        assert!(typed(
+            s.technique.choose_key(Key::Named("ArrowRight")),
+            "ArrowRight"
+        ));
+        s.technique.execution_succeeded();
+        assert!(!s.technique.mouse_repeating(), "{modifier}");
+    }
+}
+#[test]
+fn a_key_repeat_ends_with_failure_settings_pause_window_and_scanning_changes() {
+    for reason in [
+        "failure", "off", "timing", "pause", "window", "select", "stop", "reset", "mouse", "config",
+    ] {
+        let mut s = repeating_backspace(Default::default());
+        s.tick(250, false);
+        s.tick(250, false);
+        assert!(s.take_selection().is_some());
+        s.technique.execution_succeeded();
+        match reason {
+            "failure" => s.execution_failed("Input failed.".into()),
+            "off" => s.technique.set_key_repeat_settings(false, 250, 500),
+            "timing" => s.technique.set_key_repeat_settings(true, 100, 500),
+            "pause" => assert!(s.action(Action::Pause).is_none()),
+            "window" => s.technique.typing_moved(),
+            "select" => assert!(s.action(Action::Select).is_none()),
+            "stop" => assert!(s.action(Action::Stop).is_none()),
+            "reset" => s.reset(),
+            "mouse" => assert!(s.action(Action::OpenMouse).is_some()),
+            _ => s.technique.apply_config(last_mode().point(), true),
+        }
+        s.tick(250, false);
+        assert!(!s.technique.mouse_repeating(), "{reason}");
+        assert!(
+            s.frame()
+                .tiles
+                .iter()
+                .all(|tile| !tile.text.ends_with("\nRepeating")),
+            "{reason}"
+        );
+        assert_ne!(
+            s.technique.phase(),
+            Phase::Workflow(WorkflowPhase::KeyboardRepeating),
+            "{reason}"
+        );
+        for _ in 0..8 {
+            s.tick(250, false);
+            assert!(s.take_selection().is_none(), "{reason}");
+        }
+    }
+    // The same settings arriving again leave the repeat running.
+    let mut s = repeating_backspace(Default::default());
+    s.technique.set_key_repeat_settings(true, 250, 500);
+    assert!(s.technique.mouse_repeating());
+}
+fn open(s: &mut Session<Workflow>) {
+    for _ in 0..3 {
+        assert_eq!(s.action(Action::Select), None);
+    }
+    assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+}
+#[test]
+fn a_chosen_point_is_marked_by_a_crosshair_that_stays_on_screen() {
+    let mut s = session(false);
+    open(&mut s);
+    s.technique.source = (-500, 400);
+    let rect = |x, y, width, height| Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    // The menu draws no strips of its own, so these are the whole marker.
+    assert_eq!(
+        s.technique.frame().strips,
+        vec![
+            rect(-516.0, 399.0, 12.0, 2.0),
+            rect(-496.0, 399.0, 12.0, 2.0),
+            rect(-501.0, 384.0, 2.0, 12.0),
+            rect(-501.0, 404.0, 2.0, 12.0),
+        ]
+    );
+    // At the top-left corner only the arms pointing into the screen are
+    // drawn, at full thickness along its edges.
+    s.technique.source = (-1000, 20);
+    assert_eq!(
+        s.technique.frame().strips,
+        vec![
+            rect(-996.0, 20.0, 12.0, 2.0),
+            rect(-1000.0, 24.0, 2.0, 12.0)
+        ]
+    );
+    // Home marks no point.
+    s.technique.selected(Item::Home);
+    assert!(s.technique.frame().strips.is_empty());
+}
+fn choose(s: &mut Session<Workflow>, row: usize, column: usize) -> Option<Request> {
+    for _ in 0..row {
+        s.action(Action::Next);
+    }
+    s.action(Action::Select);
+    for _ in 0..column {
+        s.action(Action::Next);
+    }
+    s.action(Action::Select)
+}
+#[test]
+fn closing_every_page_clears_nested_workflow_and_waits_for_a_new_select() {
+    for automatic in [false, true] {
+        for kind in crate::scan_menu::ALL_MENU_KINDS {
+            let mut s = session(automatic);
+            open(&mut s);
+            s.technique.selected(Item::Group(Kind::Mouse));
+            s.technique.selected(Item::Group(Kind::Browser));
+            s.technique.open(kind);
+            s.technique.destination = (40, 50);
+            s.technique.elapsed = 123;
+            s.technique.pending = Some(default_click((10, 20)));
+            let keys: Vec<_> = s
+                .frame()
+                .tiles
+                .into_iter()
+                .filter(|tile| {
+                    tile.style.is_some_and(|style| {
+                        !matches!(
+                            style.role,
+                            crate::scanning::TileRole::Panel
+                                | crate::scanning::TileRole::MenuBar
+                                | crate::scanning::TileRole::Title
+                        )
+                    })
+                })
+                .collect();
+            let first = keys.first().expect("menu actions");
+            let rows = keys
+                .iter()
+                .filter(|tile| tile.rect.x == first.rect.x)
+                .count();
+            // The power confirmation pages keep Close menu in the third column.
+            let close = if matches!(kind, Kind::ShutDown | Kind::Restart) {
+                2
+            } else {
+                1
+            };
+            assert_eq!(choose(&mut s, rows - 1, close), None, "{kind:?}");
+            assert!(!s.active());
+            assert!(s.technique.stage == Stage::Idle);
+            assert!(s.technique.parent_menu.is_empty());
+            assert!(s.technique.pending.is_none());
+            assert_eq!(s.technique.source, (0, 0));
+            assert_eq!(s.technique.destination, (0, 0));
+            assert_eq!(s.technique.elapsed, 0);
+            assert!(s.frame().tiles.is_empty());
+            s.tick(5000, false);
+            assert_eq!(s.take_selection(), None);
+            assert!(!s.active());
+            assert_eq!(s.action(Action::Select), None);
+            assert!(s.active());
+            assert!(s.technique.stage == Stage::Point);
+        }
+    }
+}
+fn auto_session(
+    mode: crate::point_scan::Mode,
+    automatic: bool,
+) -> crate::scanning::Session<Workflow> {
+    let config = crate::point_scan::Config {
+        mode,
+        automatic,
+        auto_select_enabled: true,
+        ..last_mode()
+    };
+    let workflow = Workflow::new(
+        config.point(),
+        Rect {
+            x: -1000.0,
+            y: -100.0,
+            width: 800.0,
+            height: 600.0,
+        },
+        1.0,
+    )
+    .unwrap();
+    let mut session = crate::scanning::Session::new(workflow, automatic);
+    let presses = if mode == crate::point_scan::Mode::Grid {
+        5
+    } else {
+        3
+    };
+    for _ in 0..presses {
+        assert_eq!(session.action(Action::Select), None);
+    }
+    assert!(session.technique.auto_selecting());
+    session
+}
+fn advance_auto(session: &mut crate::scanning::Session<Workflow>, duration: u64, held: bool) {
+    for _ in 0..duration / 100 {
+        session.tick(100, held);
+    }
+    session.tick(duration % 100, held);
+}
+#[test]
+fn auto_click_runs_once_in_every_scan_mode_and_then_waits() {
+    for mode in [crate::point_scan::Mode::Line, crate::point_scan::Mode::Grid] {
+        for automatic in [false, true] {
+            let mut session = auto_session(mode, automatic);
+            let target = session.technique.source;
+            advance_auto(&mut session, 999, false);
+            assert_eq!(session.take_selection(), None);
+            assert_eq!(session.frame().countdown.as_ref().unwrap().point, target);
+            session.tick(1, false);
+            assert_eq!(session.take_selection(), Some(default_click(target)));
+            assert!(!session.active());
+            advance_auto(&mut session, 2000, false);
+            assert_eq!(session.take_selection(), None);
+            assert!(session.frame().countdown.is_none());
+        }
+    }
+}
+#[test]
+fn held_switch_and_pause_freeze_countdown_and_menu_consumes_selection() {
+    let mut session = auto_session(crate::point_scan::Mode::Line, false);
+    advance_auto(&mut session, 900, false);
+    advance_auto(&mut session, 2000, true);
+    assert_eq!(session.frame().countdown.unwrap().permille, 900);
+    session.action(Action::Pause);
+    advance_auto(&mut session, 2000, false);
+    assert_eq!(session.frame().countdown.unwrap().permille, 900);
+    session.action(Action::Pause);
+    assert_eq!(session.action(Action::Select), None);
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Menu)
+    );
+    advance_auto(&mut session, 2000, false);
+    assert_eq!(session.take_selection(), None);
+    assert!(!session.frame().tiles.is_empty());
+}
+#[test]
+fn pause_resumes_remaining_time_and_reset_discards_even_pending_click() {
+    let mut session = auto_session(crate::point_scan::Mode::Line, true);
+    advance_auto(&mut session, 900, false);
+    session.action(Action::Pause);
+    advance_auto(&mut session, 500, false);
+    session.action(Action::Pause);
+    advance_auto(&mut session, 99, false);
+    assert_eq!(session.take_selection(), None);
+    session.tick(1, false);
+    session.reset();
+    assert_eq!(session.take_selection(), None);
+    for action in [Action::Cancel, Action::Stop] {
+        let mut session = auto_session(crate::point_scan::Mode::Line, false);
+        session.action(action);
+        advance_auto(&mut session, 2000, false);
+        assert_eq!(session.take_selection(), None);
+    }
+}
+#[test]
+fn config_changes_cancel_countdown_and_auto_click_errors_offer_menu_return() {
+    let mut session = auto_session(crate::point_scan::Mode::Line, false);
+    let config = session.technique.point.config.clone();
+    session.technique.apply_config(config, false);
+    advance_auto(&mut session, 2000, false);
+    assert_eq!(session.take_selection(), None);
+    let mut session = auto_session(crate::point_scan::Mode::Line, false);
+    advance_auto(&mut session, 1000, false);
+    assert!(session.take_selection().is_some());
+    session.execution_failed("Cleanup failed".into());
+    let frame = session.frame();
+    assert!(frame.label.unwrap().text.starts_with("Cleanup failed"));
+    assert_eq!(session.action(Action::Select), None);
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::Menu)
+    );
+    assert_eq!(session.take_selection(), None);
+}
+#[test]
+fn auto_selection_excludes_drag_destinations() {
+    let mut session = auto_session(crate::point_scan::Mode::Line, false);
+    session.action(Action::Select);
+    session.technique.selected(Item::Drag);
+    session.action(Action::Select);
+    session.action(Action::Select);
+    assert_eq!(
+        session.technique.phase(),
+        Phase::Workflow(WorkflowPhase::DragConfirmation)
+    );
+    assert!(session.frame().countdown.is_none());
+}
+#[test]
+fn countdown_artwork_has_transparent_center_and_growing_colour() {
+    let mut countdown = crate::scanning::Countdown {
+        point: (-200, 50),
+        scale: 2.0,
+        permille: 100,
+        color: crate::scanning::ScannerColor::Green,
+    };
+    let early = countdown.bitmap(2.0).unwrap();
+    countdown.permille = 900;
+    let late = countdown.bitmap(2.0).unwrap();
+    assert_eq!(late.pixel(128, 128).unwrap().alpha(), 0);
+    let alpha = |p: &tiny_skia::Pixmap| p.pixels().iter().map(|p| p.alpha() as u64).sum::<u64>();
+    assert!(alpha(&late) > alpha(&early));
+    let rect = countdown.rect();
+    assert_eq!(rect.x + rect.width / 2.0, -200.0);
+    assert_eq!(rect.y + rect.height / 2.0, 50.0);
+}
+
+#[test]
+fn nested_back_restores_parent_and_pause_resumes_without_selection() {
+    let mut w = Workflow::new(
+        last_mode().point(),
+        Rect {
+            x: 0.,
+            y: 0.,
+            width: 1280.,
+            height: 720.,
+        },
+        1.,
+    )
+    .unwrap();
+    w.source = (120, 80);
+    w.stage = Stage::Menu;
+    w.selected(Item::Group(Kind::Mouse));
+    w.selected(Item::Group(Kind::Browser));
+    w.selected(Item::Group(Kind::Tabs));
+    assert_eq!(w.parent_menu.len(), 3);
+    w.selected(Item::Back);
+    assert_eq!(w.menu.kind, Kind::Browser);
+    w.selected(Item::Back);
+    assert_eq!(w.menu.kind, Kind::Mouse);
+    w.selected(Item::Pause);
+    let frame = w.frame();
+    w.advance(5000);
+    assert_eq!(w.frame(), frame);
+    assert!(w.handle(Action::Select).is_none());
+    assert!(!w.menu.suspended());
+    assert_eq!(w.source, (120, 80));
+}
+#[test]
+fn menu_errors_stay_clear_of_the_panel_inside_the_work_area() {
+    use crate::{scan_panel::Dock, scan_preferences::PanelSize};
+    let message = "Release modifiers and end switch forwarding before selecting an action.";
+    let display = |x: f64, y: f64, width: f64, height: f64, scale: f64| {
+        (
+            Rect {
+                x,
+                y,
+                width: width * scale,
+                height: height * scale,
+            },
+            scale,
+        )
+    };
+    let mut moved = 0;
+    for (screen, scale) in [
+        display(-1920.0, -200.0, 1280.0, 720.0, 1.5),
+        display(0.0, 0.0, 1280.0, 720.0, 1.0),
+        display(0.0, 0.0, 1280.0, 720.0, 2.0),
+        display(0.0, 0.0, 1366.0, 768.0, 1.0),
+        display(0.0, 0.0, 1920.0, 1080.0, 1.0),
+    ] {
+        // A taskbar along the bottom.
+        let area = Rect {
+            height: screen.height - 48.0 * scale,
+            ..screen
+        };
+        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+            for dock in crate::scan_panel::position_rows(|dock| dock, Dock::default())[..3]
+                .iter()
+                .flatten()
+                .copied()
+            {
+                for pointer in [false, true] {
+                    let mut config = Config {
+                        panel_avoids_pointer: true,
+                        ..last_mode()
+                    };
+                    config.scan_preferences.panel_size = size;
+                    let mut w = Workflow::new(config.point(), screen, scale).unwrap();
+                    w.set_keyboard_area(area);
+                    w.set_dock(dock);
+                    w.stage = Stage::Menu;
+                    w.execution_failed(message.into());
+                    let docked = w.frame().tiles[0].rect;
+                    if pointer {
+                        // Over the docked panel, which then moves out of the way.
+                        w.set_pointer(Some((docked.x + 1.0, docked.y + docked.height / 2.0)));
+                        if w.moved.is_some() {
+                            moved += 1;
+                            assert_ne!(w.frame().tiles[0].rect, docked);
+                        }
+                    }
+                    let frame = w.frame();
+                    let panel = frame.tiles[0].rect;
+                    let label = frame.label.unwrap();
+                    let rect = label.rect;
+                    let case = format!("{screen:?} {size:?} {dock:?} pointer {pointer}");
+                    assert!(
+                        rect.y >= area.y - 0.001
+                            && rect.y + rect.height <= area.y + area.height + 0.001,
+                        "{case}"
+                    );
+                    assert!(
+                        rect.x >= area.x - 0.001
+                            && rect.x + rect.width <= area.x + area.width + 0.001,
+                        "{case}"
+                    );
+                    // Every one of these displays has room beside or around the panel.
+                    let apart = rect.y + rect.height <= panel.y + 0.001
+                        || rect.y >= panel.y + panel.height - 0.001
+                        || rect.x + rect.width <= panel.x + 0.001
+                        || rect.x >= panel.x + panel.width - 0.001;
+                    assert!(apart, "{case}: {rect:?} over {panel:?}");
+                    assert!(rect.width >= 240.0 * scale - 0.001, "{case}");
+                    assert_eq!(label.hud.unwrap().screen, screen);
+                }
+            }
+        }
+    }
+    assert!(moved > 0, "some panels moved away from the pointer");
+    // An empty message still says what happened.
+    let mut w = Workflow::new(
+        last_mode().point(),
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        },
+        1.0,
+    )
+    .unwrap();
+    w.stage = Stage::Menu;
+    w.execution_failed(String::new());
+    assert_eq!(
+        w.frame().label.unwrap().text,
+        "Action failed.\nSelect to return"
+    );
+}
+#[test]
+fn command_failure_preserves_point_and_requires_acknowledgement() {
+    let mut w = Workflow::new(
+        last_mode().point(),
+        Rect {
+            x: 0.,
+            y: 0.,
+            width: 1280.,
+            height: 720.,
+        },
+        1.,
+    )
+    .unwrap();
+    w.source = (120, 80);
+    w.stage = Stage::Menu;
+    assert!(matches!(
+        w.selected(Item::Command(crate::scan_menu::Command::Copy)),
+        Some(Request::Command { .. })
+    ));
+    w.point.config.menu_scan.panel_size = crate::scan_preferences::PanelSize::Small;
+    // The longest messages an action can fail with.
+    for message in [
+        "Release modifiers and end switch forwarding before selecting an action.",
+        "Typing with the keyboard. Resume switch control in Switches when finished.",
+    ] {
+        for dock in [
+            crate::scan_panel::Dock { column: 1, row: 0 },
+            crate::scan_panel::Dock::default(),
+        ] {
+            w.set_dock(dock);
+            w.stage = Stage::Menu;
+            w.execution_failed(message.into());
+            // The message is shown clear of the panel, which has no status line.
+            let frame = w.frame();
+            assert!(frame.tiles.iter().all(|tile| !tile.selected));
+            let label = frame.label.unwrap();
+            assert_eq!(label.text, format!("{message}\nSelect to return"));
+            assert!(label.hud.is_some());
+            let panel = frame.tiles[0].rect;
+            assert!(
+                label.rect.y + label.rect.height <= panel.y
+                    || label.rect.y >= panel.y + panel.height,
+                "{dock:?}"
+            );
+            assert!(label.rect.y >= 0.0 && label.rect.y + label.rect.height <= 720.0);
+            assert!(w.handle(Action::Select).is_none());
+            assert!(w.frame().label.is_none());
+        }
+    }
+    assert_eq!(w.selected(Item::LeftClick), Some(default_click((120, 80))));
+}
+#[test]
+fn scanner_colour_follows_action_scroll_and_drag_menus() {
+    use crate::scanning::ScannerColor::*;
+    for color in [Red, Green, Blue, Yellow] {
+        let mut s = session(false);
+        s.technique.point.config.scanner_color = color;
+        s.technique.point.config.scan.color = color;
+        s.technique.point.config.menu_scan.color = color;
+        s.technique.point.config.keyboard_scan.color = color;
+        open(&mut s);
+        for kind in [Kind::Actions, Kind::Scroll, Kind::ConfirmDrag] {
+            s.technique.open(kind);
+            let frame = s.frame();
+            assert_eq!(frame.color, color);
+            assert!(!frame.tiles.is_empty());
+            assert!(frame.tiles.iter().all(|tile| tile.color == color));
+        }
+    }
+}
+#[test]
+fn point_selection_never_clicks_and_menu_clicks_complete_once() {
+    for (column, right, count) in [(0, false, 1), (1, true, 1), (2, false, 2)] {
+        let mut s = session(false);
+        open(&mut s);
+        // The background, the title and Settings, and eleven actions.
+        assert_eq!(s.frame().tiles.len(), 14);
+        assert_eq!(
+            choose(&mut s, 0, column),
+            Some(Request::Click {
+                point: (-1000, 20),
+                right,
+                count
+            })
+        );
+        assert!(!s.active());
+        assert!(s.frame().tiles.is_empty());
+        assert_eq!(s.take_selection(), None);
+    }
+}
+#[test]
+fn scrolling_retains_direction_and_back_restarts_the_action_menu() {
+    let mut s = session(false);
+    open(&mut s);
+    choose(&mut s, 1, 0);
+    assert_eq!(
+        choose(&mut s, 0, 1),
+        Some(Request::Scroll {
+            point: (-1000, 20),
+            dx: 0,
+            dy: -3
+        })
+    );
+    assert_eq!(
+        s.action(Action::Select),
+        Some(Request::Scroll {
+            point: (-1000, 20),
+            dx: 0,
+            dy: -3
+        })
+    );
+    s.action(Action::Next);
+    s.action(Action::Select);
+    s.action(Action::Next);
+    s.action(Action::Next);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    // Back scans Actions from the top again, so Scroll takes the same
+    // moves as the first time rather than continuing from the old row.
+    assert_eq!(choose(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Scroll);
+}
+#[test]
+fn drag_waits_for_confirmation_and_ticks_in_manual_mode() {
+    let mut s = session(false);
+    open(&mut s);
+    assert_eq!(choose(&mut s, 1, 1), None);
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::DragDestination)
+    );
+    s.action(Action::Next);
+    s.action(Action::Select);
+    s.action(Action::Next);
+    s.action(Action::Select);
+    assert_eq!(s.take_selection(), None);
+    assert_eq!(choose(&mut s, 0, 0), Some(Request::DragStart((-1000, 20))));
+    assert_eq!(s.action(Action::Select), None);
+    s.tick(150, true);
+    assert!(matches!(s.take_selection(), Some(Request::DragMove(_))));
+    s.tick(150, false);
+    assert!(matches!(s.take_selection(), Some(Request::DragEnd(_))));
+    assert!(!s.active());
+    assert!(s.frame().strips.is_empty());
+}
+#[test]
+fn cancellation_discards_pending_drag_output() {
+    let mut s = session(false);
+    open(&mut s);
+    choose(&mut s, 1, 1);
+    s.action(Action::Select);
+    s.action(Action::Select);
+    choose(&mut s, 0, 0);
+    s.tick(33, false);
+    s.action(Action::Cancel);
+    assert_eq!(s.take_selection(), None);
+    assert!(!s.active());
+    assert!(s.frame().tiles.is_empty());
+    assert!(s.frame().label.is_none());
+}
+#[test]
+fn automatic_menu_pauses_preserving_target_and_select_only_resumes() {
+    let mut s = session(true);
+    open(&mut s);
+    for _ in 0..12 {
+        s.tick(250, false);
+        s.take_selection();
+    }
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::MenuSuspended)
+    );
+    assert!(!s.frame().tiles.is_empty());
+    assert_eq!(s.action(Action::Select), None);
+    assert_eq!(s.technique.phase(), Phase::Workflow(WorkflowPhase::Menu));
+    assert_eq!(choose(&mut s, 0, 0), Some(default_click((-1000, 20))));
+}
+#[test]
+fn existing_phase_strings_are_preserved() {
+    assert_eq!(
+        serde_json::to_value(Phase::Point(crate::point_scan::Phase::RowEscape)).unwrap(),
+        "rowEscape"
+    );
+    assert_eq!(
+        serde_json::to_value(Phase::Workflow(WorkflowPhase::MenuSuspended)).unwrap(),
+        "menuSuspended"
+    );
+}
+#[test]
+fn confirmed_drag_clears_pause_and_cannot_be_paused_with_button_held() {
+    let mut s = session(true);
+    open(&mut s);
+    choose(&mut s, 1, 1);
+    s.action(Action::Select);
+    s.action(Action::Select);
+    s.action(Action::Pause);
+    assert!(s.paused());
+    assert!(matches!(choose(&mut s, 0, 0), Some(Request::DragStart(_))));
+    assert!(!s.paused());
+    s.action(Action::Pause);
+    assert!(!s.paused());
+    s.tick(250, false);
+    s.take_selection();
+    s.tick(50, false);
+    assert!(matches!(s.take_selection(), Some(Request::DragEnd(_))));
+}
+#[test]
+fn point_reselection_cancel_and_drag_confirmation_back_paths() {
+    let mut s = session(false);
+    open(&mut s);
+    assert_eq!(choose(&mut s, 3, 0), None);
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Point(crate::point_scan::Phase::X)
+    );
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(choose(&mut s, 3, 1), None);
+    assert!(!s.active());
+    open(&mut s);
+    choose(&mut s, 1, 1);
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(choose(&mut s, 0, 1), None);
+    assert_eq!(
+        s.technique.phase(),
+        Phase::Workflow(WorkflowPhase::DragDestination)
+    );
+    s.action(Action::Select);
+    s.action(Action::Select);
+    assert_eq!(choose(&mut s, 1, 0), None);
+    assert_eq!(s.technique.menu.kind, Kind::Actions);
+    assert_eq!(s.take_selection(), None);
+}
+#[test]
+fn session_uses_each_areas_automatic_setting_without_ignoring_pause_or_hold() {
+    use crate::scan_preferences::Area;
+    let mut config = crate::point_scan::Config {
+        automatic: false,
+        ..last_mode()
+    };
+    config.scan_preferences.menu.automatic = Some(true);
+    config.scan_preferences.menu.interval_ms = Some(250);
+    config.scan_preferences.keyboard.automatic = Some(false);
+    let mut s = session(false);
+    s.technique.apply_config(config.point(), false);
+    s.action(Action::Select);
+    let initial = s.frame();
+    s.tick(250, false);
+    assert_eq!(s.frame(), initial);
+    s.action(Action::Select);
+    s.action(Action::Select);
+    let menu = s.frame();
+    s.tick(250, true);
+    assert_eq!(s.frame(), menu);
+    s.action(Action::Pause);
+    s.tick(250, false);
+    assert_eq!(s.frame(), menu);
+    s.action(Action::Pause);
+    s.tick(250, false);
+    assert_ne!(s.frame(), menu);
+    assert!(config.resolved(Area::Menu).automatic);
+    s.technique.stage = Stage::Keyboard;
+    let keyboard = s.frame();
+    s.tick(250, false);
+    assert_eq!(s.frame(), keyboard);
+}

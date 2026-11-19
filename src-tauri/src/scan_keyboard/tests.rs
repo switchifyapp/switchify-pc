@@ -1,0 +1,1960 @@
+use super::*;
+
+#[test]
+fn refinement_keeps_visible_words_and_selection_stable() {
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            token: 1,
+            refined: false,
+            words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
+        }),
+        false,
+    );
+    k.restart();
+    assert!(k.prediction_row_active());
+    let position = k.scan.position(&k.rows);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            token: 2,
+            refined: true,
+            words: [
+                Some("water".into()),
+                Some("walk".into()),
+                None,
+                Some("walnut".into()),
+                Some("wavy".into()),
+            ],
+        }),
+        false,
+    );
+    assert_eq!(k.displayed_prediction(), Some(1));
+    assert_eq!(
+        k.predictions.as_ref().unwrap().words[0].as_deref().unwrap(),
+        "water"
+    );
+    assert_eq!(k.queued_predictions.as_ref().unwrap().token, 2);
+    assert_eq!(k.scan.position(&k.rows), position);
+}
+#[test]
+fn prediction_slots_skip_internal_gaps_in_both_directions() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for direction in [Direction::Forward, Direction::Reverse] {
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                direction,
+                pattern: Pattern::Linear,
+                pass_limit: 0,
+                ..Default::default()
+            },
+        );
+        k.enable_predictions(true);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                token: 19,
+                refined: true,
+                words: [
+                    Some("one".into()),
+                    None,
+                    Some("three".into()),
+                    None,
+                    Some("five".into()),
+                ],
+            }),
+            false,
+        );
+        k.restart();
+        assert_eq!(k.rows[0].len(), 5);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..k.rows.iter().map(Vec::len).sum::<usize>() * 3 {
+            if let (0, Some(column)) = k.scan.position(&k.rows) {
+                assert!([0, 2, 4].contains(&column));
+                seen.insert(column);
+            }
+            k.handle(Action::Next);
+        }
+        assert_eq!(seen, [0, 2, 4].into_iter().collect());
+        assert!(k.choose(Key::Prediction(1)).is_none());
+        assert!(k.choose(Key::Prediction(3)).is_none());
+        let frame = k.frame(
+            Rect {
+                x: 0.,
+                y: 0.,
+                width: 1920.,
+                height: 1080.,
+            },
+            1.,
+            ScannerColor::default(),
+        );
+        // Every slot is drawn in its own place: the filled ones with
+        // their words, the empty ones as wordless placeholders.
+        let row = &frame.tiles[3..8];
+        assert_eq!(
+            row.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            ["one", "", "three", "", "five"]
+        );
+        assert!(row.iter().all(|t| t.rect.y == row[0].rect.y));
+        assert!(row.iter().filter(|t| t.text.is_empty()).all(|t| t
+            .style
+            .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder)));
+        assert!(frame.tiles[8].rect.y > row[0].rect.y);
+        // All five slots are the same width, evenly spaced.
+        let pitch = row[1].rect.x - row[0].rect.x;
+        for (i, tile) in row.iter().enumerate() {
+            assert!((tile.rect.width - row[0].rect.width).abs() < 0.01);
+            assert!((tile.rect.x - row[0].rect.x - i as f64 * pitch).abs() < 0.01);
+        }
+    }
+}
+
+#[test]
+fn empty_slots_draw_placeholders_and_never_replace_the_scan_prompt() {
+    use crate::scanning::TileRole;
+    let mut keyboard = Keyboard::new(false);
+    keyboard.enable_predictions(true);
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    // Nothing is written across the keyboard while the suggestion row is
+    // empty: no note, no floating message. The reserved slots draw as
+    // wordless placeholders so the row reads as slots and the other keys
+    // never move.
+    let silent = |keyboard: &Keyboard| {
+        let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+        assert!(frame.label.is_none());
+        assert!(frame
+            .tiles
+            .iter()
+            .all(|tile| !tile.text.to_lowercase().contains("suggestion")
+                && !tile.text.starts_with("Prediction")));
+        frame
+    };
+    let placeholders = |keyboard: &Keyboard| {
+        silent(keyboard)
+            .tiles
+            .iter()
+            .filter(|tile| tile.style.is_some_and(|s| s.role == TileRole::Placeholder))
+            .inspect(|tile| assert!(tile.text.is_empty() && !tile.selected))
+            .count()
+    };
+    assert_eq!(placeholders(&keyboard), crate::prediction::SLOTS);
+    let keys = |keyboard: &Keyboard| silent(keyboard).tiles.len();
+    let loading = keys(&keyboard);
+    keyboard.predictions(None, false);
+    assert_eq!(keys(&keyboard), loading);
+    keyboard.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 1,
+            words: Default::default(),
+        }),
+        false,
+    );
+    assert_eq!(keys(&keyboard), loading);
+    keyboard.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 2,
+            words: crate::prediction::slots(vec!["water".to_owned()]),
+        }),
+        false,
+    );
+    let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+    assert!(frame.tiles.iter().any(|tile| tile.text == "water"));
+    assert_eq!(
+        frame.tiles.len(),
+        loading,
+        "one suggestion takes the place of one placeholder"
+    );
+    assert_eq!(placeholders(&keyboard), crate::prediction::SLOTS - 1);
+}
+
+#[test]
+fn retry_tile_restarts_prediction_without_closing_keyboard() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.enable_predictions(true);
+    keyboard.scan.suspended = true;
+    keyboard.predictions(None, true);
+    assert!(keyboard.suspended());
+    assert_eq!(
+        keyboard.rows.last().unwrap().last(),
+        Some(&Key::RetryPrediction)
+    );
+    assert_eq!(
+        keyboard.choose(Key::RetryPrediction),
+        Some(Output::RetryPrediction)
+    );
+    assert!(keyboard.prediction_loading);
+    assert!(!keyboard.prediction_failed);
+    assert!(!keyboard
+        .rows
+        .last()
+        .unwrap()
+        .contains(&Key::RetryPrediction));
+    assert_eq!(keyboard.page, Page::Letters);
+}
+
+fn context(epoch: u64) -> Option<TypingContext> {
+    Some(TypingContext {
+        foreground: 7,
+        activity: epoch,
+    })
+}
+
+#[test]
+fn utility_keys_draw_glyphs_but_keep_readable_names_for_status() {
+    let mut keyboard = Keyboard::new(false);
+    for (key, glyph, name) in [
+        (Key::Named("Backspace"), "\u{232B}", "Backspace"),
+        (Key::Named("Enter"), "\u{21A9}", "Enter"),
+        (Key::Named("Tab"), "\u{21E5}", "Tab"),
+        (Key::Named("Delete"), "\u{2326}", "Delete"),
+        (Key::Modifier(0), "\u{2B06}", "Shift"),
+    ] {
+        assert_eq!(keyboard.display(key), glyph);
+        assert_eq!(keyboard.label(key), name);
+        assert_eq!(
+            Keyboard::LARGE_GLYPHS.contains(&glyph),
+            key != Key::Modifier(0),
+            "only Shift stays at the utility size"
+        );
+    }
+    for arrow in ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
+        let text = keyboard.display(Key::Named(arrow));
+        assert!(Keyboard::LARGE_GLYPHS.contains(&text.as_str()), "{arrow}");
+    }
+    // Modifier state stays under the glyph.
+    keyboard.modifiers[0] = Modifier::Once;
+    assert_eq!(keyboard.display(Key::Modifier(0)), "\u{2B06}\nNext key");
+    // macOS uses the Apple Shift symbol.
+    let mut mac = Keyboard::new(true);
+    assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}");
+    mac.modifiers[0] = Modifier::Locked;
+    assert_eq!(mac.display(Key::Modifier(0)), "\u{21E7}\nLocked");
+    // macOS marks Control, Option and Command with their symbols and a
+    // short word; `label` keeps the full name.
+    for (index, text, name) in [
+        (1, "\u{2303} Ctrl", "Ctrl"),
+        (2, "\u{2325} Opt", "Option"),
+        (3, "\u{2318} Cmd", "Command"),
+    ] {
+        let key = Key::Modifier(index);
+        assert_eq!(mac.display(key), text);
+        assert_eq!(mac.label(key), name);
+        assert!(!Keyboard::LARGE_GLYPHS.contains(&text));
+        mac.modifiers[index] = Modifier::Once;
+        assert_eq!(mac.display(key), format!("{text}\nNext key"));
+        assert_eq!(mac.label(key), format!("{name}\nNext key"));
+    }
+    // Windows keeps the words on its modifier keys.
+    for (index, name) in [(1, "Ctrl"), (2, "Alt"), (3, "Windows")] {
+        assert_eq!(keyboard.display(Key::Modifier(index)), name);
+    }
+    // Keys without a standard symbol keep their words on both platforms.
+    for platform in [&keyboard, &mac] {
+        for key in [
+            Key::Caps,
+            Key::Named("Escape"),
+            Key::Named("Home"),
+            Key::Named("PageUp"),
+            Key::Character(' ', ' '),
+        ] {
+            let text = platform.display(key);
+            assert_eq!(text, platform.label(key));
+            assert!(text.is_ascii(), "{text:?}");
+        }
+    }
+}
+
+#[test]
+fn smart_punctuation_owns_spacing_and_capitalizes_one_letter() {
+    let mut keyboard = Keyboard::new(false);
+    let space = Key::Character(' ', ' ');
+    assert!(matches!(
+        keyboard.choose_with_context(space, context(1)),
+        Some(Output::Stroke(_))
+    ));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.choose_with_context(space, context(1)), None);
+    assert_eq!(
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
+        Some(Output::Punctuation(Punctuation {
+            mark: '.',
+            owned_space: context(1),
+        }))
+    );
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+    assert_eq!(keyboard.choose_with_context(space, context(1)), None);
+    assert_eq!(
+        keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+        Some(Output::Stroke(Stroke {
+            key: Key::Character('a', 'A'),
+            modifiers: [true, false, false, false],
+            caps: false,
+        }))
+    );
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.label(Key::Character('b', 'B')), "b");
+}
+
+#[test]
+fn prose_marks_use_smart_spacing_but_numeric_period_is_literal() {
+    let mut keyboard = Keyboard::new(false);
+    for (key, mark) in [
+        (Key::Character(',', ','), ','),
+        (Key::Character('.', '.'), '.'),
+    ] {
+        assert!(
+            matches!(keyboard.choose_with_context(key, context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+        );
+        keyboard.succeeded_with_context(context(1));
+    }
+    // Shift does not change a punctuation key.
+    keyboard.reset_context();
+    keyboard.choose_with_context(Key::Modifier(0), context(1));
+    assert!(
+        matches!(keyboard.choose_with_context(Key::Character('?', '?'), context(1)), Some(Output::Punctuation(p)) if p.mark == '?')
+    );
+    keyboard.succeeded_with_context(context(1));
+    keyboard.reset_context();
+    keyboard.choose_with_context(Key::Page(Page::Symbols), context(1));
+    for mark in [',', '.', '?', '!'] {
+        assert!(
+            matches!(keyboard.choose_with_context(Key::Character(mark, mark), context(1)), Some(Output::Punctuation(p)) if p.mark == mark)
+        );
+        keyboard.succeeded_with_context(context(1));
+    }
+    // Typed as they are, so "https://" and "10:30" need no correcting.
+    for symbol in ['@', ':', ';', '/'] {
+        keyboard.reset_context();
+        assert!(matches!(
+            keyboard.choose_with_context(Key::Character(symbol, symbol), context(1)),
+            Some(Output::Stroke(stroke)) if stroke.character() == Some(symbol)
+        ));
+        keyboard.succeeded_with_context(context(1));
+    }
+    keyboard.reset_context();
+    keyboard.choose_with_context(Key::Page(Page::Numbers), context(1));
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character('.', '.'), context(1)),
+        Some(Output::Stroke(_))
+    ));
+}
+
+#[test]
+fn external_activity_and_failed_input_discard_owned_space() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose_with_context(Key::Character(' ', ' '), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert!(
+        matches!(keyboard.choose_with_context(Key::Character(',', ','), context(2)), Some(Output::Punctuation(p)) if p.owned_space.is_none())
+    );
+    keyboard.failed();
+    assert!(!keyboard.capitalize_next);
+    assert_eq!(keyboard.owned_space, None);
+    keyboard.handle(Action::Select);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(2));
+    keyboard.succeeded_with_context(context(2));
+    assert_eq!(keyboard.label(Key::Character('a', 'A')), "A");
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert!(
+        matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(3)), Some(Output::Stroke(stroke)) if stroke.character() == Some('a'))
+    );
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    keyboard.succeeded_with_context(context(3));
+    keyboard.choose_with_context(Key::Character('.', '.'), context(3));
+    keyboard.succeeded_with_context(context(3));
+    keyboard.prediction_inserted(true, true, context(3));
+    assert!(!keyboard.capitalize_next);
+    assert_eq!(keyboard.owned_space, context(3));
+    keyboard.typing_moved();
+    assert_eq!(keyboard.owned_space, None);
+}
+#[test]
+fn typing_in_another_window_leaves_the_keyboard_as_it_is() {
+    let mut keyboard = Keyboard::new(false);
+    // A capital the keyboard chose goes; keys the user latched stay.
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    keyboard.modifiers[1] = Modifier::Once;
+    keyboard.modifiers[2] = Modifier::Locked;
+    keyboard.caps = true;
+    keyboard.typing_moved();
+    assert_eq!(
+        keyboard.modifiers,
+        [
+            Modifier::Off,
+            Modifier::Once,
+            Modifier::Locked,
+            Modifier::Off
+        ]
+    );
+    assert!(keyboard.caps && !keyboard.capitalize_next);
+    // A Shift the user latched is theirs.
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose_with_context(Key::Modifier(0), context(1));
+    keyboard.typing_moved();
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    // A wait, a pause and a failure are kept.
+    let mut keyboard = Keyboard::new(false).with_wait_after_typing(true);
+    keyboard.handle(Action::Select);
+    assert!(keyboard.handle(Action::Select).is_some());
+    keyboard.succeeded();
+    keyboard.typing_moved();
+    assert!(keyboard.waiting_after_typing && keyboard.suspended());
+    let mut keyboard = Keyboard::new(false);
+    keyboard.failed();
+    keyboard.typing_moved();
+    assert!(keyboard.error && keyboard.suspended());
+    // A key on its way when the window changed is given up, and its
+    // late arrival changes nothing.
+    let mut keyboard = Keyboard::new(false);
+    keyboard.handle(Action::Select);
+    keyboard.handle(Action::Next);
+    assert!(keyboard.handle(Action::Select).is_some());
+    assert_eq!(keyboard.handle(Action::Select), None);
+    keyboard.typing_moved();
+    assert!(!keyboard.succeeded());
+    assert!(keyboard.scan.row_scan());
+    assert_eq!(keyboard.handle(Action::Select), None);
+    assert!(keyboard.handle(Action::Select).is_some());
+}
+
+#[test]
+fn automatic_capital_does_not_toggle_manual_caps_or_change_shortcuts() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    keyboard.choose_with_context(Key::Modifier(1), context(1));
+    assert!(
+        matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.shortcut() && !stroke.modifiers[0])
+    );
+    keyboard.succeeded_with_context(context(1));
+    assert!(!keyboard.capitalize_next);
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert!(keyboard.capitalize_next);
+    keyboard.choose_with_context(Key::Caps, context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    assert!(
+        matches!(keyboard.choose_with_context(Key::Character('a', 'A'), context(1)), Some(Output::Stroke(stroke)) if stroke.character() == Some('A') && !stroke.modifiers[0])
+    );
+    keyboard.succeeded_with_context(context(1));
+    assert!(!keyboard.capitalize_next);
+    assert!(keyboard.caps);
+    assert_eq!(keyboard.label(Key::Character('b', 'B')), "B");
+}
+
+#[test]
+fn sentence_mark_sets_visible_one_use_shift_until_a_letter() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert_eq!(
+        keyboard.prediction_shift(),
+        crate::prediction::worker::Shift::Off
+    );
+    assert_eq!(keyboard.label(Key::Modifier(0)), "Shift\nNext key");
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+    assert!(
+        frame
+            .tiles
+            .iter()
+            .find(|tile| tile.text.starts_with('\u{2B06}'))
+            .unwrap()
+            .style
+            .unwrap()
+            .active
+    );
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character(',', ','), context(1)),
+        Some(Output::Punctuation(punctuation)) if punctuation.mark == ','
+    ));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+        Some(Output::Stroke(stroke)) if stroke.modifiers[0] && stroke.character() == Some('A')
+    ));
+    keyboard.succeeded_with_context(context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    assert!(!keyboard.capitalize_next);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    keyboard.choose_with_context(Key::Modifier(0), context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    assert!(!keyboard.capitalize_next);
+    keyboard.choose_with_context(Key::Modifier(0), context(1));
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert_eq!(
+        keyboard.prediction_shift(),
+        crate::prediction::worker::Shift::Once
+    );
+}
+
+#[test]
+fn deleting_a_sentence_boundary_clears_pending_capital() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose_with_context(Key::Character('.', '.'), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert!(keyboard.capitalize_next);
+    keyboard.choose_with_context(Key::Named("Backspace"), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert!(!keyboard.capitalize_next);
+    assert_eq!(keyboard.modifiers[0], Modifier::Off);
+    keyboard.choose_with_context(Key::Named("Backspace"), context(1));
+    keyboard.succeeded_with_context(context(1));
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+        Some(Output::Stroke(stroke)) if stroke.character() == Some('a')
+    ));
+}
+#[test]
+fn typing_continues_from_the_key_where_the_user_chose_to_stay() {
+    use crate::scan_preferences::{Resolved, StartFrom};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    let selected = |k: &Keyboard| {
+        let frame = k.frame(screen, 1.0, ScannerColor::default());
+        let tiles: Vec<_> = frame.tiles.iter().filter(|t| t.selected).collect();
+        assert_eq!(tiles.len(), 1);
+        tiles[0].text.clone()
+    };
+    for wait in [false, true] {
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                start_from: StartFrom::Selection,
+                ..Default::default()
+            },
+        )
+        .with_wait_after_typing(wait);
+        k.enable_predictions(true);
+        k.predictions(None, false);
+        k.handle(Action::Select);
+        k.handle(Action::Next);
+        let key = selected(&k);
+        assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
+        assert!(k.succeeded());
+        assert_eq!(k.waiting_after_typing, wait);
+        // Suggestions arriving do not move the highlight.
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: false,
+                token: 1,
+                words: crate::prediction::slots(vec!["hello".to_owned()]),
+            }),
+            false,
+        );
+        if wait {
+            assert!(k.suspended());
+            assert_eq!(k.handle(Action::Select), None);
+            assert!(!k.suspended());
+        }
+        assert_eq!(selected(&k), key);
+        k.advance(999, 1000);
+        assert_eq!(selected(&k), key);
+        assert!(matches!(k.handle(Action::Select), Some(Output::Stroke(_))));
+        // A failure starts again from the top.
+        k.failed();
+        k.handle(Action::Select);
+        // Nothing floats beside the keyboard while it scans normally.
+        let message = |k: &Keyboard| {
+            k.frame(screen, 1.0, ScannerColor::default())
+                .label
+                .map(|label| label.text)
+        };
+        assert_eq!(message(&k), None);
+        // So does a suggestion, whose row is replaced.
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: false,
+                token: 2,
+                words: crate::prediction::slots(vec!["hello".to_owned()]),
+            }),
+            false,
+        );
+        assert!(k.prediction_row_active());
+        k.handle(Action::Select);
+        assert!(matches!(
+            k.handle(Action::Select),
+            Some(Output::Prediction { .. })
+        ));
+        assert!(k.succeeded());
+        if wait {
+            k.handle(Action::Select);
+        }
+        assert_eq!(message(&k), None);
+    }
+}
+#[test]
+fn typing_wait_consumes_resume_and_restarts_a_full_interval() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for direction in [Direction::Forward, Direction::Reverse] {
+        for pattern in [Pattern::Grouped, Pattern::Linear] {
+            for automatic in [false, true] {
+                for enabled in [false, true] {
+                    let mut k = Keyboard::configured(
+                        false,
+                        Resolved {
+                            direction,
+                            pattern,
+                            automatic,
+                            pass_limit: 1,
+                            ..Default::default()
+                        },
+                    )
+                    .with_wait_after_typing(enabled);
+                    assert!(matches!(
+                        k.choose(Key::Character('a', 'A')),
+                        Some(Output::Stroke(_))
+                    ));
+                    assert!(k.handle(Action::Select).is_none());
+                    k.succeeded();
+                    assert_eq!(k.waiting_after_typing, automatic && enabled);
+                    assert_eq!(k.suspended(), automatic && enabled);
+                    if automatic && enabled {
+                        let position = k.scan.position(&k.rows);
+                        k.advance(5000, 1000);
+                        assert_eq!(k.scan.position(&k.rows), position);
+                        k.handle(Action::Next);
+                        k.handle(Action::Back);
+                        k.handle(Action::Reverse);
+                        assert!(k.waiting_after_typing);
+                        assert!(k.handle(Action::Select).is_none());
+                        assert!(!k.waiting_after_typing);
+                        k.advance(999, 1000);
+                        assert_eq!(k.scan.position(&k.rows), position);
+                        k.advance(1, 1000);
+                        assert_ne!(k.scan.position(&k.rows), position);
+                    }
+                }
+            }
+        }
+    }
+}
+#[test]
+fn predictions_and_duplicate_completion_cannot_resume_typing_wait() {
+    let mut k = Keyboard::new(false).with_wait_after_typing(true);
+    k.enable_predictions(true);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 1,
+            words: crate::prediction::slots(vec!["hello".to_owned()]),
+        }),
+        false,
+    );
+    assert!(matches!(
+        k.choose(Key::Prediction(0)),
+        Some(Output::Prediction { token: 1, index: 0 })
+    ));
+    k.succeeded();
+    for token in 2..5 {
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: false,
+                token,
+                words: crate::prediction::slots(vec!["world".to_owned()]),
+            }),
+            false,
+        );
+        k.succeeded();
+        k.advance(5000, 1000);
+        assert!(k.waiting_after_typing);
+        let frame = k.frame(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 800.0,
+            },
+            1.0,
+            ScannerColor::Blue,
+        );
+        // The wait shows only as the missing highlight; nothing is written.
+        assert!(frame.label.is_none());
+        assert!(!frame.tiles.iter().any(|t| t.selected));
+    }
+    assert!(k.handle(Action::Select).is_none());
+    assert_eq!(k.predictions.as_ref().unwrap().token, 4);
+    assert!(k.handle(Action::Select).is_none());
+    assert_eq!(
+        k.handle(Action::Select),
+        Some(Output::Prediction { token: 4, index: 0 })
+    );
+    assert!(k.handle(Action::Select).is_none());
+}
+#[test]
+fn keyboard_controls_remain_immediate_and_failures_keep_error_recovery() {
+    for key in [
+        Key::Modifier(0),
+        Key::Caps,
+        Key::Dock,
+        Key::Page(Page::Numbers),
+    ] {
+        let mut k = Keyboard::new(false).with_wait_after_typing(true);
+        assert!(k.choose(key).is_none());
+        assert!(!k.waiting_after_typing);
+        assert!(!k.suspended());
+    }
+    for key in [
+        Key::Character(' ', ' '),
+        Key::Named("Backspace"),
+        Key::Named("ArrowLeft"),
+    ] {
+        let mut k = Keyboard::new(false).with_wait_after_typing(true);
+        k.choose(key);
+        k.succeeded();
+        assert!(k.waiting_after_typing);
+    }
+    let mut k = Keyboard::new(false).with_wait_after_typing(true);
+    k.choose(Key::Named("Enter"));
+    k.failed();
+    assert!(!k.waiting_after_typing);
+    assert!(k.error);
+    assert!(k.suspended());
+    assert!(k.handle(Action::Select).is_none());
+    assert!(!k.error);
+    assert!(!k.waiting_after_typing);
+}
+#[test]
+fn arriving_predictions_receive_a_full_scan_interval() {
+    let mut keyboard = Keyboard::new(false);
+    keyboard.enable_predictions(true);
+    keyboard.advance(490, 500);
+    assert_eq!(keyboard.scan.nav.index(), 1);
+    let batch = crate::prediction::worker::Batch {
+        refined: false,
+        token: 1,
+        words: crate::prediction::slots(vec!["hello".to_owned()]),
+    };
+    keyboard.predictions(Some(batch.clone()), false);
+    assert_eq!(keyboard.scan.nav.index(), 0);
+    keyboard.advance(10, 500);
+    assert_eq!(keyboard.scan.nav.index(), 0);
+    keyboard.predictions(Some(batch), false);
+    keyboard.advance(489, 500);
+    assert_eq!(keyboard.scan.nav.index(), 0);
+    keyboard.advance(1, 500);
+    assert_eq!(keyboard.scan.nav.index(), 1);
+}
+
+#[test]
+fn unchanged_predictions_preserve_navigation_timing_and_pass_limits() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for direction in [Direction::Forward, Direction::Reverse] {
+        for pattern in [Pattern::Grouped, Pattern::Linear] {
+            for automatic in [false, true] {
+                let options = Resolved {
+                    direction,
+                    pattern,
+                    pass_limit: 2,
+                    ..Default::default()
+                };
+                let mut baseline = Keyboard::configured(false, options);
+                let mut polled = Keyboard::configured(false, options);
+                let batch = crate::prediction::worker::Batch {
+                    refined: false,
+                    token: 7,
+                    words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
+                };
+                for k in [&mut baseline, &mut polled] {
+                    k.enable_predictions(true);
+                    k.predictions(Some(batch.clone()), false);
+                    k.restart();
+                }
+                let ticks = 12 * (polled.rows.iter().map(Vec::len).sum::<usize>() + 1);
+                for tick in 0..ticks {
+                    polled.predictions(Some(batch.clone()), false);
+                    if automatic {
+                        baseline.advance(250, 1000);
+                        polled.advance(250, 1000);
+                    } else if tick % 4 == 3 {
+                        baseline.handle(Action::Next);
+                        polled.handle(Action::Next);
+                    }
+                    assert_eq!(
+                        polled.scan.position(&polled.rows),
+                        baseline.scan.position(&baseline.rows)
+                    );
+                    assert_eq!(polled.suspended(), baseline.suspended());
+                    assert_eq!(polled.disabled(), baseline.disabled());
+                    assert_eq!(polled.predictions.as_ref().unwrap().token, 7);
+                    assert!(polled.queued_predictions.is_none());
+                }
+                if automatic {
+                    assert!(polled.suspended());
+                }
+            }
+        }
+    }
+}
+#[test]
+fn unchanged_predictions_preserve_selected_key_and_execute_once() {
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    let batch = crate::prediction::worker::Batch {
+        refined: false,
+        token: 7,
+        words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
+    };
+    k.predictions(Some(batch.clone()), false);
+    k.handle(Action::Select);
+    k.advance(750, 1000);
+    k.predictions(Some(batch.clone()), false);
+    assert_eq!(k.scan.position(&k.rows), (0, Some(0)));
+    k.advance(250, 1000);
+    assert_eq!(k.scan.position(&k.rows), (0, Some(1)));
+    k.predictions(Some(batch), false);
+    assert_eq!(
+        k.handle(Action::Select),
+        Some(Output::Prediction { token: 7, index: 1 })
+    );
+    assert!(k.handle(Action::Select).is_none());
+}
+#[test]
+fn predictions_skip_empty_slots_and_defer_acceptance() {
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    assert_eq!(k.scan.nav.index(), 1);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 7,
+            words: crate::prediction::slots(vec!["water".to_owned(), "walk".to_owned()]),
+        }),
+        false,
+    );
+    k.restart();
+    assert_eq!(k.scan.nav.index(), 0);
+    assert_eq!(k.handle(Action::Select), None);
+    assert_eq!(
+        k.handle(Action::Select),
+        Some(Output::Prediction { token: 7, index: 0 })
+    );
+    assert!(k.handle(Action::Select).is_none());
+    k.succeeded();
+    assert!(k.scan.nav.path().is_empty());
+    k.handle(Action::Select);
+    k.handle(Action::Next);
+    k.handle(Action::Next);
+    assert!(k.scan.nav.escaping());
+    k.predictions(None, false);
+    assert!(k.choose(Key::Prediction(0)).is_none());
+    k.choose(Key::Page(Page::Numbers));
+    assert!(!k
+        .rows
+        .iter()
+        .flatten()
+        .any(|k| matches!(k, Key::Prediction(_))));
+}
+#[test]
+fn rounded_panel_has_clear_corners_and_insets_all_controls() {
+    let frame = Keyboard::new(false).frame(
+        Rect {
+            x: -1280.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 720.0,
+        },
+        1.0,
+        ScannerColor::default(),
+    );
+    let panel = &frame.tiles[0];
+    assert!(panel.is_panel_background());
+    // The menu bar band is flush with the top; everything else is inset.
+    for key in frame.tiles[1..]
+        .iter()
+        .filter(|key| key.style.map(|s| s.role) != Some(crate::scanning::TileRole::Title))
+    {
+        assert!(key.rect.x > panel.rect.x);
+        assert!(key.rect.y > panel.rect.y);
+        assert!(key.rect.x + key.rect.width < panel.rect.x + panel.rect.width);
+        assert!(key.rect.y + key.rect.height < panel.rect.y + panel.rect.height);
+    }
+    let pixels = crate::scan_tile::bitmap(panel).unwrap();
+    assert_eq!(pixels.data()[3], 0);
+    let center = ((pixels.height() / 2 * pixels.width() + pixels.width() / 2) * 4 + 3) as usize;
+    assert_eq!(pixels.data()[center], 255);
+}
+#[test]
+fn everyday_keys_are_unique_and_space_is_wide() {
+    let k = Keyboard::new(false);
+    let keys = k.rows.concat();
+    for key in [
+        Key::Caps,
+        Key::Modifier(0),
+        Key::Character(' ', ' '),
+        Key::Close,
+    ] {
+        assert_eq!(
+            keys.iter().filter(|candidate| **candidate == key).count(),
+            1
+        );
+    }
+    let frame = k.frame(
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1280.0,
+            height: 680.0,
+        },
+        1.0,
+        ScannerColor::default(),
+    );
+    let space = frame.tiles.iter().find(|t| t.text == "Space").unwrap();
+    let letter = frame.tiles.iter().find(|t| t.text == "a").unwrap();
+    assert!(space.rect.width > letter.rect.width * 3.0);
+    let backspace = frame.tiles.iter().find(|t| t.text == "\u{232B}").unwrap();
+    assert!(backspace.rect.width > letter.rect.width);
+    assert!(
+        !frame.tiles.iter().any(|t| t.text == "Backspace"),
+        "the Backspace tile shows the glyph, not the word"
+    );
+    assert_eq!(k.rows.last().unwrap()[0], Key::Close);
+}
+#[test]
+fn row_escape_highlights_its_row_and_modifier_state_is_separate() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 680.0,
+    };
+    let mut k = Keyboard::new(false);
+    k.choose(Key::Modifier(0));
+    let active = k.frame(screen, 1.0, ScannerColor::default());
+    let shift = active
+        .tiles
+        .iter()
+        .find(|t| t.text.starts_with('\u{2B06}'))
+        .unwrap();
+    assert!(shift.style.unwrap().active);
+    assert!(!shift.selected);
+    k.handle(Action::Select);
+    let keys = k.frame(screen, 1.0, ScannerColor::default());
+    assert_eq!(keys.tiles.iter().filter(|t| t.selected).count(), 1);
+    k.handle(Action::Back);
+    let escaping = k.frame(screen, 1.0, ScannerColor::default());
+    let selected: Vec<_> = escaping.tiles.iter().filter(|t| t.selected).collect();
+    assert_eq!(selected.len(), k.rows[0].len());
+    assert!(selected
+        .iter()
+        .all(|tile| tile.rect.y == selected[0].rect.y));
+    assert!(selected.iter().all(|tile| tile.style.unwrap().row_scan));
+    // Going back shows through the row highlight alone.
+    assert!(escaping.label.is_none());
+    k.handle(Action::Select);
+    assert!(k.scan.nav.path().is_empty());
+    assert_eq!(k.scan.position(&k.rows), (0, None));
+}
+
+#[test]
+fn every_keyboard_page_returns_from_the_highlighted_row_in_both_directions() {
+    use crate::scan_preferences::{Direction, Pattern};
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    for direction in [Direction::Forward, Direction::Reverse] {
+        for page in [Page::Letters, Page::Numbers, Page::Functions, Page::Symbols] {
+            let mut keyboard = Keyboard::configured(
+                false,
+                crate::scan_preferences::Resolved {
+                    direction,
+                    ..Default::default()
+                },
+            );
+            keyboard.choose(Key::Page(page));
+            let row = keyboard.scan.position(&keyboard.rows).0;
+            keyboard.handle(Action::Select);
+            keyboard.handle(match direction {
+                Direction::Forward => Action::Back,
+                Direction::Reverse => Action::Next,
+            });
+            assert!(keyboard.scan.nav.escaping());
+            let frame = keyboard.frame(screen, 1.0, ScannerColor::default());
+            let selected: Vec<_> = frame.tiles.iter().filter(|tile| tile.selected).collect();
+            assert_eq!(
+                selected.len(),
+                keyboard.rows[row].len(),
+                "{direction:?} {page:?}"
+            );
+            assert!(selected
+                .iter()
+                .all(|tile| tile.rect.y == selected[0].rect.y));
+            assert!(frame.label.is_none(), "{direction:?} {page:?}");
+            keyboard.handle(Action::Select);
+            assert_eq!(keyboard.scan.position(&keyboard.rows), (row, None));
+        }
+    }
+    let mut linear = Keyboard::configured(
+        false,
+        crate::scan_preferences::Resolved {
+            pattern: Pattern::Linear,
+            ..Default::default()
+        },
+    );
+    linear.handle(Action::Back);
+    assert!(!linear.scan.nav.escaping());
+    let frame = linear.frame(screen, 1.0, ScannerColor::default());
+    assert_eq!(frame.tiles.iter().filter(|tile| tile.selected).count(), 1);
+    assert!(frame.label.is_none());
+}
+#[test]
+fn qwerty_layout_and_platform_keys() {
+    let letters = rows(Page::Letters, false).concat();
+    for c in 'a'..='z' {
+        assert!(letters.contains(&Key::Character(c, c.to_ascii_uppercase())));
+    }
+    assert!(!letters
+        .iter()
+        .any(|key| matches!(key, Key::Character(c, _) if c.is_ascii_digit())));
+    // Shift only makes capitals: no symbol hides behind another key.
+    let punctuation: String = letters
+        .iter()
+        .filter_map(|key| match key {
+            Key::Character(base, shifted) if !base.is_alphabetic() && *base != ' ' => {
+                assert_eq!(base, shifted);
+                Some(*base)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(punctuation, "',.?");
+    assert!(rows(Page::Letters, false)[0].contains(&Key::Named("Backspace")));
+    let numbers = rows(Page::Numbers, false).concat();
+    for symbol in "0123456789/*-.+".chars() {
+        assert!(
+            numbers.contains(&Key::Character(symbol, symbol)),
+            "Missing {symbol}"
+        );
+    }
+    assert!(numbers.iter().all(|key| match key {
+        Key::Character(base, _) => base.is_ascii_digit() || "/*-.+ ".contains(*base),
+        _ => true,
+    }));
+    assert!(rows(Page::Functions, false)
+        .concat()
+        .contains(&Key::Named("Insert")));
+    assert!(!rows(Page::Functions, true)
+        .concat()
+        .contains(&Key::Named("Insert")));
+}
+#[test]
+fn symbols_page_shows_every_symbol_once_on_every_layout() {
+    use crate::point_scan::KeyboardLayout;
+    let symbols: Vec<char> = rows(Page::Symbols, false)
+        .concat()
+        .into_iter()
+        .filter_map(|key| match key {
+            Key::Character(' ', _) => None,
+            Key::Character(base, shifted) => {
+                assert_eq!(base, shifted, "{base} must type what it shows");
+                Some(base)
+            }
+            _ => None,
+        })
+        .collect();
+    let mut expected: Vec<char> = (' '..='~')
+        .filter(|c| c.is_ascii_punctuation())
+        .chain(['£', '¬'])
+        .collect();
+    let mut found = symbols.clone();
+    expected.sort_unstable();
+    found.sort_unstable();
+    assert_eq!(found, expected);
+    assert_eq!(
+        &symbols[..10],
+        &['@', '.', ',', '?', '!', '\'', '"', '-', '_', '/']
+    );
+    let page = rows(Page::Symbols, false);
+    assert!(page[3].ends_with(&[Key::Named("Enter"), Key::Named("Backspace")]));
+    for layout in [
+        KeyboardLayout::Qwerty,
+        KeyboardLayout::SimpleQwerty,
+        KeyboardLayout::CommonLetters,
+    ] {
+        for page in [Page::Letters, Page::Functions, Page::Numbers, Page::Symbols] {
+            assert!(rows_for(page, true, layout)
+                .last()
+                .unwrap()
+                .contains(&Key::Page(Page::Symbols)));
+        }
+        assert_eq!(
+            rows_for(Page::Symbols, false, layout)[..4],
+            rows(Page::Symbols, false)[..4]
+        );
+    }
+}
+#[test]
+fn common_letters_layout_keeps_every_key_and_reduces_english_scan_steps() {
+    use crate::point_scan::KeyboardLayout;
+    let familiar = rows_for(Page::Letters, false, KeyboardLayout::Qwerty);
+    let common = rows_for(Page::Letters, false, KeyboardLayout::CommonLetters);
+    assert_eq!(common[0][0], Key::Character(' ', ' '));
+    assert_eq!(common[0][1], Key::Character('e', 'E'));
+    assert_eq!(common[0].last(), Some(&Key::Named("Backspace")));
+    for key in familiar.iter().flatten() {
+        assert_eq!(
+            common
+                .iter()
+                .flatten()
+                .filter(|other| *other == key)
+                .count(),
+            1,
+            "{key:?}"
+        );
+    }
+    let scan_steps = |rows: &Vec<Vec<Key>>, text: &str| {
+        text.chars()
+            .map(|character| {
+                let (row, column) = rows
+                    .iter()
+                    .enumerate()
+                    .find_map(|(row, keys)| {
+                        keys.iter()
+                            .position(
+                                |key| matches!(key, Key::Character(base, _) if *base == character),
+                            )
+                            .map(|column| (row, column))
+                    })
+                    .unwrap();
+                row + column + 2
+            })
+            .sum::<usize>()
+    };
+    let text = "the quick brown fox jumps over the lazy dog";
+    assert!(scan_steps(&common, text) < scan_steps(&familiar, text));
+    for page in [Page::Numbers, Page::Functions, Page::Symbols] {
+        assert_eq!(
+            rows_for(page, false, KeyboardLayout::Qwerty),
+            rows_for(page, false, KeyboardLayout::CommonLetters)
+        );
+    }
+}
+#[test]
+fn simple_qwerty_has_three_letter_rows_a_modifier_row_and_keeps_removed_keys_reachable() {
+    use crate::point_scan::KeyboardLayout;
+    let letters = rows_for(Page::Letters, false, KeyboardLayout::SimpleQwerty);
+    let line = |text: &str| {
+        text.chars()
+            .map(|c| Key::Character(c, c.to_ascii_uppercase()))
+            .collect::<Vec<_>>()
+    };
+    let mut top = line("qwertyuiop");
+    top.push(Key::Named("Backspace"));
+    let mut middle = line("asdfghjkl");
+    middle.push(Key::Named("Enter"));
+    let mut bottom = vec![Key::Modifier(0)];
+    bottom.extend(line("zxcvbnm"));
+    bottom.push(Key::Character('.', '.'));
+    assert_eq!(&letters[..3], &[top, middle, bottom]);
+    assert_eq!(
+        letters[3],
+        [
+            Key::Modifier(1),
+            Key::Modifier(2),
+            Key::Character(' ', ' '),
+            Key::Modifier(3)
+        ]
+    );
+    assert_eq!(letters.len(), 5);
+    assert!(letters[4].contains(&Key::Layout));
+    let symbols = rows_for(Page::Symbols, false, KeyboardLayout::SimpleQwerty);
+    let functions = rows_for(Page::Functions, false, KeyboardLayout::SimpleQwerty);
+    for key in rows(Page::Letters, false).into_iter().flatten() {
+        assert!(
+            letters
+                .iter()
+                .chain(&symbols)
+                .chain(&functions)
+                .flatten()
+                .any(|available| *available == key),
+            "missing {key:?}"
+        );
+    }
+}
+#[test]
+fn simple_qwerty_keeps_predictions_above_the_three_letter_rows() {
+    use crate::point_scan::KeyboardLayout;
+    let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
+    keyboard.enable_predictions(true);
+    keyboard.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: false,
+            token: 9,
+            words: crate::prediction::slots(vec!["hello".to_owned()]),
+        }),
+        false,
+    );
+    assert_eq!(keyboard.rows[0][0], Key::Prediction(0));
+    assert_eq!(keyboard.rows[1][0], Key::Character('q', 'Q'));
+    assert_eq!(keyboard.rows.len(), 6);
+}
+#[test]
+fn simple_qwerty_letters_full_stop_stays_a_full_stop_and_starts_a_sentence() {
+    use crate::point_scan::KeyboardLayout;
+    let full_stop = Key::Character('.', '.');
+    let mut keyboard = Keyboard::new(false).with_layout(KeyboardLayout::SimpleQwerty);
+    assert!(keyboard.rows.iter().flatten().any(|key| *key == full_stop));
+    let expect_full_stop = |keyboard: &mut Keyboard| {
+        assert_eq!(keyboard.label(full_stop), ".");
+        assert!(matches!(
+            keyboard.choose_with_context(full_stop, context(1)),
+            Some(Output::Punctuation(p)) if p.mark == '.'
+        ));
+        keyboard.succeeded_with_context(context(1));
+    };
+    // Plain, then at a sentence start with the automatic Shift on.
+    expect_full_stop(&mut keyboard);
+    assert!(keyboard.capitalize_next);
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    expect_full_stop(&mut keyboard);
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character('a', 'A'), context(1)),
+        Some(Output::Stroke(stroke)) if stroke.character() == Some('A')
+    ));
+    keyboard.succeeded_with_context(context(1));
+    assert!(!keyboard.capitalize_next);
+    // With a Shift the user chose.
+    keyboard.choose_with_context(Key::Modifier(0), context(1));
+    expect_full_stop(&mut keyboard);
+    assert!(matches!(
+        keyboard.choose_with_context(Key::Character('b', 'B'), context(1)),
+        Some(Output::Stroke(stroke)) if stroke.character() == Some('B')
+    ));
+    keyboard.succeeded_with_context(context(1));
+    // With Caps on.
+    keyboard.reset_context();
+    keyboard.choose_with_context(Key::Caps, context(1));
+    expect_full_stop(&mut keyboard);
+    assert!(keyboard.capitalize_next);
+}
+#[test]
+fn layout_key_requests_change_and_saved_layout_rebuilds_without_losing_shift() {
+    use crate::point_scan::KeyboardLayout;
+    let mut keyboard = Keyboard::new(false);
+    keyboard.choose(Key::Modifier(0));
+    assert_eq!(
+        keyboard.choose(Key::Layout),
+        Some(Output::Layout(KeyboardLayout::SimpleQwerty))
+    );
+    assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
+    keyboard.set_layout(KeyboardLayout::SimpleQwerty);
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert_eq!(keyboard.rows[0][0], Key::Character('q', 'Q'));
+    assert_eq!(
+        keyboard.choose(Key::Layout),
+        Some(Output::Layout(KeyboardLayout::CommonLetters))
+    );
+    keyboard.set_layout(KeyboardLayout::CommonLetters);
+    assert_eq!(keyboard.modifiers[0], Modifier::Once);
+    assert_eq!(keyboard.rows[0][0], Key::Character(' ', ' '));
+    assert_eq!(
+        keyboard.choose(Key::Layout),
+        Some(Output::Layout(KeyboardLayout::Qwerty))
+    );
+    keyboard.choose(Key::Page(Page::Numbers));
+    assert!(keyboard.rows.last().unwrap().contains(&Key::Layout));
+    keyboard.set_layout(KeyboardLayout::Qwerty);
+    keyboard.choose(Key::Page(Page::Letters));
+    assert_eq!(keyboard.rows[0][1], Key::Character('q', 'Q'));
+}
+#[test]
+fn footer_layout_key_is_reachable_by_switches_and_failure_keeps_keyboard_running() {
+    use crate::point_scan::KeyboardLayout;
+    let mut keyboard = Keyboard::new(false);
+    let footer = keyboard.rows.len() - 1;
+    for _ in 0..footer {
+        keyboard.handle(Action::Next);
+    }
+    assert_eq!(keyboard.scan.position(&keyboard.rows), (footer, None));
+    keyboard.handle(Action::Select);
+    for _ in 0..keyboard.rows[footer].len() - 1 {
+        keyboard.handle(Action::Next);
+    }
+    assert_eq!(
+        keyboard.rows[footer][keyboard.scan.position(&keyboard.rows).1.unwrap()],
+        Key::Layout
+    );
+    assert_eq!(
+        keyboard.handle(Action::Select),
+        Some(Output::Layout(KeyboardLayout::SimpleQwerty))
+    );
+    keyboard.layout_change_failed();
+    assert!(!keyboard.suspended());
+    assert_eq!(keyboard.layout, KeyboardLayout::Qwerty);
+    assert_eq!(
+        keyboard
+            .frame(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1280.0,
+                    height: 720.0
+                },
+                1.0,
+                ScannerColor::default()
+            )
+            .label
+            .map(|label| label.text),
+        Some("Could not save layout".into())
+    );
+    keyboard.handle(Action::Next);
+    assert!(!keyboard.layout_save_error);
+}
+#[test]
+fn modifiers_are_consumed_only_after_success_and_lock_persists() {
+    let mut k = Keyboard::new(false);
+    k.choose(Key::Modifier(0));
+    k.choose(Key::Modifier(1));
+    k.choose(Key::Modifier(1));
+    k.choose(Key::Page(Page::Numbers));
+    k.choose(Key::Dock);
+    k.choose(Key::Position(crate::scan_panel::Dock { column: 0, row: 1 }));
+    assert_eq!(
+        k.modifiers,
+        [
+            Modifier::Once,
+            Modifier::Locked,
+            Modifier::Off,
+            Modifier::Off
+        ]
+    );
+    k.choose(Key::Named("Enter"));
+    assert!(k.handle(Action::Select).is_none());
+    k.succeeded();
+    assert_eq!(k.modifiers[0], Modifier::Off);
+    assert_eq!(k.modifiers[1], Modifier::Locked);
+    k.choose(Key::Modifier(1));
+    assert_eq!(k.modifiers[1], Modifier::Off);
+    k.choose(Key::Modifier(2));
+    k.failed();
+    assert_eq!(k.modifiers, [Modifier::Off; 4]);
+    assert!(k.suspended());
+    k.handle(Action::Select);
+    assert!(!k.suspended());
+}
+#[test]
+fn caps_xor_shift_only_affects_letters() {
+    let mut s = Stroke {
+        key: Key::Character('a', 'A'),
+        caps: true,
+        modifiers: [false; 4],
+    };
+    assert_eq!(s.character(), Some('A'));
+    s.modifiers[0] = true;
+    assert_eq!(s.character(), Some('a'));
+    s.key = Key::Character('3', '£');
+    assert_eq!(s.character(), Some('£'));
+}
+#[test]
+fn layouts_and_predictions_keep_bounds_independent_of_text() {
+    use crate::{point_scan::KeyboardLayout, scan_preferences::PanelSize};
+    let screen = Rect {
+        x: -1920.0,
+        y: -100.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    for layout in [
+        KeyboardLayout::Qwerty,
+        KeyboardLayout::SimpleQwerty,
+        KeyboardLayout::CommonLetters,
+    ] {
+        for size in [PanelSize::Small, PanelSize::Medium, PanelSize::Large] {
+            let mut keyboard = Keyboard::new(false);
+            keyboard.set_layout(layout);
+            keyboard.set_panel_size(size);
+            keyboard.enable_predictions(true);
+            // Empty slots are not drawn, but the panel keeps its size.
+            let empty = keyboard.frame(screen, 1.0, ScannerColor::default());
+            keyboard.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 41,
+                    refined: true,
+                    words: std::array::from_fn(|_| Some("a".into())),
+                }),
+                false,
+            );
+            let before = keyboard.frame(screen, 1.0, ScannerColor::default());
+            assert_eq!(empty.tiles[0].rect, before.tiles[0].rect);
+            // The empty row draws a placeholder in place of each slot, so
+            // filling the slots changes no tile count or position.
+            assert_eq!(before.tiles.len(), empty.tiles.len());
+            assert_eq!(
+                empty
+                    .tiles
+                    .iter()
+                    .filter(|t| t
+                        .style
+                        .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder))
+                    .count(),
+                crate::prediction::SLOTS
+            );
+            keyboard.predictions(
+                Some(crate::prediction::worker::Batch {
+                    token: 42,
+                    refined: true,
+                    words: std::array::from_fn(|_| Some("extraordinary".into())),
+                }),
+                false,
+            );
+            let after = keyboard.frame(screen, 1.0, ScannerColor::default());
+            assert_eq!(before.tiles[0].rect, after.tiles[0].rect);
+            assert_eq!(
+                before.tiles.iter().map(|t| t.rect).collect::<Vec<_>>(),
+                after.tiles.iter().map(|t| t.rect).collect::<Vec<_>>()
+            );
+            assert_eq!(keyboard.rows[0].len(), crate::prediction::SLOTS);
+        }
+    }
+}
+
+#[test]
+fn geometry_fits_work_area_at_every_dock_and_scale() {
+    let docks = crate::scan_panel::position_rows(|dock| dock, Default::default());
+    for units in [0.75, 1.0, 1.5, 2.0, 3.0] {
+        for &dock in docks.iter().flatten() {
+            for page in [Page::Letters, Page::Functions, Page::Numbers, Page::Symbols] {
+                let mut k = Keyboard::new(false);
+                k.choose(Key::Page(page));
+                k.dock = dock;
+                let screen = Rect {
+                    x: -1600.0,
+                    y: -200.0,
+                    width: 800.0,
+                    height: 600.0,
+                };
+                for tile in k.frame(screen, units, ScannerColor::default()).tiles {
+                    assert!(tile.rect.x >= screen.x && tile.rect.y >= screen.y);
+                    assert!(tile.rect.x + tile.rect.width <= screen.x + screen.width + 0.01);
+                    assert!(tile.rect.y + tile.rect.height <= screen.y + screen.height + 0.01);
+                }
+            }
+        }
+    }
+}
+#[test]
+fn position_page_replaces_predictions_and_returns_to_the_page() {
+    use crate::scan_panel::Dock;
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    k.choose(Key::Page(Page::Numbers));
+    k.choose(Key::Page(Page::Letters));
+    k.choose(Key::Dock);
+    assert_eq!(k.rows.len(), 4);
+    assert_eq!(k.rows[1][1], Key::Position(Dock { column: 1, row: 1 }));
+    assert!(!k.prediction_row_active());
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    let frame = k.frame(screen, 1.0, ScannerColor::default());
+    assert!(frame.label.is_none());
+    assert_eq!(
+        frame.tiles[3].rect.width, 128.0,
+        "position labels use utility cells rather than character cells"
+    );
+    assert!(frame.tiles.iter().any(|tile| tile.text == "Bottom •"));
+
+    k.choose(Key::Back);
+    assert_eq!(k.rows[0][0], Key::Prediction(0));
+    assert_eq!(k.dock, Dock::default());
+
+    k.choose(Key::Dock);
+    k.choose(Key::Position(Dock { column: 0, row: 1 }));
+    assert_eq!(k.rows[0][0], Key::Prediction(0));
+    let background = k.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
+    assert_eq!(background.x, 0.0);
+    assert!(background.y > 0.0 && background.y + background.height < 1080.0);
+}
+#[test]
+fn reverse_scanning_counts_passes_across_empty_prediction_slots() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for pattern in [Pattern::Grouped, Pattern::Linear] {
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                direction: Direction::Reverse,
+                pattern,
+                pass_limit: 1,
+                ..Default::default()
+            },
+        );
+        k.enable_predictions(true);
+        let steps = if pattern == Pattern::Grouped {
+            k.rows.len() - 1
+        } else {
+            k.rows.iter().skip(1).map(Vec::len).sum()
+        };
+        for _ in 0..steps - 1 {
+            k.advance(100, 100);
+            assert!(!k.suspended());
+        }
+        k.advance(100, 100);
+        assert!(k.suspended());
+        assert!(k.handle(Action::Select).is_none());
+        assert!(!k.suspended());
+        for _ in 0..steps * 2 {
+            k.handle(Action::Back);
+        }
+        assert!(!k.suspended());
+    }
+}
+#[test]
+fn an_empty_suggestion_row_stays_blank() {
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    k.predictions(None, false);
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    // The row under the menu bar holds only wordless placeholders: no
+    // note, no key, and no floating message either.
+    let background = frame.tiles[0].rect;
+    let first_row_top = background.y + crate::scan_panel::MENU_BAR_HEIGHT;
+    let is_placeholder = |tile: &crate::scanning::FrameTile| {
+        tile.style
+            .is_some_and(|s| s.role == crate::scanning::TileRole::Placeholder)
+    };
+    assert!(frame
+        .tiles
+        .iter()
+        .skip(1)
+        .filter(|tile| !tile.is_menu_bar() && tile.text != crate::scan_panel::MENU_BAR_TITLE)
+        .all(|tile| is_placeholder(tile) || tile.rect.y > first_row_top + 40.0));
+    assert!(frame
+        .tiles
+        .iter()
+        .filter(|tile| is_placeholder(tile))
+        .all(|tile| tile.text.is_empty() && !tile.selected));
+    assert!(frame.label.is_none());
+    // An empty batch is just as quiet.
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: true,
+            token: 1,
+            words: Default::default(),
+        }),
+        false,
+    );
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    assert!(!frame.tiles.iter().any(|tile| tile.text == "No suggestions"));
+    // With suggestions, the row shows them and nothing counts them.
+    k.restart();
+    k.handle(Action::Next);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            refined: true,
+            token: 2,
+            words: crate::prediction::slots(vec!["hello".to_owned()]),
+        }),
+        false,
+    );
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    assert!(frame.tiles.iter().any(|tile| tile.text == "hello"));
+    assert!(!frame.tiles.iter().any(|tile| tile.text == "1 suggestion"));
+    assert!(frame.label.is_none());
+    // Without prediction there is no suggestion row to label.
+    k.enable_predictions(false);
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    assert!(!frame
+        .tiles
+        .iter()
+        .any(|tile| tile.text.contains("suggestion")));
+}
+#[test]
+fn a_pause_writes_nothing_and_a_failure_still_writes_its_message() {
+    let mut k = Keyboard::new(false);
+    k.prediction_failed = true;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+    k.scan.suspended = true;
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    assert!(frame.label.is_none(), "a pause is not written out");
+    k.failed();
+    let frame = k.frame(screen, 1.0, ScannerColor::Blue);
+    assert!(frame.label.unwrap().text.contains("Select to try again"));
+}
+#[test]
+fn arriving_predictions_preserve_reverse_origin_and_full_pass() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for pattern in [Pattern::Grouped, Pattern::Linear] {
+        let mut k = Keyboard::configured(
+            false,
+            Resolved {
+                direction: Direction::Reverse,
+                pattern,
+                pass_limit: 1,
+                ..Default::default()
+            },
+        );
+        k.enable_predictions(true);
+        let origin = k.scan.nav.index();
+        k.advance(490, 500);
+        k.predictions(
+            Some(crate::prediction::worker::Batch {
+                refined: false,
+                token: 1,
+                words: crate::prediction::slots(vec!["hello".to_owned(), "world".to_owned()]),
+            }),
+            false,
+        );
+        assert_eq!(k.scan.nav.index(), origin);
+        k.advance(10, 500);
+        assert_ne!(k.scan.nav.index(), origin);
+        assert!(!k.suspended());
+        let count = if pattern == Pattern::Grouped {
+            k.rows.len()
+        } else {
+            k.rows.iter().skip(1).map(Vec::len).sum::<usize>() + 2
+        };
+        for _ in 1..count - 1 {
+            k.advance(500, 500);
+            assert!(!k.suspended());
+        }
+        k.advance(500, 500);
+        assert!(k.suspended());
+    }
+}
+#[test]
+fn invalid_predictions_wait_for_permitted_movement_and_count_reverse_wraps() {
+    use crate::scan_preferences::{Direction, Pattern, Resolved};
+    for pattern in [Pattern::Grouped, Pattern::Linear] {
+        for replacement in [false, true] {
+            for manual in [false, true] {
+                let mut k = Keyboard::configured(
+                    false,
+                    Resolved {
+                        direction: Direction::Reverse,
+                        pattern,
+                        pass_limit: 1,
+                        automatic: !manual,
+                        ..Default::default()
+                    },
+                );
+                k.enable_predictions(true);
+                k.predictions(
+                    Some(crate::prediction::worker::Batch {
+                        refined: false,
+                        token: 1,
+                        words: crate::prediction::slots(vec![
+                            "hello".to_owned(),
+                            "world".to_owned(),
+                        ]),
+                    }),
+                    false,
+                );
+                let count = if pattern == Pattern::Grouped {
+                    k.rows.len()
+                } else {
+                    k.rows.iter().skip(1).map(Vec::len).sum::<usize>() + 2
+                };
+                for _ in 0..count - 1 {
+                    k.advance(500, 500);
+                }
+                assert!(k.prediction_row_active());
+                k.advance(490, 500);
+                let position = k.scan.nav.index();
+                let next = replacement.then(|| crate::prediction::worker::Batch {
+                    refined: false,
+                    token: 2,
+                    words: crate::prediction::slots(vec!["new".to_owned()]),
+                });
+                for _ in 0..3 {
+                    k.predictions(next.clone(), false);
+                }
+                assert_eq!(k.scan.nav.index(), position);
+                assert!(!k.suspended());
+                let frame = k.frame(
+                    Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1000.0,
+                        height: 800.0,
+                    },
+                    1.0,
+                    ScannerColor::Blue,
+                );
+                assert!(!frame.tiles.iter().any(|tile| tile.selected));
+                if manual {
+                    assert!(k.handle(Action::Select).is_none());
+                    assert!(!k.suspended());
+                    assert!(!k.prediction_row_active());
+                } else {
+                    k.advance(9, 500);
+                    assert_eq!(k.scan.nav.index(), position);
+                    assert!(!k.suspended());
+                    k.advance(1, 500);
+                    assert!(k.suspended());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn row_groups_highlight_a_group_of_keys_and_offer_to_go_back_to_groups() {
+    use crate::scan_preferences::Resolved;
+    let screen = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    let mut k = Keyboard::configured(
+        false,
+        Resolved {
+            row_groups: true,
+            ..Default::default()
+        },
+    );
+    // How many keys are highlighted; going back is never written out.
+    let frame = |k: &Keyboard| {
+        let frame = k.frame(screen, 1.0, ScannerColor::default());
+        assert!(frame.label.is_none());
+        frame.tiles.iter().filter(|tile| tile.selected).count()
+    };
+    let groups = crate::scan_items::row_groups(k.rows[0].len());
+    assert!(groups.len() > 1);
+    assert_eq!(frame(&k), k.rows[0].len());
+    k.handle(Action::Select);
+    assert_eq!(frame(&k), groups[0].len());
+    k.handle(Action::Select);
+    assert_eq!(frame(&k), 1);
+    for _ in 0..groups[0].len() {
+        k.handle(Action::Next);
+    }
+    assert!(k.scan.escaping_to_groups());
+    assert_eq!(frame(&k), groups[0].len());
+    k.handle(Action::Select);
+    assert_eq!(frame(&k), groups[0].len());
+    for _ in 0..groups.len() {
+        k.handle(Action::Next);
+    }
+    assert!(k.scan.nav.escaping() && !k.scan.escaping_to_groups());
+    assert_eq!(frame(&k), k.rows[0].len());
+}
+
+#[test]
+fn suggestions_span_the_keys_when_columns_are_drawn() {
+    let tile = Cell {
+        label: "Hi".into(),
+        action: PanelAction::Text { text: "Hi".into() },
+        span: 1,
+    };
+    let mut k = Keyboard::new(false);
+    k.enable_predictions(true);
+    k.restart();
+    // Without columns, rows stretch on their own; slots are one key wide.
+    assert_eq!(k.weight(Key::Prediction(0)), 1.0);
+    k.set_extras(PanelExtras {
+        rows: Vec::new(),
+        columns: vec![vec![tile]],
+    });
+    k.restart();
+    assert!(k.drawn_columns() > 0);
+    let slots: Vec<Key> = k.rows[0]
+        .iter()
+        .copied()
+        .filter(|key| matches!(key, Key::Prediction(_)))
+        .collect();
+    assert_eq!(slots.len(), crate::prediction::SLOTS);
+    // The five slots and the gaps between them are exactly as wide as the
+    // widest row of keys, so no blank is drawn beside them.
+    let gap = crate::scan_panel::KEY_GAP / 68.0;
+    let width =
+        slots.iter().map(|&key| k.weight(key)).sum::<f64>() + (slots.len() - 1) as f64 * gap;
+    assert!(
+        (width - k.widest_keys()).abs() < 1e-9,
+        "{width} vs {}",
+        k.widest_keys()
+    );
+    assert!(k.weight(Key::Prediction(0)) > 1.0);
+    assert!(k.row_filler(&k.rows[0]).is_none());
+    // Other rows still get a blank where they are narrower than the widest.
+    assert!(k.rows[1..].iter().any(|row| k.row_filler(row).is_some()));
+}
+
+#[test]
+fn a_tile_beside_the_suggestions_is_reached_under_row_groups() {
+    use crate::scan_preferences::Resolved;
+    let tile = Cell {
+        label: "Hi".into(),
+        action: PanelAction::Text { text: "Hi".into() },
+        span: 1,
+    };
+    let mut k = Keyboard::configured(
+        false,
+        Resolved {
+            row_groups: true,
+            ..Default::default()
+        },
+    )
+    // Two columns, so the top row has seven items and is split into groups.
+    .with_extras(PanelExtras {
+        rows: Vec::new(),
+        columns: vec![vec![tile.clone()], vec![tile]],
+    });
+    k.enable_predictions(true);
+    assert!(crate::scan_items::row_groups(crate::prediction::SLOTS + 2).len() > 1);
+    let instant = crate::prediction::worker::Batch {
+        token: 1,
+        refined: true,
+        words: crate::prediction::slots(["one", "two", "three"]),
+    };
+    // No suggestions yet, then only the instant words: the row and the
+    // group holding the user's tile are never skipped.
+    for batch in [None, Some(instant)] {
+        // Leave the suggestion row first, or a batch is queued, not shown.
+        k.restart();
+        k.handle(Action::Next);
+        assert_ne!(k.scan.position(&k.rows).0, 0);
+        let shown = batch.is_some();
+        k.predictions(batch, false);
+        if shown {
+            assert_eq!(k.label(Key::Prediction(0)), "one");
+        }
+        k.restart();
+        assert_eq!(
+            k.scan.highlight(&k.rows).0,
+            0,
+            "the row is worth stopping at"
+        );
+        k.handle(Action::Select);
+        let mut reached = false;
+        for _ in 0..12 {
+            if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+                reached |= columns.end > crate::prediction::SLOTS;
+            }
+            k.handle(Action::Next);
+        }
+        assert!(reached, "the tile's group is highlighted");
+    }
+}
+
+#[test]
+fn row_groups_skip_the_group_of_empty_generated_slots_beside_tiles() {
+    use crate::scan_preferences::Resolved;
+    let tile = Cell {
+        label: "Hi".into(),
+        action: PanelAction::Text { text: "Hi".into() },
+        span: 1,
+    };
+    let mut k = Keyboard::configured(
+        false,
+        Resolved {
+            row_groups: true,
+            ..Default::default()
+        },
+    )
+    .with_extras(PanelExtras {
+        rows: Vec::new(),
+        columns: vec![vec![tile.clone()], vec![tile]],
+    });
+    k.enable_predictions(true);
+    let slots = crate::prediction::SLOTS;
+    // Seven items: the three instant slots, the two generated slots, and
+    // the two tiles each form a group.
+    assert_eq!(
+        crate::scan_items::row_groups(slots + 2),
+        vec![0..3, 3..slots, slots..slots + 2]
+    );
+    // Show only the instant words, from another row so they are not queued.
+    k.restart();
+    k.handle(Action::Next);
+    assert_ne!(k.scan.position(&k.rows).0, 0);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            token: 1,
+            refined: true,
+            words: crate::prediction::slots(["one", "two", "three"]),
+        }),
+        false,
+    );
+    assert_eq!(k.label(Key::Prediction(0)), "one");
+    k.restart();
+    assert_eq!(k.scan.highlight(&k.rows).0, 0);
+    k.handle(Action::Select);
+    let mut starts = std::collections::BTreeSet::new();
+    for _ in 0..12 {
+        if let (0, Some(columns)) = k.scan.highlight(&k.rows) {
+            starts.insert(columns.start);
+        }
+        k.handle(Action::Next);
+    }
+    assert_eq!(starts, [0, slots].into_iter().collect());
+}
+
+#[test]
+fn row_groups_scan_the_five_slots_as_one_group_skipping_empty_ones() {
+    use crate::scan_preferences::Resolved;
+    // Five slots are too few to split into groups.
+    assert_eq!(
+        crate::scan_items::row_groups(crate::prediction::SLOTS),
+        vec![0..crate::prediction::SLOTS]
+    );
+    let mut k = Keyboard::configured(
+        false,
+        Resolved {
+            row_groups: true,
+            ..Default::default()
+        },
+    );
+    k.enable_predictions(true);
+    k.predictions(
+        Some(crate::prediction::worker::Batch {
+            token: 1,
+            refined: true,
+            words: [Some("one".into()), None, Some("three".into()), None, None],
+        }),
+        false,
+    );
+    k.restart();
+    k.handle(Action::Select);
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..crate::prediction::SLOTS * 3 {
+        if let (0, Some(column)) = k.scan.position(&k.rows) {
+            if column < crate::prediction::SLOTS {
+                seen.insert(column);
+            }
+        }
+        k.handle(Action::Next);
+    }
+    assert_eq!(seen, [0, 2].into_iter().collect());
+}
