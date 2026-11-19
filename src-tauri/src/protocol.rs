@@ -1130,6 +1130,15 @@ const LOCKED_OK: Licence = Licence::NotRequired;
 /// allowlist and desktop routing are all read from this table, so they cannot
 /// drift apart. Order matters: each advertised list follows table order, with
 /// gated commands advertised after the rest.
+///
+/// A new `DESKTOP` command also needs:
+/// - an arm in `valid_desktop_payload`, which rejects commands it does not
+///   list, and a sample payload in the `every_desktop_command_has_a_payload_rule`
+///   test;
+/// - handling in `DesktopInput::execute` in `input.rs`, unless
+///   `desktop_dispatch::dispatch` handles it before input;
+/// - an entry in `MobileTypingRoute::for_command` if it types text, or in
+///   `desktop_dispatch::cancels_dwell` if it should end a dwell countdown.
 #[rustfmt::skip]
 const COMMANDS: &[CommandSpec] = &[
     //      name                         route    reply   licence        advertised
@@ -1313,7 +1322,18 @@ fn valid_desktop_payload(command: &str, payload: &Value) -> bool {
                     .and_then(Value::as_i64)
                     .is_some_and(|count| (0..=10_000).contains(&count))
         }
-        _ => true,
+        // `DesktopInput::execute` checks these payloads and replies with an
+        // error when one is wrong.
+        "mouse.scroll"
+        | "mouse.dragStart"
+        | "mouse.dragEnd"
+        | "keyboard.key"
+        | "keyboard.modifierDown"
+        | "keyboard.modifierUp"
+        | "keyboard.shortcut"
+        | "media.control"
+        | "window.control" => true,
+        _ => false,
     }
 }
 
