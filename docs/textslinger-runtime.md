@@ -20,7 +20,7 @@ pins the release and each archive's size and SHA-256.
 - records the archive's hash in `runtime.sha256`, so later runs skip the download.
 
 Windows ARM64 bundles the Windows x64 runtime and runs it under Windows' x64
-emulation, because there is no Python 3.10 or numpy 1.26 build for ARM64. macOS
+emulation, because switchify-prediction does not build an ARM64 runtime yet. macOS
 releases are Apple Silicon only. On Linux, where Switchify PC is not packaged, the fetch writes a placeholder so development builds still compile.
 
 ## The bridge
@@ -54,8 +54,11 @@ helper's stderr, and the packaged runtime check shows it. It waits while idle wi
 - `scripts/check-textslinger-runtime.mjs <folder>`: finds `textslinger/runtime` and `bridge.py` under a folder, runs them once with fixed text, and requires "door" for "please open the ". CI runs it after fetching, and on the packaged app on macOS, Windows x64 and Windows ARM64. The ARM64 run covers x64 emulation.
 - `scripts/fetch-textslinger-runtime.node-test.mjs`: pins, target mapping, archive checks and the all-at-once replacement.
 
-An installer update overwrites files but may not remove ones a newer runtime no
-longer ships. Check this when the runtime version first changes.
+An installer update adds and replaces files but does not remove any, so files an
+older runtime shipped, such as an earlier Python, would stay beside the new one. The
+Windows installer's `NSIS_HOOK_PREINSTALL` in `src-tauri/windows/installer-hooks.nsh`
+removes the installed runtime folder first, once it has checked that the app is not
+running. macOS updates replace the whole app bundle.
 
 To update the runtime, publish a switchify-prediction release, then update
 `scripts/textslinger-runtime.json` with its asset URLs, sizes and SHA-256 digests.

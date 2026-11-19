@@ -15,7 +15,7 @@ export const runtimeDirectory = join(root, 'src-tauri/resources/textslinger/runt
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 // The runtime a build target bundles. Windows ARM64 runs the x64 runtime
-// under Windows' x64 emulation; there is no Python 3.10 build for ARM64.
+// under Windows' x64 emulation; switchify-prediction builds no ARM64 runtime.
 export function runtimeTarget(target, pins = manifest) {
   const runtime = pins.runtime_for[target] ?? target;
   if (!pins.targets[runtime]) throw new Error(`No TextSlinger runtime for ${target}`);
