@@ -1611,3 +1611,80 @@ fn sign(command: &mut Value, token: &str, mode: SlashEscaping) {
     command["auth"] =
         Value::String(general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()));
 }
+
+/// Fails when a desktop command is added to `COMMANDS` without a sample here.
+/// The sample must pass `valid_desktop_payload`, which rejects commands it does
+/// not list, so the command also needs its own validator arm.
+#[test]
+fn every_desktop_command_has_a_payload_rule() {
+    let session = "8f14e45f-ceea-467a-9b36-4a3c1f8e2b10";
+    let samples = [
+        ("mouse.scroll", json!({"dx":0,"dy":3})),
+        ("mouse.dragStart", json!({"button":"left"})),
+        ("mouse.dragEnd", json!({})),
+        (
+            "mouse.repeat.start",
+            json!({"command":{"type":"mouse.move","payload":{"dx":5,"dy":0}}}),
+        ),
+        ("mouse.repeat.stop", json!({})),
+        ("pointer.speed.set", json!({"scalePercent":100})),
+        ("pointer.display.move", json!({"direction":"left"})),
+        ("keyboard.key", json!({"key":"a"})),
+        ("keyboard.modifierDown", json!({"key":"Shift"})),
+        ("keyboard.modifierUp", json!({"key":"Shift"})),
+        ("keyboard.shortcut", json!({"keys":["Ctrl","C"]})),
+        ("keyboard.textStream.open", json!({"streamId":"s1"})),
+        (
+            "keyboard.textStream.char",
+            json!({"streamId":"s1","seq":0,"text":"a"}),
+        ),
+        (
+            "keyboard.textStream.chunk",
+            json!({"streamId":"s1","seq":1,"text":"hi"}),
+        ),
+        (
+            "keyboard.textStream.key",
+            json!({"streamId":"s1","seq":2,"key":"Enter"}),
+        ),
+        (
+            "keyboard.textStream.close",
+            json!({"streamId":"s1","expectedCount":3}),
+        ),
+        ("media.control", json!({"action":"playPause"})),
+        ("window.control", json!({"action":"minimize"})),
+        ("grid.switch.set", json!({"switchId":1,"state":"down"})),
+        (
+            "grid.switch.sync",
+            json!({"sessionId":session,"sequence":1,"pressedSwitchIds":[1]}),
+        ),
+        ("switch.profile.list", json!({})),
+        (
+            "switch.session.start",
+            json!({"sessionId":session,"profileId":"p","profileVersion":1,"switchCount":1}),
+        ),
+        (
+            "switch.edge",
+            json!({"sessionId":session,"sequence":1,"switchId":1,"state":"down"}),
+        ),
+        (
+            "switch.sync",
+            json!({"sessionId":session,"sequence":1,"pressedSwitchIds":[1]}),
+        ),
+        (
+            "switch.session.stop",
+            json!({"sessionId":session,"sequence":1}),
+        ),
+        ("connection.disconnecting", json!({})),
+    ];
+    for spec in COMMANDS.iter().filter(|spec| spec.route == Route::Desktop) {
+        let (_, payload) = samples
+            .iter()
+            .find(|(name, _)| *name == spec.name)
+            .unwrap_or_else(|| panic!("{} needs a sample payload here", spec.name));
+        assert!(valid_desktop_payload(spec.name, payload), "{}", spec.name);
+    }
+    for (name, _) in &samples {
+        assert!(is_desktop_command(name), "{name} is not a desktop command");
+    }
+    assert!(!valid_desktop_payload("unknown.command", &json!({})));
+}
