@@ -95,15 +95,14 @@ Switchify PC is provided as it is, without any warranty, as set out in sections 
 
 Switchify PC includes work from other projects. Each part keeps its own licence. The word prediction parts include their licence files and notices in the installed app; the licences for the other parts are in each project's source code.
 
-- **Word suggestions**: suggestions come from [TextSlinger](https://github.com/kdv123/textslinger). The files that run it are built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.6.1) and contain:
+- **Word suggestions**: suggestions come from [TextSlinger](https://github.com/kdv123/textslinger). The files that run it are built by [switchify-prediction](https://github.com/switchifyapp/switchify-prediction/releases/tag/v0.8.0) and contain:
   - TextSlinger, MIT licence;
   - a small TextSlinger word model from the [Language Models for AAC](https://osf.io/ajm7t/) project, included with its authors' permission;
   - [KenLM](https://github.com/kpu/kenlm), GNU Lesser General Public License 2.1 or later, built from its unchanged source, which is included;
-  - Python 3.10 from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), Python Software Foundation licence, with libraries such as OpenSSL, libffi, SQLite and zlib under their own licences;
-  - numpy, BSD licence, with OpenBLAS, LAPACK and GCC runtime libraries (libgfortran and libquadmath) under their own licences;
-  - regex, Apache License 2.0, with parts under the CNRI Python licence.
+  - Python 3.12 from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), Python Software Foundation licence, with libraries such as OpenSSL, libffi, SQLite and zlib under their own licences;
+  - numpy, BSD licence, with OpenBLAS, LAPACK and GCC runtime libraries under their own licences.
 
-  In the bundled `textslinger/runtime` folder, the licences for Python and KenLM are in `notices`. The licences for TextSlinger, numpy and regex, including numpy's bundled libraries, are in each package's `.dist-info` folder.
+  In the bundled `textslinger/runtime` folder, the licences for Python and KenLM are in `notices`. The licences for TextSlinger and numpy, including numpy's bundled libraries, are in each package's `.dist-info` folder.
 - **Finding a setting**: the [Model2Vec potion-base-2M model](https://huggingface.co/minishlab/potion-base-2M) by Minish Lab, MIT licence, with vocabulary from [BAAI bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), MIT licence. Its LICENSE and NOTICE ship beside the bundled find model in the app assets.
 - **Bluetooth on a Mac**: [corebluetooth-rs](https://github.com/doom-fish/corebluetooth-rs), MIT or Apache License 2.0.
 - **Software libraries**: Switchify PC is built with [Tauri](https://tauri.app), [React](https://react.dev) and many open source Rust and JavaScript libraries. Each keeps its own licence.

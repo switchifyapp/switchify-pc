@@ -1,21 +1,21 @@
 {
-  "release": "v0.7.0",
+  "release": "v0.8.0",
   "source": "https://github.com/switchifyapp/switchify-prediction",
   "targets": {
     "x86_64-pc-windows-msvc": {
-      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.7.0/textslinger-runtime-x86_64-pc-windows-msvc.zip",
-      "bytes": 52775865,
-      "sha256": "8c46d8700314b81b14793c2ec89548e1b3e2a18037c53edb7ee6632c8eef0b3f"
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.8.0/textslinger-runtime-x86_64-pc-windows-msvc.zip",
+      "bytes": 50558760,
+      "sha256": "3e0e1528dcbbef885bdfba92013cf0c6563c1ff7e3aca54da4c1a4b0a38ca6e3"
     },
     "aarch64-apple-darwin": {
-      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.7.0/textslinger-runtime-aarch64-apple-darwin.zip",
-      "bytes": 51877494,
-      "sha256": "12bb864de2bb24ca233a3a1913c9f05a20316dfba77cbe5d38765692d2b51424"
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.8.0/textslinger-runtime-aarch64-apple-darwin.zip",
+      "bytes": 48823744,
+      "sha256": "929c9d3bd019d71d66606bab4c95b518c9ec6454462f2a6b1ae762c4ce0237c6"
     },
     "x86_64-apple-darwin": {
-      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.7.0/textslinger-runtime-x86_64-apple-darwin.zip",
-      "bytes": 58441118,
-      "sha256": "5f97df86b5931b21ccb2b87844e4d022eba4e23e7996831373361f4fc896306b"
+      "url": "https://github.com/switchifyapp/switchify-prediction/releases/download/v0.8.0/textslinger-runtime-x86_64-apple-darwin.zip",
+      "bytes": 52678303,
+      "sha256": "63d931c25f9d1b13bc7228eabd8e1ffe43336a6a4467e9eb64d532184cfcf993"
     }
   },
   "runtime_for": {
