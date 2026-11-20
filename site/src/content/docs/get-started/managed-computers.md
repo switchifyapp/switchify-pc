@@ -13,7 +13,7 @@ Send this list to the IT department before the switch user needs the computer:
 2. **Allow it by its publisher.** If the computer only runs approved apps, allow Switchify PC by its code-signing publisher rather than by a file location, so updates keep working.
 3. **Add it to the security software's allowed list.** Switchify PC listens for switch presses everywhere and sends clicks and key presses. Some security software treats that as suspicious and quietly blocks it.
 4. **Allow the switch interface.** Some computers block USB or Bluetooth devices they do not know, and some block game controllers on purpose. The switch interface has to be allowed.
-5. **On Windows, give the switch user a standard account.** On an administrator account, Windows asks for permission every time Switchify PC starts, including when it starts with the computer. A switch user may not be able to answer that prompt, and Switchify PC cannot help with it. On a standard account it starts without asking.
+5. **On Windows, give the switch user a standard account.** On an administrator account, Windows asks for permission every time Switchify PC starts, including when it starts with the computer. A switch user may not be able to answer that prompt, and switch control does not work on it. On a standard account it starts without asking.
 6. **On a Mac, allow Accessibility.** Switchify PC needs Accessibility permission. On a managed Mac, IT may have to grant it, because the user cannot.
 
 ## When gamepad mode can help
