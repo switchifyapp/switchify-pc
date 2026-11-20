@@ -21,6 +21,7 @@ use std::{
         ffi::OsStrExt,
         io::{FromRawHandle, RawHandle},
     },
+    sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
@@ -73,6 +74,9 @@ pub const PIPE_ARG: &str = "--switchify-pipe";
 const BUFFER: u32 = 64 * 1024;
 /// Generous: at sign-in, security software may scan the exe before it runs.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the Shell may take to start the worker. AppInfo checks the
+/// exe's signature first, which security software can slow at sign-in.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A started worker process. Dropping it closes the handle but does not end
 /// the process: the job it was placed in does that.
@@ -357,7 +361,81 @@ impl Drop for Com {
     }
 }
 
+/// Runs `work` on a thread of its own and waits up to `timeout` for it.
+/// If it takes longer, the caller gets an error and whatever `work` later
+/// produces is passed to `discard`.
+fn on_own_thread<T: Send + 'static>(
+    name: &str,
+    timeout: Duration,
+    work: impl FnOnce() -> io::Result<T> + Send + 'static,
+    discard: impl FnOnce(T) + Send + 'static,
+) -> io::Result<T> {
+    struct State<T> {
+        result: Option<io::Result<T>>,
+        abandoned: bool,
+    }
+    let shared = Arc::new((
+        Mutex::new(State {
+            result: None,
+            abandoned: false,
+        }),
+        Condvar::new(),
+    ));
+    let theirs = shared.clone();
+    std::thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            let result = work();
+            let (state, ready) = &*theirs;
+            let mut state = state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.abandoned {
+                drop(state);
+                if let Ok(value) = result {
+                    discard(value);
+                }
+                return;
+            }
+            state.result = Some(result);
+            ready.notify_all();
+        })?;
+    let (state, ready) = &*shared;
+    let state = state.lock().unwrap_or_else(|p| p.into_inner());
+    let (mut state, _) = ready
+        .wait_timeout_while(state, timeout, |state| state.result.is_none())
+        .unwrap_or_else(|p| p.into_inner());
+    match state.result.take() {
+        Some(result) => result,
+        None => {
+            state.abandoned = true;
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Windows did not start the worker.",
+            ))
+        }
+    }
+}
+
+/// Starts the worker through the Shell on a thread of its own.
+///
+/// The caller may be the UI thread holding locks. Called there, a launch
+/// through AppInfo never returned and left the new worker suspended
+/// (#1549): the Shell can dispatch the calling thread's messages while it
+/// waits, so a queued command can run inside the launch and block on a
+/// lock the caller holds. A thread of its own has no windows, so nothing
+/// runs there but the launch, and the caller gets an error rather than a
+/// hang if Windows never answers.
 fn shell_execute(executable: &OsStr, parameters: &[OsString]) -> io::Result<Worker> {
+    let executable = executable.to_owned();
+    let parameters = parameters.to_vec();
+    on_own_thread(
+        "switchify-worker-launch",
+        LAUNCH_TIMEOUT,
+        move || shell_execute_here(&executable, &parameters),
+        |worker| worker.end(),
+    )
+}
+
+fn shell_execute_here(executable: &OsStr, parameters: &[OsString]) -> io::Result<Worker> {
     let _com = Com::new();
     let file = wide(executable);
     let parameters = command_line(parameters);
@@ -639,6 +717,46 @@ mod tests {
         let mut out = Vec::new();
         quote(OsStr::new(arg), &mut out);
         String::from_utf16(&out).unwrap()
+    }
+
+    #[test]
+    fn a_launch_runs_on_another_thread_and_returns_its_result() {
+        let caller = std::thread::current().id();
+        let ran_on = on_own_thread(
+            "test-launch",
+            Duration::from_secs(5),
+            || Ok(std::thread::current().id()),
+            |_| unreachable!(),
+        )
+        .unwrap();
+        assert_ne!(ran_on, caller);
+        let error = on_own_thread::<()>(
+            "test-launch",
+            Duration::from_secs(5),
+            || Err(io::Error::other("refused")),
+            |_| unreachable!(),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "refused");
+    }
+
+    #[test]
+    fn a_launch_that_takes_too_long_is_abandoned_and_discarded() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (discarded, seen) = std::sync::mpsc::channel();
+        let error = on_own_thread(
+            "test-launch",
+            Duration::from_millis(50),
+            move || {
+                let _ = wait.recv();
+                Ok(7)
+            },
+            move |value| discarded.send(value).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        release.send(()).unwrap();
+        assert_eq!(seen.recv_timeout(Duration::from_secs(5)).unwrap(), 7);
     }
 
     #[test]
