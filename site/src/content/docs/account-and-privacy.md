@@ -5,7 +5,7 @@ description: Optional sign-in that carries your settings between computers, auto
 
 ## Running in the background
 
-Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with live connection status. From there you can show the window, open Settings and the Switch Forwarding profiles, disconnect devices, pause listening for switch keys, or quit. **Start with system** launches it quietly when you sign in.
+Switchify PC lives in the system tray on Windows or the menu bar on a Mac, with live connection status. From there you can show the window, open Settings and the Switch Forwarding profiles, disconnect devices, pause listening for switch keys, or quit. **Start with system** launches it quietly when you sign in. On a Windows administrator account, Windows asks for permission each time it starts; see [For IT staff](/get-started/managed-computers/#for-it-staff).
 
 Look for the Switchify mark there: two dots joined by a curve, in one colour. It is light on a dark taskbar or menu bar and dark on a light one. With a Windows contrast theme it takes the theme's text colour.
 

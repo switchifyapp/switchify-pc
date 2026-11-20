@@ -22,6 +22,7 @@ export default defineConfig({
           items: [
             { label: 'Install', slug: 'get-started/install' },
             { label: 'Add a switch', slug: 'get-started/add-a-switch' },
+            { label: 'School and work computers', slug: 'get-started/managed-computers' },
           ],
         },
         {
