@@ -617,6 +617,14 @@ pub fn run_from_args() -> bool {
         return false;
     }
     let work = || -> Result<(), ()> {
+        // On Windows the app starts the worker through the Shell and talks
+        // to it over named pipes named at the end of the command line.
+        #[cfg(target_os = "windows")]
+        let pipes = match crate::windows_worker_launch::connect_from_args(&args) {
+            Some((4, pipes)) => pipes.map_err(|_| ())?,
+            _ => return Err(()),
+        };
+        #[cfg(not(target_os = "windows"))]
         if args.len() != 4 {
             return Err(());
         }
@@ -643,7 +651,17 @@ pub fn run_from_args() -> bool {
             });
         }
         activity::set_ignored(ignored);
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            let crate::windows_worker_launch::WorkerPipes {
+                mut input,
+                mut output,
+            } = pipes;
+            let database = Database::open(&runtime);
+            let mut engine = Engine::new(database, false);
+            serve(&mut engine, &mut input, &mut output, activity::start)?;
+        }
+        #[cfg(target_os = "macos")]
         {
             let database = Database::open(&runtime);
             let mut engine = Engine::new(database, false);

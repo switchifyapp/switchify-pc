@@ -48,7 +48,7 @@ function Assert-Signature([string]$Path) {
   throw "Invalid Authenticode signature for $Path. Status: $($signature.Status)"
 }
 
-Assert-Manifest $main 'highestAvailable' 'true'
+Assert-Manifest $main 'asInvoker' 'true'
 Assert-Manifest $launcher 'asInvoker' 'false'
 Assert-Signature $main
 Assert-Signature $launcher

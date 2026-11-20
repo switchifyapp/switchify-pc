@@ -78,6 +78,8 @@ mod windows_runtime;
 mod windows_security;
 #[cfg(target_os = "windows")]
 mod windows_startup;
+#[cfg(target_os = "windows")]
+mod windows_worker_launch;
 
 use protocol::{PairingIntent, PAIRING_EXPIRED, PAIRING_NOT_PENDING};
 use state::{

@@ -12,8 +12,9 @@ pub mod worker;
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
 use std::{
     cell::RefCell,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
     thread::JoinHandle,
@@ -26,8 +27,7 @@ use worker::{Edit, Request, Response};
 struct Job(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(target_os = "windows")]
 impl Job {
-    fn contain(child: &Child) -> Result<Self, ()> {
-        use std::os::windows::io::AsRawHandle;
+    fn new() -> Result<Self, ()> {
         use windows_sys::Win32::System::JobObjects::*;
         unsafe {
             let h = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -43,12 +43,20 @@ impl Job {
                 (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
                 std::mem::size_of_val(&info) as u32,
             ) == 0
-                || AssignProcessToJobObject(h, child.as_raw_handle()) == 0
             {
                 return Err(());
             }
             Ok(job)
         }
+    }
+    fn assign(&self, process: windows_sys::Win32::Foundation::HANDLE) -> std::io::Result<()> {
+        if unsafe {
+            windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(self.0, process)
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
     }
     /// Ends every process in the job at once: the worker and anything it
     /// started, such as the TextSlinger runtime.
@@ -66,9 +74,49 @@ impl Drop for Job {
         }
     }
 }
+/// A worker process: one this app started through the Shell on Windows, or
+/// any other command.
+/// Commands other than the worker are only started in tests on Windows.
+#[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
+enum Process {
+    Child(Child),
+    #[cfg(target_os = "windows")]
+    Shell(crate::windows_worker_launch::Worker),
+}
+impl Process {
+    #[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
+    fn id(&self) -> u32 {
+        match self {
+            Self::Child(child) => child.id(),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.id(),
+        }
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<()>> {
+        match self {
+            Self::Child(child) => Ok(child.try_wait()?.map(|_| ())),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => Ok(worker.try_wait()?.map(|_| ())),
+        }
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Child(child) => child.kill(),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.kill(),
+        }
+    }
+    fn wait(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Child(child) => child.wait().map(|_| ()),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.wait(),
+        }
+    }
+}
 struct Client {
-    child: Child,
-    input: ChildStdin,
+    child: Process,
+    input: Input,
     replies: mpsc::Receiver<Result<Response, ()>>,
     reader: Option<JoinHandle<()>>,
     #[cfg(target_os = "windows")]
@@ -78,18 +126,60 @@ impl Client {
     /// A worker for the TextSlinger runtime in `runtime`. It is contained
     /// before this returns, and told to start loading the model.
     fn start(runtime: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
-        let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
-        command
-            .arg(worker::ARG)
-            .arg(runtime)
-            .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        let mut client = Self::spawn(command)?;
-        worker::send(&mut client.input, &Request::Warm)?;
-        Ok(client)
+        let ignored = serde_json::to_string(&ignored).map_err(|_| ())?;
+        #[cfg(target_os = "windows")]
+        {
+            // Through the Shell: a UIAccess build cannot start a copy of
+            // itself with CreateProcess unless it is elevated. This runs on
+            // the scan thread, so the wait for the worker to connect happens
+            // on the reader thread, which also sends the warm-up.
+            let job = Job::new()?;
+            let args = [
+                worker::ARG.into(),
+                runtime.as_os_str().to_owned(),
+                ignored.into(),
+            ];
+            let (process, pending) =
+                crate::windows_worker_launch::start(&args, |handle| job.assign(handle))
+                    .map_err(|_| ())?;
+            let watched = process.duplicate().map_err(|_| ())?;
+            let (connected, input) = mpsc::sync_channel(1);
+            let (tx, replies) = mpsc::sync_channel(1);
+            let reader = std::thread::spawn(move || {
+                let Ok(pipes) = pending.accept(&watched) else {
+                    let _ = tx.send(Err(()));
+                    return;
+                };
+                let mut to_worker = pipes.to_worker;
+                if worker::send(&mut to_worker, &Request::Warm).is_err()
+                    || connected.send(to_worker).is_err()
+                {
+                    let _ = tx.send(Err(()));
+                    return;
+                }
+                read_replies(pipes.from_worker, tx);
+            });
+            Ok(Self {
+                child: Process::Shell(process),
+                input: Input {
+                    pipe: None,
+                    pending: Some(input),
+                },
+                replies,
+                reader: Some(reader),
+                job,
+            })
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
+            command.arg(worker::ARG).arg(runtime).arg(ignored);
+            let mut client = Self::spawn(command)?;
+            worker::send(&mut client.input, &Request::Warm)?;
+            Ok(client)
+        }
     }
+    #[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
     fn spawn(mut command: Command) -> Result<Self, ()> {
         command
             .stdin(Stdio::piped())
@@ -107,39 +197,114 @@ impl Client {
         }
         let mut child = command.spawn().map_err(|_| ())?;
         #[cfg(target_os = "windows")]
-        let job = match Job::contain(&child) {
-            Ok(j) => j,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(());
+        let job = {
+            use std::os::windows::io::AsRawHandle;
+            match Job::new().and_then(|job| {
+                job.assign(child.as_raw_handle()).map_err(|_| ())?;
+                Ok(job)
+            }) {
+                Ok(j) => j,
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(());
+                }
             }
         };
         let input = child.stdin.take().ok_or(())?;
-        let mut output = child.stdout.take().ok_or(())?;
+        let output = child.stdout.take().ok_or(())?;
+        Ok(Self::connect(
+            Process::Child(child),
+            Input::open(Box::new(input)),
+            output,
+            #[cfg(target_os = "windows")]
+            job,
+        ))
+    }
+    fn connect(
+        child: Process,
+        input: Input,
+        output: impl Read + Send + 'static,
+        #[cfg(target_os = "windows")] job: Job,
+    ) -> Self {
         let (tx, replies) = mpsc::sync_channel(1);
-        let reader = std::thread::spawn(move || loop {
-            let reply = worker::receive(&mut output);
-            let failed = reply.is_err();
-            if tx.send(reply).is_err() || failed {
-                break;
-            }
-        });
-        Ok(Self {
+        let reader = std::thread::spawn(move || read_replies(output, tx));
+        Self {
             child,
             input,
             replies,
             reader: Some(reader),
             #[cfg(target_os = "windows")]
             job,
-        })
+        }
+    }
+}
+/// Passes each reply on until the worker's output ends or the client goes.
+fn read_replies(mut output: impl Read, tx: mpsc::SyncSender<Result<Response, ()>>) {
+    loop {
+        let reply = worker::receive(&mut output);
+        let failed = reply.is_err();
+        if tx.send(reply).is_err() || failed {
+            break;
+        }
+    }
+}
+/// Requests to a worker. On Windows a worker started through the Shell has
+/// no request pipe until the reader thread has accepted its connection.
+struct Input {
+    pipe: Option<Box<dyn Write + Send>>,
+    #[cfg(target_os = "windows")]
+    pending: Option<mpsc::Receiver<std::fs::File>>,
+}
+impl Input {
+    fn open(pipe: Box<dyn Write + Send>) -> Self {
+        Self {
+            pipe: Some(pipe),
+            #[cfg(target_os = "windows")]
+            pending: None,
+        }
+    }
+    /// Whether a request can be written without waiting for the worker to
+    /// connect. A worker that never connected counts as ready: the write
+    /// fails, and the reader has already reported it.
+    fn ready(&mut self) -> bool {
+        #[cfg(target_os = "windows")]
+        if let Some(pending) = &self.pending {
+            match pending.try_recv() {
+                Ok(pipe) => self.pipe = Some(Box::new(pipe)),
+                Err(mpsc::TryRecvError::Empty) => return false,
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+            self.pending = None;
+        }
+        true
+    }
+    fn pipe(&mut self) -> std::io::Result<&mut Box<dyn Write + Send>> {
+        // Callers check `ready` first; this wait is only a fallback.
+        #[cfg(target_os = "windows")]
+        if let Some(pending) = self.pending.take() {
+            if let Ok(pipe) = pending.recv() {
+                self.pipe = Some(Box::new(pipe));
+            }
+        }
+        self.pipe
+            .as_mut()
+            .ok_or_else(|| std::io::ErrorKind::BrokenPipe.into())
+    }
+}
+impl Write for Input {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.pipe()?.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.pipe()?.flush()
     }
 }
 impl Client {
     fn terminate(&mut self) {
-        // The runtime the worker starts inherits the worker's pipes, so the
-        // reader below only sees EOF once it is gone too. End the whole job
-        // or process group, never only the worker.
+        // The runtime the worker starts can inherit the worker's output, so
+        // the reader below may only see EOF once it is gone too. End the
+        // whole job or process group, never only the worker.
         #[cfg(target_os = "windows")]
         self.job.terminate();
         #[cfg(target_os = "macos")]
@@ -931,7 +1096,16 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             }
             Err(mpsc::TryRecvError::Empty) => {}
         }
+        // A worker still connecting gets nothing yet, so its reply deadline
+        // starts once it can answer.
         if s.outstanding.is_some() {
+            return;
+        }
+        let Some(client) = s.client.as_mut() else {
+            // A reply above failed the worker.
+            return;
+        };
+        if !client.input.ready() {
             return;
         }
         let request = if let Some((token, index)) = s.accept.take() {
@@ -1491,6 +1665,34 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_connecting_worker_is_not_sent_requests_until_it_connects() {
+        let (connected, pending) = mpsc::sync_channel(1);
+        let mut input = Input {
+            pipe: None,
+            pending: Some(pending),
+        };
+        assert!(!input.ready());
+        let path = std::env::temp_dir().join(format!("switchify-input-{}", std::process::id()));
+        connected
+            .send(std::fs::File::create(&path).unwrap())
+            .unwrap();
+        assert!(input.ready());
+        assert!(input.write_all(b"ok").is_ok());
+        drop(input);
+        std::fs::remove_file(path).unwrap();
+
+        // A worker that never connected: ready, so the write fails at once.
+        let (connected, pending) = mpsc::sync_channel::<std::fs::File>(1);
+        let mut input = Input {
+            pipe: None,
+            pending: Some(pending),
+        };
+        drop(connected);
+        assert!(input.ready());
+        assert!(input.write_all(b"x").is_err());
+    }
     #[test]
     fn cancellation_kills_and_reaps_a_blocked_worker() {
         let mut client = sleeper();
