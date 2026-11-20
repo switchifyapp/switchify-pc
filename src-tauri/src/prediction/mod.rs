@@ -1098,7 +1098,14 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
         }
         // A worker still connecting gets nothing yet, so its reply deadline
         // starts once it can answer.
-        if s.outstanding.is_some() || !s.client.as_mut().unwrap().input.ready() {
+        if s.outstanding.is_some() {
+            return;
+        }
+        let Some(client) = s.client.as_mut() else {
+            // A reply above failed the worker.
+            return;
+        };
+        if !client.input.ready() {
             return;
         }
         let request = if let Some((token, index)) = s.accept.take() {

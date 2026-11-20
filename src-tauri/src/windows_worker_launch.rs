@@ -34,8 +34,8 @@ use windows_sys::Win32::{
             ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
             SDDL_REVISION_1,
         },
-        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
-        TOKEN_USER,
+        GetTokenInformation, TokenUIAccess, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+        TOKEN_QUERY, TOKEN_USER,
     },
     Storage::FileSystem::{
         CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
@@ -49,8 +49,9 @@ use windows_sys::Win32::{
             PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
         },
         Threading::{
-            GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId,
-            OpenProcessToken, TerminateProcess, WaitForSingleObject, INFINITE,
+            GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, OpenProcess,
+            OpenProcessToken, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
+            INFINITE, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         },
     },
     UI::{
@@ -65,7 +66,8 @@ use windows_sys::Win32::{
 /// Precedes the pipe name and the parent process id on a worker's command line.
 pub const PIPE_ARG: &str = "--switchify-pipe";
 const BUFFER: u32 = 64 * 1024;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+/// Generous: at sign-in, security software may scan the exe before it runs.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A started worker process. Dropping it closes the handle but does not end
 /// the process: the job it was placed in does that.
@@ -482,7 +484,72 @@ fn open(name: &OsStr, access: u32, parent: u32) -> io::Result<Owned> {
             "The worker pipe is not served by the app that started this worker.",
         ));
     }
+    verify_server(server)?;
     Ok(pipe)
+}
+
+fn ui_access(process: HANDLE) -> io::Result<bool> {
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let token = Owned(token);
+        let mut enabled = 0u32;
+        let mut size = 0;
+        if GetTokenInformation(
+            token.0,
+            TokenUIAccess,
+            (&mut enabled as *mut u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+            &mut size,
+        ) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(enabled != 0)
+    }
+}
+
+/// Anyone can start this executable with a pipe name and their own process
+/// id, and the Shell gives that copy UIAccess. So a worker only serves the
+/// app itself: the pipe's server must be this same executable and, when
+/// this worker has UIAccess, have UIAccess too. Another program cannot
+/// fake either without already controlling the app.
+fn verify_server(server: u32) -> io::Result<()> {
+    let refused = || {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "The worker pipe is not served by Switchify PC.",
+        )
+    };
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, server) };
+    if process.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let process = Owned(process);
+    let mut image = vec![0u16; 32_768];
+    let mut length = image.len() as u32;
+    if unsafe {
+        QueryFullProcessImageNameW(
+            process.0,
+            PROCESS_NAME_WIN32,
+            image.as_mut_ptr(),
+            &mut length,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let image = String::from_utf16_lossy(&image[..length as usize]);
+    let own = std::env::current_exe()?;
+    if !image.eq_ignore_ascii_case(&own.to_string_lossy()) {
+        return Err(refused());
+    }
+    if ui_access(unsafe { GetCurrentProcess() })? && !ui_access(process.0)? {
+        return Err(refused());
+    }
+    Ok(())
 }
 
 /// Splits the pipe arguments from the end of a worker's command line and
@@ -561,6 +628,21 @@ mod tests {
         ]))
         .unwrap();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn only_this_executable_may_serve_a_worker() {
+        assert!(verify_server(unsafe { GetCurrentProcessId() }).is_ok());
+        // Another program, as a process that started a copy of the app
+        // with its own pipe and process id would be.
+        let mut other = std::process::Command::new("cmd.exe")
+            .args(["/C", "ping -n 5 127.0.0.1 >NUL"])
+            .spawn()
+            .unwrap();
+        let refused = verify_server(other.id());
+        let _ = other.kill();
+        let _ = other.wait();
+        assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
     }
 
     #[test]
