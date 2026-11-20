@@ -73,7 +73,7 @@ The first time Switchify PC opens, a guide walks you through:
    ![The Try it step during practice, with six blocks, Block 2 highlighted, Block 3 marked Goal, and a Stop practice button.](../../../assets/screenshots/setup-try.png)
 
 6. **Last choices.** Two choices on one step, and **Finish** turns on once you have made both:
-   - **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac. On a Windows administrator account, Windows asks for permission each time it starts, which a switch user may not be able to answer. See [For IT staff](/get-started/managed-computers/#for-it-staff).
+   - **Start with system** or **Start manually**. With Start with system, Switchify PC starts quietly when you sign in, in the system tray on Windows or the menu bar on a Mac.
    - **Share diagnostics** or **Don’t share**. Nothing is shared unless you choose to. See [Account, updates and privacy](/account-and-privacy/).
 
    ![The Last choices step, with Start with system chosen and Don’t share chosen.](../../../assets/screenshots/setup-last-choices.png)
