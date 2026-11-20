@@ -13,7 +13,8 @@ Send this list to the IT department before the switch user needs the computer:
 2. **Allow it by its publisher.** If the computer only runs approved apps, allow Switchify PC by its code-signing publisher rather than by a file location, so updates keep working.
 3. **Add it to the security software's allowed list.** Switchify PC listens for switch presses everywhere and sends clicks and key presses. Some security software treats that as suspicious and quietly blocks it.
 4. **Allow the switch interface.** Some computers block USB or Bluetooth devices they do not know, and some block game controllers on purpose. The switch interface has to be allowed.
-5. **On a Mac, allow Accessibility.** Switchify PC needs Accessibility permission. On a managed Mac, IT may have to grant it, because the user cannot.
+5. **On Windows, give the switch user a standard account.** On an administrator account, Windows asks for permission every time Switchify PC starts, including when it starts with the computer. A switch user may not be able to answer that prompt, and Switchify PC cannot help with it. On a standard account it starts without asking.
+6. **On a Mac, allow Accessibility.** Switchify PC needs Accessibility permission. On a managed Mac, IT may have to grant it, because the user cannot.
 
 ## When gamepad mode can help
 
@@ -59,7 +60,7 @@ Switchify PC controls the computer it runs on. If the programs you use run on an
 - **Publisher.** Release installers and the installed programs are signed by **Open Source Developer Owen McGirr**, through a Certum code-signing certificate. Allow by this publisher rather than by path or hash, so updates are allowed too.
 - **Install.** The installer is a per-machine NSIS installer that installs to Program Files and needs administrator rights. The in-app updater runs the same installer, so it also needs administrator rights. Startup entries are per user.
 - **UIAccess.** Release builds are signed and request UIAccess, which Windows grants only to signed programs in a secure location such as Program Files. This is what lets Switchify PC click and type in programs running as administrator.
-- **Standard accounts.** A standard user account can run Switchify PC.
+- **Standard accounts.** Use a standard user account for the switch user. The release manifest requests `highestAvailable` with UIAccess. On a standard account it runs without a prompt. On an administrator account with UAC on, Windows shows an elevation prompt at every launch, including Start with system, and switch control does not work on the secure desktop where that prompt appears.
 - **Programs.** `switchify-pc.exe` is the app. It starts a second copy of itself to capture switch input. `switchify-pc-startup.exe` starts it when the user signs in, if Start with system is on. Word prediction runs a bundled Python runtime under `resources\textslinger\runtime`. These are signed by the same publisher, except files their makers had already signed, such as Microsoft's C runtime and some Python Software Foundation files. Rules that also check DLLs need to allow those publishers too.
 - **How it reads switches.** Every session installs a global low-level keyboard hook (`WH_KEYBOARD_LL`) and registers for keyboard Raw Input. Gamepad and joystick buttons 1 to 8 are read through Raw Input from HID game controller devices. Clicks and key presses are sent with `SendInput`. Security software that flags keyboard hooks or synthetic input may need an exclusion for these programs.
 - **Typed text.** Switchify PC does not log or send what is typed. The diagnostics export in Help contains no typed text, device names or paths.
