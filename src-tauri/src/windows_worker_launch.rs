@@ -124,6 +124,11 @@ impl Worker {
             id: self.id,
         })
     }
+    /// Kills a worker that will not be used, waiting a bounded time for it.
+    fn end(&self) {
+        let _ = self.kill();
+        unsafe { WaitForSingleObject(self.handle, 5000) };
+    }
     pub fn wait(&self) -> io::Result<()> {
         unsafe { WaitForSingleObject(self.handle, INFINITE) };
         Ok(())
@@ -417,8 +422,7 @@ pub fn start(
     ]);
     let worker = shell_execute(executable.as_os_str(), &parameters)?;
     if let Err(error) = contain(worker.handle) {
-        let _ = worker.kill();
-        let _ = worker.wait();
+        worker.end();
         return Err(error);
     }
     Ok((
@@ -439,8 +443,7 @@ pub fn launch(
     match pending.accept(&worker) {
         Ok(pipes) => Ok((worker, pipes)),
         Err(error) => {
-            let _ = worker.kill();
-            let _ = worker.wait();
+            worker.end();
             Err(error)
         }
     }

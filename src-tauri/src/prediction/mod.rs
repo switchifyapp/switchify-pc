@@ -116,7 +116,7 @@ impl Process {
 }
 struct Client {
     child: Process,
-    input: Box<dyn Write + Send>,
+    input: Input,
     replies: mpsc::Receiver<Result<Response, ()>>,
     reader: Option<JoinHandle<()>>,
     #[cfg(target_os = "windows")]
@@ -161,10 +161,10 @@ impl Client {
             });
             Ok(Self {
                 child: Process::Shell(process),
-                input: Box::new(Connecting {
-                    pending: Some(input),
+                input: Input {
                     pipe: None,
-                }),
+                    pending: Some(input),
+                },
                 replies,
                 reader: Some(reader),
                 job,
@@ -215,7 +215,7 @@ impl Client {
         let output = child.stdout.take().ok_or(())?;
         Ok(Self::connect(
             Process::Child(child),
-            Box::new(input),
+            Input::open(Box::new(input)),
             output,
             #[cfg(target_os = "windows")]
             job,
@@ -223,7 +223,7 @@ impl Client {
     }
     fn connect(
         child: Process,
-        input: Box<dyn Write + Send>,
+        input: Input,
         output: impl Read + Send + 'static,
         #[cfg(target_os = "windows")] job: Job,
     ) -> Self {
@@ -249,28 +249,50 @@ fn read_replies(mut output: impl Read, tx: mpsc::SyncSender<Result<Response, ()>
         }
     }
 }
-/// The request pipe of a worker started through the Shell, once the reader
-/// thread has accepted its connection. The first write waits for that; if
-/// the worker never connected, writes fail and the reader reports it.
-#[cfg(target_os = "windows")]
-struct Connecting {
+/// Requests to a worker. On Windows a worker started through the Shell has
+/// no request pipe until the reader thread has accepted its connection.
+struct Input {
+    pipe: Option<Box<dyn Write + Send>>,
+    #[cfg(target_os = "windows")]
     pending: Option<mpsc::Receiver<std::fs::File>>,
-    pipe: Option<std::fs::File>,
 }
-#[cfg(target_os = "windows")]
-impl Connecting {
-    fn pipe(&mut self) -> std::io::Result<&mut std::fs::File> {
-        if self.pipe.is_none() {
-            let pending = self.pending.take();
-            self.pipe = pending.and_then(|pending| pending.recv().ok());
+impl Input {
+    fn open(pipe: Box<dyn Write + Send>) -> Self {
+        Self {
+            pipe: Some(pipe),
+            #[cfg(target_os = "windows")]
+            pending: None,
+        }
+    }
+    /// Whether a request can be written without waiting for the worker to
+    /// connect. A worker that never connected counts as ready: the write
+    /// fails, and the reader has already reported it.
+    fn ready(&mut self) -> bool {
+        #[cfg(target_os = "windows")]
+        if let Some(pending) = &self.pending {
+            match pending.try_recv() {
+                Ok(pipe) => self.pipe = Some(Box::new(pipe)),
+                Err(mpsc::TryRecvError::Empty) => return false,
+                Err(mpsc::TryRecvError::Disconnected) => {}
+            }
+            self.pending = None;
+        }
+        true
+    }
+    fn pipe(&mut self) -> std::io::Result<&mut Box<dyn Write + Send>> {
+        // Callers check `ready` first; this wait is only a fallback.
+        #[cfg(target_os = "windows")]
+        if let Some(pending) = self.pending.take() {
+            if let Ok(pipe) = pending.recv() {
+                self.pipe = Some(Box::new(pipe));
+            }
         }
         self.pipe
             .as_mut()
             .ok_or_else(|| std::io::ErrorKind::BrokenPipe.into())
     }
 }
-#[cfg(target_os = "windows")]
-impl Write for Connecting {
+impl Write for Input {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.pipe()?.write(bytes)
     }
@@ -1074,7 +1096,9 @@ pub fn poll(app: &AppHandle, keyboard: Option<&mut Keyboard>, enabled: bool, ign
             }
             Err(mpsc::TryRecvError::Empty) => {}
         }
-        if s.outstanding.is_some() {
+        // A worker still connecting gets nothing yet, so its reply deadline
+        // starts once it can answer.
+        if s.outstanding.is_some() || !s.client.as_mut().unwrap().input.ready() {
             return;
         }
         let request = if let Some((token, index)) = s.accept.take() {
@@ -1634,6 +1658,34 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_connecting_worker_is_not_sent_requests_until_it_connects() {
+        let (connected, pending) = mpsc::sync_channel(1);
+        let mut input = Input {
+            pipe: None,
+            pending: Some(pending),
+        };
+        assert!(!input.ready());
+        let path = std::env::temp_dir().join(format!("switchify-input-{}", std::process::id()));
+        connected
+            .send(std::fs::File::create(&path).unwrap())
+            .unwrap();
+        assert!(input.ready());
+        assert!(input.write_all(b"ok").is_ok());
+        drop(input);
+        std::fs::remove_file(path).unwrap();
+
+        // A worker that never connected: ready, so the write fails at once.
+        let (connected, pending) = mpsc::sync_channel::<std::fs::File>(1);
+        let mut input = Input {
+            pipe: None,
+            pending: Some(pending),
+        };
+        drop(connected);
+        assert!(input.ready());
+        assert!(input.write_all(b"x").is_err());
+    }
     #[test]
     fn cancellation_kills_and_reaps_a_blocked_worker() {
         let mut client = sleeper();
