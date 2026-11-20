@@ -26,7 +26,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, DuplicateHandle, GetLastError, LocalFree, DUPLICATE_SAME_ACCESS,
-        ERROR_PIPE_CONNECTED, ERROR_PIPE_LISTENING, GENERIC_READ, GENERIC_WRITE, HANDLE,
+        ERROR_PIPE_CONNECTED, ERROR_PIPE_LISTENING, FILETIME, GENERIC_READ, GENERIC_WRITE, HANDLE,
         INVALID_HANDLE_VALUE, STILL_ACTIVE, WAIT_OBJECT_0,
     },
     Security::{
@@ -43,15 +43,20 @@ use windows_sys::Win32::{
     },
     System::{
         Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE},
+        Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        },
         Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId,
             GetNamedPipeServerProcessId, SetNamedPipeHandleState, PIPE_NOWAIT, PIPE_READMODE_BYTE,
             PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
         },
         Threading::{
-            GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, OpenProcess,
-            OpenProcessToken, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
-            INFINITE, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId,
+            GetProcessTimes, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
+            TerminateProcess, WaitForSingleObject, INFINITE, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION,
         },
     },
     UI::{
@@ -457,7 +462,7 @@ pub struct WorkerPipes {
     pub output: File,
 }
 
-fn open(name: &OsStr, access: u32, parent: u32) -> io::Result<Owned> {
+fn open(name: &OsStr, access: u32, parent: u32, creator: u32) -> io::Result<Owned> {
     let name = wide(name);
     let handle = unsafe {
         CreateFileW(
@@ -478,13 +483,7 @@ fn open(name: &OsStr, access: u32, parent: u32) -> io::Result<Owned> {
     if unsafe { GetNamedPipeServerProcessId(pipe.0, &mut server) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    if server != parent {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "The worker pipe is not served by the app that started this worker.",
-        ));
-    }
-    verify_server(server)?;
+    verify_server(server, parent, creator)?;
     Ok(pipe)
 }
 
@@ -511,42 +510,85 @@ fn ui_access(process: HANDLE) -> io::Result<bool> {
     }
 }
 
-/// Anyone can start this executable with a pipe name and their own process
-/// id, and the Shell gives that copy UIAccess. So a worker only serves the
-/// app itself: the pipe's server must be this same executable and, when
-/// this worker has UIAccess, have UIAccess too. Another program cannot
-/// fake either without already controlling the app.
-fn verify_server(server: u32) -> io::Result<()> {
+/// The executable a process runs, as the kernel names it, so links,
+/// junctions and substituted drives compare equal.
+fn image(process: HANDLE) -> io::Result<String> {
+    let mut image = vec![0u16; 32_768];
+    let mut length = image.len() as u32;
+    if unsafe {
+        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, image.as_mut_ptr(), &mut length)
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(String::from_utf16_lossy(&image[..length as usize]))
+}
+
+fn created(process: HANDLE) -> io::Result<u64> {
+    let mut times = [FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    }; 4];
+    let [creation, exit, kernel, user] = &mut times;
+    if unsafe { GetProcessTimes(process, creation, exit, kernel, user) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
+
+/// The process that created this one. The Shell records its caller, also
+/// when the AppInfo service creates a UIAccess process for it.
+fn creator() -> io::Result<u32> {
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let snapshot = Owned(snapshot);
+        let me = GetCurrentProcessId();
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut more = Process32FirstW(snapshot.0, &mut entry) != 0;
+        while more {
+            if entry.th32ProcessID == me {
+                return Ok(entry.th32ParentProcessID);
+            }
+            more = Process32NextW(snapshot.0, &mut entry) != 0;
+        }
+        Err(io::ErrorKind::NotFound.into())
+    }
+}
+
+/// Anyone can start this executable with a pipe name and a process id, and
+/// the Shell gives that copy UIAccess. So a worker only serves the app that
+/// created it: the pipe's server must be the process named on the command
+/// line and this worker's creator, must have existed before this worker
+/// (so a reused process id cannot pass), must run this same executable,
+/// and must have UIAccess when this worker does. Another program cannot
+/// arrange that without already controlling the app.
+fn verify_server(server: u32, parent: u32, creator: u32) -> io::Result<()> {
     let refused = || {
         io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "The worker pipe is not served by Switchify PC.",
+            "The worker pipe is not served by the Switchify PC that started this worker.",
         )
     };
+    if server != parent || server != creator {
+        return Err(refused());
+    }
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, server) };
     if process.is_null() {
         return Err(io::Error::last_os_error());
     }
     let process = Owned(process);
-    let mut image = vec![0u16; 32_768];
-    let mut length = image.len() as u32;
-    if unsafe {
-        QueryFullProcessImageNameW(
-            process.0,
-            PROCESS_NAME_WIN32,
-            image.as_mut_ptr(),
-            &mut length,
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    let image = String::from_utf16_lossy(&image[..length as usize]);
-    let own = std::env::current_exe()?;
-    if !image.eq_ignore_ascii_case(&own.to_string_lossy()) {
+    let current = unsafe { GetCurrentProcess() };
+    if created(process.0)? > created(current)? {
         return Err(refused());
     }
-    if ui_access(unsafe { GetCurrentProcess() })? && !ui_access(process.0)? {
+    if !image(process.0)?.eq_ignore_ascii_case(&image(current)?) {
+        return Err(refused());
+    }
+    if ui_access(current)? && !ui_access(process.0)? {
         return Err(refused());
     }
     Ok(())
@@ -568,8 +610,19 @@ pub fn connect_from_args(args: &[OsString]) -> Option<(usize, io::Result<WorkerP
             .to_str()
             .and_then(|pid| pid.parse().ok())
             .ok_or(io::ErrorKind::InvalidInput)?;
-        let input = open(OsStr::new(&format!("{base}-in")), GENERIC_READ, parent)?;
-        let output = open(OsStr::new(&format!("{base}-out")), GENERIC_WRITE, parent)?;
+        let creator = creator()?;
+        let input = open(
+            OsStr::new(&format!("{base}-in")),
+            GENERIC_READ,
+            parent,
+            creator,
+        )?;
+        let output = open(
+            OsStr::new(&format!("{base}-out")),
+            GENERIC_WRITE,
+            parent,
+            creator,
+        )?;
         Ok(WorkerPipes {
             input: input.into_file(),
             output: output.into_file(),
@@ -632,14 +685,21 @@ mod tests {
 
     #[test]
     fn only_this_executable_may_serve_a_worker() {
-        assert!(verify_server(unsafe { GetCurrentProcessId() }).is_ok());
+        let me = unsafe { GetCurrentProcessId() };
+        assert!(verify_server(me, me, me).is_ok());
+        // Named on the command line but not the creator: a reused or chosen id.
+        assert_eq!(
+            verify_server(me, me, me + 1).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
         // Another program, as a process that started a copy of the app
         // with its own pipe and process id would be.
         let mut other = std::process::Command::new("cmd.exe")
             .args(["/C", "ping -n 5 127.0.0.1 >NUL"])
             .spawn()
             .unwrap();
-        let refused = verify_server(other.id());
+        let id = other.id();
+        let refused = verify_server(id, id, id);
         let _ = other.kill();
         let _ = other.wait();
         assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
@@ -656,9 +716,11 @@ mod tests {
         };
         let me = unsafe { GetCurrentProcessId() };
         let (name, _server) = pipe();
-        let error = open(OsStr::new(&name), GENERIC_READ, me + 1).err().unwrap();
+        let error = open(OsStr::new(&name), GENERIC_READ, me + 1, me)
+            .err()
+            .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         let (name, _server) = pipe();
-        assert!(open(OsStr::new(&name), GENERIC_READ, me).is_ok());
+        assert!(open(OsStr::new(&name), GENERIC_READ, me, me).is_ok());
     }
 }
