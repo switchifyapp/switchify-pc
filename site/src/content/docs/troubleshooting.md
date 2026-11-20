@@ -41,6 +41,8 @@ Switchify PC keeps pairing tokens in the Windows credential store or the macOS K
 
 The Fix a problem section of Help shows the Bluetooth state and recent changes, and lets you disconnect all devices. Only one app can advertise the Switchify Bluetooth service at a time.
 
+If it says **Another Switchify PC is running**, another copy already has Bluetooth. On Windows this can be a copy running in another account that is still signed in, for example behind the lock screen or after switching user. Sign in to that account and quit Switchify PC there, or sign that account out. Then quit Switchify PC from the system tray in this account and start it again; closing its window is not enough.
+
 ## Get help
 
 Email [info@theswitchify.app](mailto:info@theswitchify.app). Attach the diagnostics export from the Fix a problem section of Help if it helps; it contains no typed text, device names or paths. Bugs and ideas are welcome on [GitHub](https://github.com/switchifyapp/switchify-pc/issues).

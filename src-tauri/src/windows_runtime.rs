@@ -508,6 +508,71 @@ fn tasklist_has_other_switchify_process(output: &str, current_pid: u32) -> bool 
     })
 }
 
+/// Held by the copy of Switchify PC that runs Bluetooth. It is in the
+/// global namespace so a copy in another session, including another
+/// user's, sees it. The app's own workers never open it.
+const BLUETOOTH_OWNER: &str = r"Global\com.enaboapps.switchify.pc.bluetooth";
+
+/// An open handle to a named mutex that no other process had open.
+struct Owner(windows_sys::Win32::Foundation::HANDLE);
+unsafe impl Send for Owner {}
+unsafe impl Sync for Owner {}
+impl Drop for Owner {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+enum Own {
+    Mine(Owner),
+    /// Another process has it open, even one whose security keeps this
+    /// process from opening it.
+    Taken,
+    /// It could not be checked. Bluetooth is never blocked for this.
+    Unknown,
+}
+
+fn own(name: &str) -> Own {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
+    };
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
+    let error = unsafe { GetLastError() };
+    if handle.is_null() {
+        return if error == ERROR_ACCESS_DENIED {
+            Own::Taken
+        } else {
+            Own::Unknown
+        };
+    }
+    if error == ERROR_ALREADY_EXISTS {
+        unsafe { CloseHandle(handle) };
+        return Own::Taken;
+    }
+    Own::Mine(Owner(handle))
+}
+
+/// Claims Bluetooth for this copy until it exits. False when another copy
+/// of Switchify PC, in any session, already has it.
+fn claim_bluetooth() -> bool {
+    static CLAIM: Mutex<Option<Owner>> = Mutex::new(None);
+    let mut claim = CLAIM.lock().unwrap_or_else(|p| p.into_inner());
+    if claim.is_some() {
+        return true;
+    }
+    match own(BLUETOOTH_OWNER) {
+        Own::Mine(owner) => {
+            *claim = Some(owner);
+            true
+        }
+        Own::Taken => false,
+        Own::Unknown => true,
+    }
+}
+
+/// The frozen C# app, which also serves the Switchify Bluetooth service.
 fn another_switchify_app_is_running() -> bool {
     Command::new("tasklist")
         .args(["/FI", "IMAGENAME eq Switchify PC.exe", "/FO", "CSV", "/NH"])
@@ -523,7 +588,7 @@ pub fn install(app: AppHandle, shared: SharedModel) -> Result<(), String> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .state
         .accessibility = AccessibilityState::Granted;
-    if another_switchify_app_is_running() {
+    if another_switchify_app_is_running() || !claim_bluetooth() {
         shared
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -3208,6 +3273,18 @@ mod tests {
             ]),
             Err(NOTIFICATION_DELIVERY_ERROR.into())
         );
+    }
+
+    #[test]
+    fn a_bluetooth_owner_is_seen_until_it_is_released() {
+        use super::{own, Own};
+        let name = format!(r"Local\switchify-test-owner-{}", uuid::Uuid::new_v4());
+        let Own::Mine(first) = own(&name) else {
+            panic!("the first copy should own the name");
+        };
+        assert!(matches!(own(&name), Own::Taken));
+        drop(first);
+        assert!(matches!(own(&name), Own::Mine(_)));
     }
 
     #[test]
