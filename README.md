@@ -116,7 +116,7 @@ npm run windows:package
 npm run windows:verify-package
 ```
 
-The per-machine NSIS installer places the signed main executable and signed startup launcher under Program Files. Release builds request `highestAvailable` with UIAccess; debug builds remain `asInvoker` without UIAccess. Start with system registers the non-UIAccess launcher, which asks Windows Shell to start the main app hidden.
+The per-machine NSIS installer places the signed main executable and signed startup launcher under Program Files. Release builds request `asInvoker` with UIAccess, so they never ask for elevation; debug builds are `asInvoker` without UIAccess. Windows only creates a UIAccess process through the Shell (AppInfo): `CreateProcess` fails with `ERROR_ELEVATION_REQUIRED` unless the caller is elevated. So Start with system registers the non-UIAccess launcher, which asks the Shell to start the main app hidden, and the app starts its capture and prediction workers through the Shell as well (`src-tauri/src/windows_worker_launch.rs`). The workers connect back over named pipes that only the app that started them serves.
 
 ## Legacy C# release
 

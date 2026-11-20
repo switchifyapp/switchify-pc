@@ -12,8 +12,9 @@ pub mod worker;
 use crate::scan_keyboard::{Key, Keyboard, Modifier, Page, Stroke};
 use std::{
     cell::RefCell,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::atomic::{AtomicU8, Ordering},
     sync::mpsc,
     thread::JoinHandle,
@@ -26,8 +27,7 @@ use worker::{Edit, Request, Response};
 struct Job(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(target_os = "windows")]
 impl Job {
-    fn contain(child: &Child) -> Result<Self, ()> {
-        use std::os::windows::io::AsRawHandle;
+    fn new() -> Result<Self, ()> {
         use windows_sys::Win32::System::JobObjects::*;
         unsafe {
             let h = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -43,12 +43,20 @@ impl Job {
                 (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
                 std::mem::size_of_val(&info) as u32,
             ) == 0
-                || AssignProcessToJobObject(h, child.as_raw_handle()) == 0
             {
                 return Err(());
             }
             Ok(job)
         }
+    }
+    fn assign(&self, process: windows_sys::Win32::Foundation::HANDLE) -> std::io::Result<()> {
+        if unsafe {
+            windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(self.0, process)
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
     }
     /// Ends every process in the job at once: the worker and anything it
     /// started, such as the TextSlinger runtime.
@@ -66,9 +74,49 @@ impl Drop for Job {
         }
     }
 }
+/// A worker process: one this app started through the Shell on Windows, or
+/// any other command.
+/// Commands other than the worker are only started in tests on Windows.
+#[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
+enum Process {
+    Child(Child),
+    #[cfg(target_os = "windows")]
+    Shell(crate::windows_worker_launch::Worker),
+}
+impl Process {
+    #[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
+    fn id(&self) -> u32 {
+        match self {
+            Self::Child(child) => child.id(),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.id(),
+        }
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<()>> {
+        match self {
+            Self::Child(child) => Ok(child.try_wait()?.map(|_| ())),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => Ok(worker.try_wait()?.map(|_| ())),
+        }
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Child(child) => child.kill(),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.kill(),
+        }
+    }
+    fn wait(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Child(child) => child.wait().map(|_| ()),
+            #[cfg(target_os = "windows")]
+            Self::Shell(worker) => worker.wait(),
+        }
+    }
+}
 struct Client {
-    child: Child,
-    input: ChildStdin,
+    child: Process,
+    input: Box<dyn Write + Send>,
     replies: mpsc::Receiver<Result<Response, ()>>,
     reader: Option<JoinHandle<()>>,
     #[cfg(target_os = "windows")]
@@ -78,18 +126,37 @@ impl Client {
     /// A worker for the TextSlinger runtime in `runtime`. It is contained
     /// before this returns, and told to start loading the model.
     fn start(runtime: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
-        let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
-        command
-            .arg(worker::ARG)
-            .arg(runtime)
-            .arg(serde_json::to_string(&ignored).map_err(|_| ())?)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        let mut client = Self::spawn(command)?;
+        let ignored = serde_json::to_string(&ignored).map_err(|_| ())?;
+        #[cfg(target_os = "windows")]
+        let mut client = {
+            // Through the Shell: a UIAccess build cannot start a copy of
+            // itself with CreateProcess unless it is elevated.
+            let job = Job::new()?;
+            let args = [
+                worker::ARG.into(),
+                runtime.as_os_str().to_owned(),
+                ignored.into(),
+            ];
+            let (process, pipes) =
+                crate::windows_worker_launch::launch(&args, |handle| job.assign(handle))
+                    .map_err(|_| ())?;
+            Self::connect(
+                Process::Shell(process),
+                Box::new(pipes.to_worker),
+                pipes.from_worker,
+                job,
+            )
+        };
+        #[cfg(not(target_os = "windows"))]
+        let mut client = {
+            let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
+            command.arg(worker::ARG).arg(runtime).arg(ignored);
+            Self::spawn(command)?
+        };
         worker::send(&mut client.input, &Request::Warm)?;
         Ok(client)
     }
+    #[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
     fn spawn(mut command: Command) -> Result<Self, ()> {
         command
             .stdin(Stdio::piped())
@@ -107,16 +174,36 @@ impl Client {
         }
         let mut child = command.spawn().map_err(|_| ())?;
         #[cfg(target_os = "windows")]
-        let job = match Job::contain(&child) {
-            Ok(j) => j,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(());
+        let job = {
+            use std::os::windows::io::AsRawHandle;
+            match Job::new().and_then(|job| {
+                job.assign(child.as_raw_handle()).map_err(|_| ())?;
+                Ok(job)
+            }) {
+                Ok(j) => j,
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(());
+                }
             }
         };
         let input = child.stdin.take().ok_or(())?;
-        let mut output = child.stdout.take().ok_or(())?;
+        let output = child.stdout.take().ok_or(())?;
+        Ok(Self::connect(
+            Process::Child(child),
+            Box::new(input),
+            output,
+            #[cfg(target_os = "windows")]
+            job,
+        ))
+    }
+    fn connect(
+        child: Process,
+        input: Box<dyn Write + Send>,
+        mut output: impl Read + Send + 'static,
+        #[cfg(target_os = "windows")] job: Job,
+    ) -> Self {
         let (tx, replies) = mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || loop {
             let reply = worker::receive(&mut output);
@@ -125,14 +212,14 @@ impl Client {
                 break;
             }
         });
-        Ok(Self {
+        Self {
             child,
             input,
             replies,
             reader: Some(reader),
             #[cfg(target_os = "windows")]
             job,
-        })
+        }
     }
 }
 impl Client {

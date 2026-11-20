@@ -1,11 +1,10 @@
 use super::{
     windows, windows_hook::await_shutdown, windows_worker_protocol as wire, Core, Driver, Mode,
 };
+use crate::windows_worker_launch::{connect_from_args, launch, Pipes, WorkerPipes};
 use anyhow::{bail, Context, Result};
 use std::{
     io,
-    os::windows::{io::AsRawHandle, process::CommandExt},
-    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::*},
         mpsc, Arc, Mutex,
@@ -15,7 +14,7 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::*,
-    System::{JobObjects::*, SystemInformation::GetTickCount64, Threading::CREATE_NO_WINDOW},
+    System::{JobObjects::*, SystemInformation::GetTickCount64},
 };
 
 const ARGUMENT: &str = "--switchify-capture-worker";
@@ -96,20 +95,14 @@ impl Capture {
         let generation = request.generation.wrapping_add(1);
         let job =
             Arc::new(Job::new().context("Could not create the keyboard capture worker job.")?);
-        let mut child = Command::new(std::env::current_exe()?)
-            .arg(ARGUMENT)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .context("Could not start the keyboard capture worker.")?;
-        if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) } == 0 {
-            let error = io::Error::last_os_error();
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error).context("Could not contain the keyboard capture worker.");
-        }
+        // Through the Shell, so the worker gets UIAccess without elevation.
+        let (child, pipes) = launch(&[ARGUMENT.into()], |process| {
+            if unsafe { AssignProcessToJobObject(job.0, process) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        })
+        .context("Could not start the keyboard capture worker.")?;
         let shared = Arc::new(Shared {
             disposing: AtomicBool::new(false),
             cancellation: AtomicU8::new(0),
@@ -127,15 +120,11 @@ impl Capture {
             .name("switchify-capture-worker-io".into())
             .spawn(move || {
                 let mut rejected = false;
+                let Pipes {
+                    to_worker: mut input,
+                    from_worker: mut output,
+                } = pipes;
                 let exchange = || -> Result<()> {
-                    let mut input = child
-                        .stdin
-                        .take()
-                        .context("Missing capture worker input.")?;
-                    let mut output = child
-                        .stdout
-                        .take()
-                        .context("Missing capture worker output.")?;
                     wire::write(&mut input, &request)?;
                     let initial: wire::Reply = wire::read(&mut output)?;
                     let snapshot = match initial {
@@ -324,9 +313,11 @@ fn snapshot(driver: &Driver, native: &windows::Capture) -> wire::Snapshot {
     }
 }
 
-fn run() -> Result<()> {
-    let mut input = io::stdin().lock();
-    let mut output = io::stdout().lock();
+fn run(pipes: WorkerPipes) -> Result<()> {
+    let WorkerPipes {
+        mut input,
+        mut output,
+    } = pipes;
     let request: wire::Start = wire::read(&mut input)?;
     if request.version != wire::VERSION
         || !matches!(request.mode, Mode::Active | Mode::Learning)
@@ -384,9 +375,12 @@ fn run() -> Result<()> {
 }
 
 pub(super) fn run_from_args() -> bool {
-    if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new(ARGUMENT)) {
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.get(1).map(|arg| arg.as_os_str()) != Some(std::ffi::OsStr::new(ARGUMENT)) {
         return false;
     }
-    let _ = run();
+    if let Some((2, Ok(pipes))) = connect_from_args(&args) {
+        let _ = run(pipes);
+    }
     true
 }
