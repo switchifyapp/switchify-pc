@@ -9,9 +9,10 @@
 //!
 //! A Shell launch cannot hand the worker inherited pipes, so the worker
 //! connects to two named pipes instead, one for each direction. Each pipe
-//! has an unguessable name, one instance, refuses remote clients, and is
-//! accepted only from the process that was started. The worker accepts
-//! only pipes served by the process named on its command line.
+//! has an unguessable name, one instance, refuses remote clients, only
+//! lets the current user and SYSTEM open it, and is accepted only from the
+//! process that was started. The worker accepts only pipes served by the
+//! process named on its command line.
 use std::{
     ffi::{OsStr, OsString},
     fs::File,
@@ -24,8 +25,17 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, GetLastError, ERROR_PIPE_CONNECTED, ERROR_PIPE_LISTENING, GENERIC_READ,
-        GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE, WAIT_OBJECT_0,
+        CloseHandle, DuplicateHandle, GetLastError, LocalFree, DUPLICATE_SAME_ACCESS,
+        ERROR_PIPE_CONNECTED, ERROR_PIPE_LISTENING, GENERIC_READ, GENERIC_WRITE, HANDLE,
+        INVALID_HANDLE_VALUE, STILL_ACTIVE, WAIT_OBJECT_0,
+    },
+    Security::{
+        Authorization::{
+            ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+            SDDL_REVISION_1,
+        },
+        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
+        TOKEN_USER,
     },
     Storage::FileSystem::{
         CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
@@ -39,14 +49,14 @@ use windows_sys::Win32::{
             PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
         },
         Threading::{
-            GetCurrentProcessId, GetExitCodeProcess, GetProcessId, TerminateProcess,
-            WaitForSingleObject, INFINITE,
+            GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId,
+            OpenProcessToken, TerminateProcess, WaitForSingleObject, INFINITE,
         },
     },
     UI::{
         Shell::{
             ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS,
-            SHELLEXECUTEINFOW,
+            SEE_MASK_NOZONECHECKS, SEE_MASK_NO_CONSOLE, SHELLEXECUTEINFOW,
         },
         WindowsAndMessaging::SW_HIDE,
     },
@@ -55,7 +65,7 @@ use windows_sys::Win32::{
 /// Precedes the pipe name and the parent process id on a worker's command line.
 pub const PIPE_ARG: &str = "--switchify-pipe";
 const BUFFER: u32 = 64 * 1024;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A started worker process. Dropping it closes the handle but does not end
 /// the process: the job it was placed in does that.
@@ -82,10 +92,37 @@ impl Worker {
         unsafe { WaitForSingleObject(self.handle, 0) == WAIT_OBJECT_0 }
     }
     pub fn kill(&self) -> io::Result<()> {
-        if unsafe { TerminateProcess(self.handle, 1) } == 0 && !self.ended() {
-            return Err(io::Error::last_os_error());
+        if unsafe { TerminateProcess(self.handle, 1) } == 0 {
+            let error = io::Error::last_os_error();
+            if !self.ended() {
+                return Err(error);
+            }
         }
         Ok(())
+    }
+    /// A second handle to the same process, for a thread that waits on it
+    /// while this one is used elsewhere.
+    pub fn duplicate(&self) -> io::Result<Self> {
+        let mut handle = std::ptr::null_mut();
+        let current = unsafe { GetCurrentProcess() };
+        if unsafe {
+            DuplicateHandle(
+                current,
+                self.handle,
+                current,
+                &mut handle,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            handle,
+            id: self.id,
+        })
     }
     pub fn wait(&self) -> io::Result<()> {
         unsafe { WaitForSingleObject(self.handle, INFINITE) };
@@ -107,6 +144,7 @@ pub struct Pipes {
 }
 
 struct Owned(HANDLE);
+unsafe impl Send for Owned {}
 impl Owned {
     fn into_file(self) -> File {
         let file = unsafe { File::from_raw_handle(self.0 as RawHandle) };
@@ -167,9 +205,68 @@ fn command_line(args: &[OsString]) -> Vec<u16> {
     out
 }
 
+/// A security descriptor that lets only the current user and SYSTEM open
+/// the pipe. The default one also lets everyone read, so another local
+/// user could connect first and stop the worker from starting.
+struct OwnerOnly(PSECURITY_DESCRIPTOR);
+impl Drop for OwnerOnly {
+    fn drop(&mut self) {
+        unsafe { LocalFree(self.0) };
+    }
+}
+fn owner_only() -> io::Result<OwnerOnly> {
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let token = Owned(token);
+        let mut size = 0;
+        GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut size);
+        // u64 storage keeps TOKEN_USER aligned.
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        if GetTokenInformation(
+            token.0,
+            TokenUser,
+            buffer.as_mut_ptr().cast(),
+            size,
+            &mut size,
+        ) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let user = &*(buffer.as_ptr() as *const TOKEN_USER);
+        let mut sid = std::ptr::null_mut();
+        if ConvertSidToStringSidW(user.User.Sid, &mut sid) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let length = (0..).take_while(|&i| *sid.add(i) != 0).count();
+        let sid_text = String::from_utf16_lossy(std::slice::from_raw_parts(sid, length));
+        LocalFree(sid.cast());
+        let sddl = wide(OsStr::new(&format!("D:P(A;;GA;;;{sid_text})(A;;GA;;;SY)")));
+        let mut descriptor = std::ptr::null_mut();
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        ) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(OwnerOnly(descriptor))
+    }
+}
+
 /// Duplex even though each pipe carries one direction: switching an inbound
 /// pipe to blocking needs write access to its attributes.
 fn create_pipe(name: &OsStr) -> io::Result<Owned> {
+    let security = owner_only()?;
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security.0,
+        bInheritHandle: 0,
+    };
     let name = wide(name);
     let handle = unsafe {
         CreateNamedPipeW(
@@ -180,7 +277,7 @@ fn create_pipe(name: &OsStr) -> io::Result<Owned> {
             BUFFER,
             BUFFER,
             0,
-            std::ptr::null(),
+            &attributes,
         )
     };
     if handle == INVALID_HANDLE_VALUE {
@@ -254,7 +351,13 @@ fn shell_execute(executable: &OsStr, parameters: &[OsString]) -> io::Result<Work
     let parameters = command_line(parameters);
     let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
     info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    // NO_CONSOLE: a debug (console) build's worker shares the app's console
+    // instead of opening one. NOZONECHECKS: it is our own installed exe.
+    info.fMask = SEE_MASK_NOCLOSEPROCESS
+        | SEE_MASK_NOASYNC
+        | SEE_MASK_FLAG_NO_UI
+        | SEE_MASK_NO_CONSOLE
+        | SEE_MASK_NOZONECHECKS;
     info.lpFile = file.as_ptr();
     info.lpParameters = parameters.as_ptr();
     info.nShow = SW_HIDE;
@@ -273,13 +376,33 @@ fn shell_execute(executable: &OsStr, parameters: &[OsString]) -> io::Result<Work
     })
 }
 
+/// The parent's pipes before the worker has connected to them.
+pub struct Pending {
+    to_worker: Owned,
+    from_worker: Owned,
+}
+impl Pending {
+    /// Waits for `worker` to connect to both pipes, up to a few seconds,
+    /// and gives up early if it ends. Nothing is read or written first.
+    pub fn accept(self, worker: &Worker) -> io::Result<Pipes> {
+        let deadline = Instant::now() + CONNECT_TIMEOUT;
+        accept(&self.to_worker, worker, deadline)?;
+        accept(&self.from_worker, worker, deadline)?;
+        Ok(Pipes {
+            to_worker: self.to_worker.into_file(),
+            from_worker: self.from_worker.into_file(),
+        })
+    }
+}
+
 /// Starts this executable with `args`, then the pipe arguments, through the
-/// Shell. `contain` runs on the new process before it is trusted, so a
-/// worker that cannot be placed in its job is never used.
-pub fn launch(
+/// Shell, without waiting for it to connect. `contain` runs on the new
+/// process first, so a worker that cannot be placed in its job is ended
+/// and never used.
+pub fn start(
     args: &[OsString],
     contain: impl FnOnce(HANDLE) -> io::Result<()>,
-) -> io::Result<(Worker, Pipes)> {
+) -> io::Result<(Worker, Pending)> {
     let executable = std::env::current_exe()?;
     let base = format!(r"\\.\pipe\switchify-worker-{}", uuid::Uuid::new_v4());
     let to_name = OsString::from(format!("{base}-in"));
@@ -293,23 +416,34 @@ pub fn launch(
         OsString::from(unsafe { GetCurrentProcessId() }.to_string()),
     ]);
     let worker = shell_execute(executable.as_os_str(), &parameters)?;
-    let accepted = contain(worker.handle).and_then(|()| {
-        let deadline = Instant::now() + CONNECT_TIMEOUT;
-        accept(&to_worker, &worker, deadline)?;
-        accept(&from_worker, &worker, deadline)
-    });
-    if let Err(error) = accepted {
+    if let Err(error) = contain(worker.handle) {
         let _ = worker.kill();
         let _ = worker.wait();
         return Err(error);
     }
     Ok((
         worker,
-        Pipes {
-            to_worker: to_worker.into_file(),
-            from_worker: from_worker.into_file(),
+        Pending {
+            to_worker,
+            from_worker,
         },
     ))
+}
+
+/// [`start`], then waits for the worker to connect.
+pub fn launch(
+    args: &[OsString],
+    contain: impl FnOnce(HANDLE) -> io::Result<()>,
+) -> io::Result<(Worker, Pipes)> {
+    let (worker, pending) = start(args, contain)?;
+    match pending.accept(&worker) {
+        Ok(pipes) => Ok((worker, pipes)),
+        Err(error) => {
+            let _ = worker.kill();
+            let _ = worker.wait();
+            Err(error)
+        }
+    }
 }
 
 /// The worker's ends of its pipes: requests in, replies out.

@@ -128,33 +128,56 @@ impl Client {
     fn start(runtime: &Path, ignored: Vec<u32>) -> Result<Self, ()> {
         let ignored = serde_json::to_string(&ignored).map_err(|_| ())?;
         #[cfg(target_os = "windows")]
-        let mut client = {
+        {
             // Through the Shell: a UIAccess build cannot start a copy of
-            // itself with CreateProcess unless it is elevated.
+            // itself with CreateProcess unless it is elevated. This runs on
+            // the scan thread, so the wait for the worker to connect happens
+            // on the reader thread, which also sends the warm-up.
             let job = Job::new()?;
             let args = [
                 worker::ARG.into(),
                 runtime.as_os_str().to_owned(),
                 ignored.into(),
             ];
-            let (process, pipes) =
-                crate::windows_worker_launch::launch(&args, |handle| job.assign(handle))
+            let (process, pending) =
+                crate::windows_worker_launch::start(&args, |handle| job.assign(handle))
                     .map_err(|_| ())?;
-            Self::connect(
-                Process::Shell(process),
-                Box::new(pipes.to_worker),
-                pipes.from_worker,
+            let watched = process.duplicate().map_err(|_| ())?;
+            let (connected, input) = mpsc::sync_channel(1);
+            let (tx, replies) = mpsc::sync_channel(1);
+            let reader = std::thread::spawn(move || {
+                let Ok(pipes) = pending.accept(&watched) else {
+                    let _ = tx.send(Err(()));
+                    return;
+                };
+                let mut to_worker = pipes.to_worker;
+                if worker::send(&mut to_worker, &Request::Warm).is_err()
+                    || connected.send(to_worker).is_err()
+                {
+                    let _ = tx.send(Err(()));
+                    return;
+                }
+                read_replies(pipes.from_worker, tx);
+            });
+            Ok(Self {
+                child: Process::Shell(process),
+                input: Box::new(Connecting {
+                    pending: Some(input),
+                    pipe: None,
+                }),
+                replies,
+                reader: Some(reader),
                 job,
-            )
-        };
+            })
+        }
         #[cfg(not(target_os = "windows"))]
-        let mut client = {
+        {
             let mut command = Command::new(std::env::current_exe().map_err(|_| ())?);
             command.arg(worker::ARG).arg(runtime).arg(ignored);
-            Self::spawn(command)?
-        };
-        worker::send(&mut client.input, &Request::Warm)?;
-        Ok(client)
+            let mut client = Self::spawn(command)?;
+            worker::send(&mut client.input, &Request::Warm)?;
+            Ok(client)
+        }
     }
     #[cfg_attr(all(target_os = "windows", not(test)), allow(dead_code))]
     fn spawn(mut command: Command) -> Result<Self, ()> {
@@ -201,17 +224,11 @@ impl Client {
     fn connect(
         child: Process,
         input: Box<dyn Write + Send>,
-        mut output: impl Read + Send + 'static,
+        output: impl Read + Send + 'static,
         #[cfg(target_os = "windows")] job: Job,
     ) -> Self {
         let (tx, replies) = mpsc::sync_channel(1);
-        let reader = std::thread::spawn(move || loop {
-            let reply = worker::receive(&mut output);
-            let failed = reply.is_err();
-            if tx.send(reply).is_err() || failed {
-                break;
-            }
-        });
+        let reader = std::thread::spawn(move || read_replies(output, tx));
         Self {
             child,
             input,
@@ -222,11 +239,50 @@ impl Client {
         }
     }
 }
+/// Passes each reply on until the worker's output ends or the client goes.
+fn read_replies(mut output: impl Read, tx: mpsc::SyncSender<Result<Response, ()>>) {
+    loop {
+        let reply = worker::receive(&mut output);
+        let failed = reply.is_err();
+        if tx.send(reply).is_err() || failed {
+            break;
+        }
+    }
+}
+/// The request pipe of a worker started through the Shell, once the reader
+/// thread has accepted its connection. The first write waits for that; if
+/// the worker never connected, writes fail and the reader reports it.
+#[cfg(target_os = "windows")]
+struct Connecting {
+    pending: Option<mpsc::Receiver<std::fs::File>>,
+    pipe: Option<std::fs::File>,
+}
+#[cfg(target_os = "windows")]
+impl Connecting {
+    fn pipe(&mut self) -> std::io::Result<&mut std::fs::File> {
+        if self.pipe.is_none() {
+            let pending = self.pending.take();
+            self.pipe = pending.and_then(|pending| pending.recv().ok());
+        }
+        self.pipe
+            .as_mut()
+            .ok_or_else(|| std::io::ErrorKind::BrokenPipe.into())
+    }
+}
+#[cfg(target_os = "windows")]
+impl Write for Connecting {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.pipe()?.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.pipe()?.flush()
+    }
+}
 impl Client {
     fn terminate(&mut self) {
-        // The runtime the worker starts inherits the worker's pipes, so the
-        // reader below only sees EOF once it is gone too. End the whole job
-        // or process group, never only the worker.
+        // The runtime the worker starts can inherit the worker's output, so
+        // the reader below may only see EOF once it is gone too. End the
+        // whole job or process group, never only the worker.
         #[cfg(target_os = "windows")]
         self.job.terminate();
         #[cfg(target_os = "macos")]
