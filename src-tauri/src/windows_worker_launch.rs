@@ -698,6 +698,14 @@ mod tests {
             .args(["/C", "ping -n 5 127.0.0.1 >NUL"])
             .spawn()
             .unwrap();
+        // Older than this process but another executable (the test
+        // runner's creator, such as cargo): refused by the image check.
+        let older = creator().unwrap();
+        assert_eq!(
+            verify_server(older, older, older).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        // Started after this process: refused before its image is read.
         let id = other.id();
         let refused = verify_server(id, id, id);
         let _ = other.kill();
