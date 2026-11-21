@@ -2,11 +2,25 @@
 ; a copy open in another user's session, so an update or uninstall aborted
 ; with "Insufficient permissions to close Switchify PC" whenever another
 ; signed-in account had it open (#1559). The files are shared, so that copy
-; has to close: this elevated installer stops copies in other sessions first.
-; Copies in this session are left to the template, which asks before closing
-; them in an interactive install.
+; has to close: this elevated installer stops copies of the installed
+; executable in other sessions first, and waits for them to exit. An
+; interactive install asks before closing anyone's copy; passive and silent
+; installs (in-app updates, deployments) close it without asking, as the
+; template does for the installing user's own copy. Copies in this session
+; are left to the template. If the session lookup fails, nothing is closed.
 !macro SWITCHIFY_CLOSE_OTHER_SESSIONS
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$own = (Get-Process -Id $$PID).SessionId; Get-Process -Name ${MAINBINARYNAME} -ErrorAction SilentlyContinue | Where-Object { $$_.SessionId -ne $$own } | Stop-Process -Force -ErrorAction SilentlyContinue"'
+  ${IfNot} ${Silent}
+  ${AndIf} $PassiveMode <> 1
+    nsExec::ExecToStack /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -Command "$$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq '$INSTDIR\${MAINBINARYNAME}.exe' }); Write-Output $$p.Count"`
+    Pop $0
+    Pop $1
+    ${If} $0 = 0
+    ${AndIf} $1 > 0
+      MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "${PRODUCTNAME} is open for another account on this computer. Continuing closes it for them, and they will need to start it again." /SD IDOK IDOK +2
+      Abort
+    ${EndIf}
+  ${EndIf}
+  nsExec::ExecToStack /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -Command "$$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq '$INSTDIR\${MAINBINARYNAME}.exe' }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
   Pop $0
   Pop $1
 !macroend
