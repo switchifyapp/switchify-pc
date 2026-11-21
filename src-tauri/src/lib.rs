@@ -1391,6 +1391,12 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
     let updater = app
         .updater_builder()
         .version_comparator(|current, release| updater::accepts_update(&current, &release.version))
+        // The plugin's default hook tears the app down before the installer
+        // starts. If the installer then cannot start (its UAC prompt declined,
+        // for one), the process is left running with no window and without
+        // its single-instance guard. Windows ends the process right after a
+        // successful start, and its workers go with their job.
+        .on_before_exit(|| {})
         .build();
     // Bounded here, not with the builder's timeout, which would also cap the
     // download. Install and asked checks can be waiting on this check.
