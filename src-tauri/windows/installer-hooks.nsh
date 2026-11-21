@@ -8,28 +8,29 @@
 ; another session, so that copy's input cleanup does not run.
 ;
 ; An interactive install or uninstall asks first and stops only the copies it
-; asked about. If finding them fails or times out, nothing is closed and the
-; template's check aborts as it did before. Passive and silent runs (in-app
-; updates, deployments) stop them without asking, as the template does for
-; the installing user's own copy. Copies in this session are left to the
+; asked about. If finding them fails or times out (or PowerShell is blocked),
+; nothing is closed and the template's check aborts as it did before. Passive
+; and silent runs (in-app updates, deployments) stop them without asking, as
+; the template does for the installing user's own copy. Copies in this session are left to the
 ; template. The path is passed in the environment, not in the script, and
 ; results come from exit codes because nsExec mixes stderr into the output.
 !macro SWITCHIFY_CLOSE_OTHER_SESSIONS
   InitPluginsDir
   System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_EXE", t "$INSTDIR\${MAINBINARYNAME}.exe")'
   System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_PIDS", t "$PLUGINSDIR\switchify-other-sessions.txt")'
-  ${IfNot} ${Silent}
-  ${AndIf} $PassiveMode <> 1
-    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); Set-Content -LiteralPath $$env:SWITCHIFY_PIDS -Value @($$p.ProcessId); if ($$p.Count -gt 0) { exit 3 }; exit 0"`
-    Pop $0
-    ${If} $0 == "3"
+  ; Find copies in other sessions and save each one's process id and start
+  ; time. Exit code 3 means some were found.
+  nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); Set-Content -LiteralPath $$env:SWITCHIFY_PIDS -Value @($$p | ForEach-Object { '{0},{1}' -f $$_.ProcessId, $$_.CreationDate.ToFileTimeUtc() }); if ($$p.Count -gt 0) { exit 3 }; exit 0"`
+  Pop $0
+  ${If} $0 == "3"
+    ${IfNot} ${Silent}
+    ${AndIf} $PassiveMode <> 1
       MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "${PRODUCTNAME} is open for another account on this computer. Continuing closes it for them, and they will need to start it again." /SD IDOK IDOK +2
-      Abort
-      nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$ids = @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS); $$p = @(Get-CimInstance Win32_Process | Where-Object { $$ids -contains [string]$$_.ProcessId -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
-      Pop $0
+      Abort "${PRODUCTNAME} is open for another account."
     ${EndIf}
-  ${Else}
-    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
+    ; Stop only the saved copies, each checked again (id, start time, session,
+    ; path) just before it is stopped, so a reused process id is left alone.
+    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$now = @(Get-CimInstance Win32_Process); foreach ($$l in @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS)) { $$id, $$t = $$l -split ','; if ($$now | Where-Object { [string]$$_.ProcessId -eq $$id -and [string]$$_.CreationDate.ToFileTimeUtc() -eq $$t -and $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }) { Stop-Process -Id $$id -Force -ErrorAction SilentlyContinue; Wait-Process -Id $$id -Timeout 10 -ErrorAction SilentlyContinue } }"`
     Pop $0
   ${EndIf}
 !macroend
