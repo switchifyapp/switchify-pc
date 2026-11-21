@@ -1,15 +1,30 @@
+; The template's running-app check uses Restart Manager, which cannot close
+; a copy open in another user's session, so an update or uninstall aborted
+; with "Insufficient permissions to close Switchify PC" whenever another
+; signed-in account had it open (#1559). The files are shared, so that copy
+; has to close: this elevated installer stops copies in other sessions first.
+; Copies in this session are left to the template, which asks before closing
+; them in an interactive install.
+!macro SWITCHIFY_CLOSE_OTHER_SESSIONS
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$own = (Get-Process -Id $$PID).SessionId; Get-Process -Name ${MAINBINARYNAME} -ErrorAction SilentlyContinue | Where-Object { $$_.SessionId -ne $$own } | Stop-Process -Force -ErrorAction SilentlyContinue"'
+  Pop $0
+  Pop $1
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   ; Installing over an earlier version only adds and replaces files, so a file
   ; a newer TextSlinger runtime no longer ships (an older Python or numpy)
   ; would stay beside the new runtime. Remove the installed runtime first. This
   ; hook runs before Tauri checks for a running app, so check first: the
   ; runtime is removed only once the install will go ahead.
+  !insertmacro SWITCHIFY_CLOSE_OTHER_SESSIONS
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   StrCmp $INSTDIR "" +2
   RMDir /r "$INSTDIR\resources\textslinger\runtime"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro SWITCHIFY_CLOSE_OTHER_SESSIONS
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "app.switchify.pc"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "app.switchify.pc"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Switchify PC"
