@@ -1408,6 +1408,11 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
             let app = app.clone();
             move || set_tray_visible(&app, false)
         })
+        // Windows: the installer does not restart the app itself (no /R). The
+        // installer hooks start it through Explorer when they see this flag,
+        // so it comes back unelevated (#1560). macOS relaunches itself.
+        .restart_after_install(false)
+        .installer_arg("/SWITCHIFY_RELAUNCH")
         .build();
     // Bounded here, not with the builder's timeout, which would also cap the
     // download. Install and asked checks can be waiting on this check.
