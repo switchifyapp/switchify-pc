@@ -108,7 +108,7 @@ Find also understands what you mean: *my scan is too quick* finds Auto scan rate
 
 Switchify PC checks for an update shortly after it starts, every six hours, and whenever you ask. Settings shows what is available, downloads it, and offers *Install and restart*. You can still check again while an update is waiting, and if a newer one has come out, Switchify PC offers that instead.
 
-On Windows, installing an update needs administrator rights. If the administrator prompt is declined, Switchify PC stays open and the update stays ready, so you can try *Install and restart* again later.
+On Windows, installing an update needs administrator rights. If the administrator prompt is declined, Switchify PC stays open and the update stays ready, so you can try *Install and restart* again later. After an update, Switchify PC opens again with its window showing, even if it had started hidden.
 
 ## Practise safely
 
