@@ -3,26 +3,35 @@
 ; with "Insufficient permissions to close Switchify PC" whenever another
 ; signed-in account had it open (#1559). The files are shared, so that copy
 ; has to close: this elevated installer stops copies of the installed
-; executable in other sessions first, and waits for them to exit. An
-; interactive install asks before closing anyone's copy; passive and silent
-; installs (in-app updates, deployments) close it without asking, as the
-; template does for the installing user's own copy. Copies in this session
-; are left to the template. If the session lookup fails, nothing is closed.
+; executable (matched by path) in other sessions and waits for them to exit.
+; It is a hard stop, not a request to close: Restart Manager cannot reach
+; another session, so that copy's input cleanup does not run.
+;
+; An interactive install or uninstall asks first and stops only the copies it
+; asked about. If finding them fails or times out, nothing is closed and the
+; template's check aborts as it did before. Passive and silent runs (in-app
+; updates, deployments) stop them without asking, as the template does for
+; the installing user's own copy. Copies in this session are left to the
+; template. The path is passed in the environment, not in the script, and
+; results come from exit codes because nsExec mixes stderr into the output.
 !macro SWITCHIFY_CLOSE_OTHER_SESSIONS
+  InitPluginsDir
+  System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_EXE", t "$INSTDIR\${MAINBINARYNAME}.exe")'
+  System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_PIDS", t "$PLUGINSDIR\switchify-other-sessions.txt")'
   ${IfNot} ${Silent}
   ${AndIf} $PassiveMode <> 1
-    nsExec::ExecToStack /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -Command "$$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq '$INSTDIR\${MAINBINARYNAME}.exe' }); Write-Output $$p.Count"`
+    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); Set-Content -LiteralPath $$env:SWITCHIFY_PIDS -Value @($$p.ProcessId); if ($$p.Count -gt 0) { exit 3 }; exit 0"`
     Pop $0
-    Pop $1
-    ${If} $0 = 0
-    ${AndIf} $1 > 0
+    ${If} $0 == "3"
       MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "${PRODUCTNAME} is open for another account on this computer. Continuing closes it for them, and they will need to start it again." /SD IDOK IDOK +2
       Abort
+      nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$ids = @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS); $$p = @(Get-CimInstance Win32_Process | Where-Object { $$ids -contains [string]$$_.ProcessId -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
+      Pop $0
     ${EndIf}
+  ${Else}
+    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
+    Pop $0
   ${EndIf}
-  nsExec::ExecToStack /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -Command "$$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq '$INSTDIR\${MAINBINARYNAME}.exe' }); $$p | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; $$p | ForEach-Object { Wait-Process -Id $$_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }"`
-  Pop $0
-  Pop $1
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
