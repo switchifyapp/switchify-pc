@@ -32,10 +32,10 @@
     ; Stop only the saved copies. Each is opened first (skipped if that
     ; fails); with the handle held, its id cannot be reused, so its start
     ; time and path are checked then, and it is stopped and waited on through
-    ; that handle. A process that took over a saved id, even before the find
-    ; step read its start time, is never stopped. All are stopped before any
-    ; wait.
-    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$h = @(foreach ($$l in @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS)) { $$id, $$t = $$l -split ','; try { $$q = Get-Process -Id ([int]$$id); if (!$$q.Handle) { continue }; if ($$q.SessionId -ne $$own -and [string]$$q.StartTime.ToFileTimeUtc() -eq $$t -and (Get-CimInstance Win32_Process | Where-Object ProcessId -eq $$q.Id).ExecutablePath -eq $$env:SWITCHIFY_EXE) { $$q } } catch {} }); $$h | ForEach-Object { try { $$_.Kill() } catch {} }; $$h | ForEach-Object { try { $$null = $$_.WaitForExit(10000) } catch {} }"`
+    ; that handle. A process that took over a saved id is stopped only if it
+    ; is itself a copy of the installed executable in another session, which
+    ; has to close anyway; nothing else is. All are stopped before any wait.
+    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$h = @(foreach ($$l in @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS)) { $$id, $$t = $$l -split ','; try { $$q = Get-Process -Id ([int]$$id); if (!$$q.Handle) { continue }; if ($$q.SessionId -ne $$own -and [string]$$q.StartTime.ToFileTimeUtc() -eq $$t -and (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $$q.Id)).ExecutablePath -eq $$env:SWITCHIFY_EXE) { $$q } } catch {} }); $$h | ForEach-Object { try { $$_.Kill() } catch {} }; $$h | ForEach-Object { try { $$null = $$_.WaitForExit(10000) } catch {} }"`
     Pop $0
   ${EndIf}
 !macroend
