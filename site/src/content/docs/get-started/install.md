@@ -108,6 +108,8 @@ Find also understands what you mean: *my scan is too quick* finds Auto scan rate
 
 Switchify PC checks for an update shortly after it starts, every six hours, and whenever you ask. Settings shows what is available, downloads it, and offers *Install and restart*. You can still check again while an update is waiting, and if a newer one has come out, Switchify PC offers that instead.
 
+On Windows, installing an update needs administrator rights. If the administrator prompt is declined, Switchify PC stays open and the update stays ready, so you can try *Install and restart* again later.
+
 ## Practise safely
 
 Before you rely on a switch, open the switch practice area: the setup guide's **Try it** step, or **Test switches** in **Switches**. Nothing in it clicks, types, or changes settings, so you can try presses, holds and scanning without side effects. Practice follows your Home menu's scanning: with automatic scanning the highlight moves by itself at your auto scan rate, and with manual scanning **Next** and **Previous** move it. It closes itself after two minutes.
