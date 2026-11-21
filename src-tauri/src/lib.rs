@@ -163,6 +163,12 @@ const NAVIGATE_REQUESTED_EVENT: &str = "navigate-requested";
 
 const TRAY_ID: &str = "switchify";
 
+fn set_tray_visible(app: &AppHandle, visible: bool) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_visible(visible);
+    }
+}
+
 fn show_tray_menu_on_left_click() -> bool {
     cfg!(target_os = "macos")
 }
@@ -1394,9 +1400,14 @@ async fn check_for_updates_inner(app: &AppHandle, asked: bool) -> AppState {
         // The plugin's default hook tears the app down before the installer
         // starts. If the installer then cannot start (its UAC prompt declined,
         // for one), the process is left running with no window and without
-        // its single-instance guard. Windows ends the process right after a
-        // successful start, and its workers go with their job.
-        .on_before_exit(|| {})
+        // its single-instance guard. Only hide the tray icon, which
+        // process::exit would otherwise leave behind; a failed start shows it
+        // again. Windows ends the process right after a successful start,
+        // and its workers go with their job.
+        .on_before_exit({
+            let app = app.clone();
+            move || set_tray_visible(&app, false)
+        })
         .build();
     // Bounded here, not with the builder's timeout, which would also cap the
     // download. Install and asked checks can be waiting on this check.
@@ -1676,6 +1687,7 @@ async fn install_update(app: AppHandle) -> Result<AppState, String> {
         UpdateView::applying(version.clone(), downloaded_bytes, total_bytes),
     );
     if let Err(error) = UpdateArtifact::install(&update, &bytes) {
+        set_tray_visible(&app, true);
         manager.store_download(bytes);
         manager.finish(UpdateOperation::Install);
         return Ok(update_failure(
