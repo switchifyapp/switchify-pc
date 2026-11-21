@@ -11,16 +11,17 @@
 ; asked about. If finding them fails or times out (or PowerShell is blocked),
 ; nothing is closed and the template's check aborts as it did before. Passive
 ; and silent runs (in-app updates, deployments) stop them without asking, as
-; the template does for the installing user's own copy. Copies in this session are left to the
-; template. The path is passed in the environment, not in the script, and
-; results come from exit codes because nsExec mixes stderr into the output.
+; the template does for the installing user's own copy. Copies in this
+; session are left to the template. The path is passed in the environment,
+; not in the script, and results come from exit codes because nsExec mixes
+; stderr into the output.
 !macro SWITCHIFY_CLOSE_OTHER_SESSIONS
   InitPluginsDir
   System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_EXE", t "$INSTDIR\${MAINBINARYNAME}.exe")'
   System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_PIDS", t "$PLUGINSDIR\switchify-other-sessions.txt")'
   ; Find copies in other sessions and save each one's process id and start
   ; time. Exit code 3 means some were found.
-  nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }); Set-Content -LiteralPath $$env:SWITCHIFY_PIDS -Value @($$p | ForEach-Object { '{0},{1}' -f $$_.ProcessId, $$_.CreationDate.ToFileTimeUtc() }); if ($$p.Count -gt 0) { exit 3 }; exit 0"`
+  nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$r = @(Get-CimInstance Win32_Process | Where-Object { $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE } | ForEach-Object { try { '{0},{1}' -f $$_.ProcessId, (Get-Process -Id $$_.ProcessId).StartTime.ToFileTimeUtc() } catch {} }); Set-Content -LiteralPath $$env:SWITCHIFY_PIDS -Value $$r; if ($$r.Count -gt 0) { exit 3 }; exit 0"`
   Pop $0
   ${If} $0 == "3"
     ${IfNot} ${Silent}
@@ -28,9 +29,11 @@
       MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "${PRODUCTNAME} is open for another account on this computer. Continuing closes it for them, and they will need to start it again." /SD IDOK IDOK +2
       Abort "${PRODUCTNAME} is open for another account."
     ${EndIf}
-    ; Stop only the saved copies, each checked again (id, start time, session,
-    ; path) just before it is stopped, so a reused process id is left alone.
-    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$now = @(Get-CimInstance Win32_Process); foreach ($$l in @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS)) { $$id, $$t = $$l -split ','; if ($$now | Where-Object { [string]$$_.ProcessId -eq $$id -and [string]$$_.CreationDate.ToFileTimeUtc() -eq $$t -and $$_.SessionId -ne $$own -and $$_.ExecutablePath -eq $$env:SWITCHIFY_EXE }) { Stop-Process -Id $$id -Force -ErrorAction SilentlyContinue; Wait-Process -Id $$id -Timeout 10 -ErrorAction SilentlyContinue } }"`
+    ; Stop only the saved copies. Each is opened first and its start time
+    ; checked on that open handle, then stopped and waited on through it, so
+    ; a process that took over a saved id is never stopped. All are stopped
+    ; before any wait.
+    nsExec::Exec /TIMEOUT=30000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -InputFormat None -OutputFormat Text -Command "$$ProgressPreference = 'SilentlyContinue'; $$own = (Get-Process -Id $$PID).SessionId; if ($$null -eq $$own) { exit 1 }; $$h = @(foreach ($$l in @(Get-Content -LiteralPath $$env:SWITCHIFY_PIDS)) { $$id, $$t = $$l -split ','; try { $$q = Get-Process -Id ([int]$$id); $$null = $$q.Handle; if ($$q.SessionId -ne $$own -and [string]$$q.StartTime.ToFileTimeUtc() -eq $$t) { $$q } } catch {} }); $$h | ForEach-Object { try { $$_.Kill() } catch {} }; $$h | ForEach-Object { try { $$null = $$_.WaitForExit(10000) } catch {} }"`
     Pop $0
   ${EndIf}
 !macroend
