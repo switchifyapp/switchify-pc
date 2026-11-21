@@ -31,20 +31,40 @@
 ; If that fails (no shell window, Secondary Logon off), RunAsUser cannot run
 ; the app either, so open it with ExecShell from this installer instead: an
 ; elevated app is better than none for a switch user. If even that fails, say
-; so. Builds that still pass /R (1.16.1 and earlier) get the template's
-; restart, elevated, on the update that installs this.
+; so.
+!macro SWITCHIFY_RELAUNCH_AS_USER
+  nsis_tauri_utils::RunAsUser "$WINDIR\explorer.exe" '"$INSTDIR\${MAINBINARYNAME}.exe"'
+  Pop $R0
+  ${If} $R0 <> 0
+    ClearErrors
+    ExecShell "open" "$INSTDIR\${MAINBINARYNAME}.exe"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONINFORMATION "${PRODUCTNAME} was updated. Open it from Start." /SD IDOK
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Builds up to 1.16.1 still pass /R (passive or silent), and the template's
+; .onInstSuccess would restart the app the elevated way. For those, relaunch
+; through Explorer here and Quit, which skips .onInstSuccess. Install work is
+; done by now; only the passive page's auto-close is left. SetErrorLevel keeps
+; the exit code 0 (the updater does not wait for it anyway: it exits right
+; after starting the installer).
 !macro NSIS_HOOK_POSTINSTALL
   ${If} $UpdateMode = 1
     ClearErrors
     ${GetOptions} $CMDLINE "/SWITCHIFY_RELAUNCH" $R0
     ${IfNot} ${Errors}
-      nsis_tauri_utils::RunAsUser "$WINDIR\explorer.exe" '"$INSTDIR\${MAINBINARYNAME}.exe"'
-      Pop $R0
-      ${If} $R0 <> 0
-        ClearErrors
-        ExecShell "open" "$INSTDIR\${MAINBINARYNAME}.exe"
-        ${If} ${Errors}
-          MessageBox MB_OK|MB_ICONINFORMATION "${PRODUCTNAME} was updated. Open it from Start." /SD IDOK
+      !insertmacro SWITCHIFY_RELAUNCH_AS_USER
+    ${Else}
+      ClearErrors
+      ${GetOptions} $CMDLINE "/R" $R0
+      ${IfNot} ${Errors}
+        ${If} $PassiveMode = 1
+        ${OrIf} ${Silent}
+          !insertmacro SWITCHIFY_RELAUNCH_AS_USER
+          SetErrorLevel 0
+          Quit
         ${EndIf}
       ${EndIf}
     ${EndIf}
