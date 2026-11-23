@@ -15,7 +15,8 @@
 //! desktop's token, as the update relaunch in the hooks does (#1560), and
 //! exits before it opens anything. Explorer starts the app the way Start
 //! does: unelevated, with UIAccess granted by the Shell. If that fails, the
-//! copy keeps running elevated, which is better than not running.
+//! copy keeps running elevated, which is better than not running. Explorer
+//! cannot pass arguments, so any `/ARGS` given to the installer are dropped.
 use std::{
     ffi::{OsStr, OsString},
     mem,
@@ -32,7 +33,7 @@ use windows_sys::Win32::{
         TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY,
     },
     System::{
-        SystemInformation::GetWindowsDirectoryW,
+        SystemInformation::GetSystemWindowsDirectoryW,
         Threading::{
             CreateProcessWithTokenW, GetCurrentProcess, OpenProcess, OpenProcessToken,
             PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, STARTUPINFOW,
@@ -177,7 +178,8 @@ fn start_through_explorer(executable: &Path) -> bool {
             return false;
         }
         let mut windows = [0u16; 260];
-        let length = GetWindowsDirectoryW(windows.as_mut_ptr(), windows.len() as u32) as usize;
+        let length =
+            GetSystemWindowsDirectoryW(windows.as_mut_ptr(), windows.len() as u32) as usize;
         if length == 0 || length >= windows.len() {
             return false;
         }
