@@ -95,6 +95,14 @@
 ; the exit code 0 (the updater does not wait for it anyway: it exits right
 ; after starting the installer).
 !macro NSIS_HOOK_POSTINSTALL
+  ; The finish page's "Run" and a non-update /R start the app with the
+  ; template's RunAsUser, which falls back to ShellExecute from this elevated
+  ; installer (#1564). The template defines those launches, so they cannot be
+  ; changed here. A process started that way inherits this environment, and
+  ; one RunAsUser or Explorer starts with the user's token does not, so the
+  ; app sees this, finds itself elevated and hands itself to Explorer. See
+  ; windows_installer_launch.rs.
+  System::Call 'kernel32::SetEnvironmentVariable(t "SWITCHIFY_STARTED_BY_INSTALLER", t "1")'
   ${If} $UpdateMode = 1
     ClearErrors
     ${GetOptions} $CMDLINE "/SWITCHIFY_RELAUNCH" $R0
