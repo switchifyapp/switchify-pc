@@ -71,6 +71,8 @@ mod timing;
 mod tray_icon;
 mod updater;
 #[cfg(target_os = "windows")]
+mod windows_installer_launch;
+#[cfg(target_os = "windows")]
 mod windows_power;
 #[cfg(target_os = "windows")]
 mod windows_runtime;
@@ -2129,6 +2131,12 @@ pub fn run() {
     }
     #[cfg(target_os = "windows")]
     if switch_input::run_worker_from_args() {
+        return;
+    }
+    // Before anything else opens, so the elevated copy never takes the
+    // single-instance lock from the one Explorer starts (#1564).
+    #[cfg(target_os = "windows")]
+    if windows_installer_launch::hand_off_from_installer() {
         return;
     }
     #[cfg(target_os = "macos")]
