@@ -136,7 +136,7 @@ fn version_twenty_documents_read_with_no_tile_colours_and_colours_sync() {
     let mut plain = local();
     plain.menu_overrides.insert(
         "home".into(),
-        crate::builtin_panels::default_document(crate::scan_menu::Kind::Home),
+        crate::builtin_panels::document(crate::scan_menu::Kind::Home, &Default::default(), false),
     );
     plain.panel_extras.insert(
         "keyboard".into(),
@@ -732,6 +732,7 @@ fn synced_scan_preferences_are_deliberate() {
             "menu",
             "mouse",
             "nextScan",
+            "panelColors",
             "panelSize",
             "panelTheme",
             "passLimit",
@@ -1460,4 +1461,36 @@ fn synced_point_scan_fields_are_deliberate() {
             "wordPrediction",
         ]
     );
+}
+
+#[test]
+fn version_twenty_one_documents_read_with_built_in_panel_colours_on() {
+    let mut local = local();
+    local.point_scan.scan_preferences.panel_colors = false;
+    let cloud = local.clone();
+    let version_twenty_one = written_by(serde_json::to_value(cloud.document()).unwrap(), 21);
+    assert!(version_twenty_one
+        .pointer("/pointScan/scanPreferences/panelColors")
+        .is_none());
+    let parsed = parse(version_twenty_one.clone(), 21).unwrap();
+    assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+    // Version 21 had no choice, so its computers showed the colours.
+    assert!(parsed.point_scan.scan_preferences.panel_colors);
+    let mut early = version_twenty_one.clone();
+    early["pointScan"]["scanPreferences"]["panelColors"] = json!(false);
+    assert!(matches!(parse(early, 21), Err(ParseError::Invalid(_))));
+    let mut missing = version_twenty_one;
+    missing["schemaVersion"] = json!(SCHEMA_VERSION);
+    assert!(matches!(
+        parse(missing, SCHEMA_VERSION),
+        Err(ParseError::Invalid(_))
+    ));
+    // The choice syncs in the current version.
+    let value = serde_json::to_value(local.document()).unwrap();
+    assert_eq!(
+        value["pointScan"]["scanPreferences"]["panelColors"],
+        json!(false)
+    );
+    let parsed = parse(value, SCHEMA_VERSION).unwrap();
+    assert!(!parsed.point_scan.scan_preferences.panel_colors);
 }

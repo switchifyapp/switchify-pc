@@ -7,7 +7,7 @@ import { PanelPicture } from "./PanelPicture";
 import { PanelEditor, type BuiltinEditing, type ExtrasEditing } from "./PanelEditor";
 import type { PanelsController } from "./usePanels";
 import type { PanelTheme } from "../scanning/preferences";
-import type { BuiltinPanelView, CustomPanel, PanelExtrasView } from "../types";
+import type { BuiltinPanelView, CustomPanel, PanelExtrasView, TileColor } from "../types";
 
 /** A first panel to build on: the two panels people open most, then Back and Close. */
 export function starterPanel(existing: CustomPanel[]): CustomPanel {
@@ -53,6 +53,11 @@ const INSIDE: Record<string, string> = { tabs: "browser" };
 const ALSO: Record<string, string> = { mouse: "also on the mouse panel" };
 
 /** The small text under a built-in menu's name: its state, then where else it lives. */
+/** A menu as shipped without the colours Home's tiles wear, as it scans with built-in colours off. */
+export function plainPanel(panel: CustomPanel): CustomPanel {
+  return { ...panel, rows: panel.rows.map((row) => row.map(({ color: _color, ...cell }) => cell)) };
+}
+
 export function builtinSummary(menu: BuiltinPanelView) {
   const state = menu.override ? "rearranged" : "not changed";
   const place = INSIDE[menu.kind] ? "in Browser" : ALSO[menu.kind] ?? null;
@@ -64,18 +69,21 @@ function sentence(text: string) {
   return text.split(", ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" · ");
 }
 
-export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }: { controller: PanelsController; theme?: PanelTheme; onDirtyChange: (dirty: boolean) => void; strip?: ReactNode; alsoSee?: ReactNode }) {
+export function PanelsView({ controller, theme, panelColors = true, onDirtyChange, strip, alsoSee }: { controller: PanelsController; theme?: PanelTheme;
+  /** Built-in panels wear their own colour; off, a menu as shipped is plain. */
+  panelColors?: boolean; onDirtyChange: (dirty: boolean) => void; strip?: ReactNode; alsoSee?: ReactNode }) {
   const { panels, builtins, extras, busy, error, clearError, save, remove, saveBuiltin, resetBuiltin, saveExtras, tryPanel, setEditing } = controller;
   const [open, setOpen] = useState<CustomPanel | null>(null);
   const [builtin, setBuiltin] = useState<BuiltinEditing | null>(null);
+  const [accent, setAccent] = useState<TileColor | null>(null);
   const [extra, setExtra] = useState<ExtrasEditing | null>(null);
   // The card or row that opened the editor, found again by id once the list is back.
   const openerRef = useRef<string | null>(null);
   // Leaving the page by any route lets sync refresh the list again.
   useEffect(() => () => setEditing(false), [setEditing]);
   const openPanel = (panel: CustomPanel, opener: string | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
-  const openBuiltin = (menu: BuiltinPanelView) => { openerRef.current = `builtin-${menu.kind}`; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? menu.default); };
-  const openExtras = (view: PanelExtrasView) => { openerRef.current = `extras-${view.target}`; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); };
+  const openBuiltin = (menu: BuiltinPanelView) => { openerRef.current = `builtin-${menu.kind}`; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? (panelColors ? menu.default : plainPanel(menu.default))); setAccent(menu.color ?? null); };
+  const openExtras = (view: PanelExtrasView) => { openerRef.current = `extras-${view.target}`; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); setAccent(view.color ?? null); };
   const closePanel = () => {
     setEditing(false);
     setOpen(null);
@@ -89,8 +97,8 @@ export function PanelsView({ controller, theme, onDirtyChange, strip, alsoSee }:
     if (saved === null) return;
     openPanel(saved, null);
   };
-  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "native", panel: extra.target as "mouse" | "keyboard" }).then(() => undefined, () => undefined)} />;
-  if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "menu", menu: builtin.kind }).then(() => undefined, () => undefined)} />;
+  if (open && extra) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} accent={panelColors ? accent : null} busy={busy} error={error} extras={extra} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveExtras(extra.target, panel.rows, extra.columns).then(closePanel, () => undefined)} onSaveExtras={(rows, columns) => saveExtras(extra.target, rows, columns).then(closePanel, () => undefined)} onDelete={() => saveExtras(extra.target, [], []).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "native", panel: extra.target as "mouse" | "keyboard" }).then(() => undefined, () => undefined)} />;
+  if (open && builtin) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} accent={panelColors ? accent : null} busy={busy} error={error} builtin={builtin} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => saveBuiltin(builtin.kind, panel).then(closePanel, () => undefined)} onDelete={() => resetBuiltin(builtin.kind).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "menu", menu: builtin.kind }).then(() => undefined, () => undefined)} />;
   if (open) return <PanelEditor key={open.id} panel={open} panels={panels ?? []} theme={theme} busy={busy} error={error} onDirtyChange={onDirtyChange} onClearError={clearError} onClose={closePanel} onSave={(panel) => save(panel).then(closePanel, () => undefined)} onDelete={() => remove(open.id).then(closePanel, () => undefined)} onTry={() => tryPanel({ kind: "panel", id: open.id }).then(() => undefined, () => undefined)} />;
   // The built-in menus and panels are a list, one row each, under the menu that opens them.
   const menu = (kind: string) => builtins.find((candidate) => candidate.kind === kind);

@@ -64,6 +64,9 @@ impl MousePanel {
     pub fn set_panel_theme(&mut self, theme: crate::scan_preferences::PanelTheme) {
         self.scan.options.panel_theme = theme;
     }
+    pub fn set_panel_colors(&mut self, colors: bool) {
+        self.scan.options.panel_colors = colors;
+    }
 
     pub fn new(options: Resolved, displays: usize, speed_percent: u16) -> Self {
         let rows = Self::rows(false, false, displays, &PanelExtras::default());
@@ -471,6 +474,15 @@ impl MousePanel {
             row_scan: highlight_row,
             thickness: self.scan.options.thickness,
             appearance: self.scan.options.panel_theme.appearance(),
+            title: "Mouse panel".into(),
+            accent: self
+                .scan
+                .options
+                .panel_colors
+                .then(|| {
+                    crate::builtin_panels::panel_color(crate::panel_actions::BuiltInPanel::Mouse)
+                })
+                .flatten(),
         }
         .frame(screen, units, color)
     }

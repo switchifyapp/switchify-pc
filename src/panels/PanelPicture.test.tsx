@@ -28,7 +28,16 @@ describe("PanelPicture", () => {
     expect(within(picture).getByText("Copy")).toHaveStyle({ flexGrow: 1 });
     expect(within(picture).getByText("Back")).toHaveAttribute("data-toolbar", "true");
     expect(hello).not.toHaveAttribute("data-toolbar");
-    expect(within(picture).getByText("Switchify PC")).toBeInTheDocument();
+    // The band names the panel, as the scanned panel's band does.
+    expect(within(picture).getByText("Greetings")).toBeInTheDocument();
+    expect(picture.querySelector(".panel-picture-band")).not.toHaveAttribute("data-color");
+  });
+
+  it("draws the band in a built-in panel's colour", () => {
+    render(<PanelPicture panel={{ ...panel, name: "Editing" }} theme="light" accent="orange" />);
+    const band = screen.getByText("Editing").parentElement!;
+    expect(band).toHaveAttribute("data-color", "orange");
+    expect(band).toHaveStyle({ background: picturePalette("light").tiles.orange });
   });
 
   it("draws a coloured tile in the panel theme's shade of its colour", () => {

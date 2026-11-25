@@ -937,6 +937,33 @@ describe("Switchify PC shell", () => {
     expect(await screen.findByRole("button", { name: "Home, not changed" })).toBeInTheDocument();
   });
 
+  it("shows the built-in panels' colours unless they are turned off", async () => {
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Home, not changed" }));
+    // Home's tiles wear the colour of the panel they open; Home's own band is plain.
+    expect(await screen.findByRole("button", { name: /^Row 1, tile 3: Keyboard, .*, blue$/ })).toHaveAttribute("data-color", "blue");
+    expect(screen.getByRole("button", { name: /^Row 4, tile 3: Close menu/ })).not.toHaveAttribute("data-color");
+    expect(screen.getByText("Home", { selector: ".panel-picture-band span" }).parentElement).not.toHaveAttribute("data-color");
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
+    expect(screen.getByText("Editing", { selector: ".panel-picture-band span" }).parentElement).toHaveAttribute("data-color", "orange");
+    unmount();
+
+    // Off, Home as shipped and every band are plain, as they scan.
+    const scanning: scanHooks.ScanningController = { config: { ...scanHooks.defaultPointScanConfig, scanPreferences: { ...defaultScanPreferences, panelColors: false } }, state: { config: scanHooks.defaultPointScanConfig, supported: true, enabled: true, paused: false, phase: "idle", message: "Ready" }, pending: 0, error: null, unsaved: false, update: vi.fn(), chooseKeyboardLayout: vi.fn(), retry: vi.fn() };
+    vi.spyOn(scanHooks, "useScanning").mockReturnValue(scanning);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Home, not changed" }));
+    expect(await screen.findByRole("button", { name: /^Row 1, tile 3: Keyboard/ })).not.toHaveAttribute("data-color");
+    // Nothing to save: the plain Home is the menu as it scans.
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "All panels" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editing, not changed" }));
+    expect(screen.getByText("Editing", { selector: ".panel-picture-band span" }).parentElement).not.toHaveAttribute("data-color");
+  });
+
   it("lists the built-in menus and panels under the menu that opens them", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Panels" }));

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, PanelCell, PanelExtrasView, SwitchProfile, SyncView, TrialTarget, UpdateProgress } from "./types";
+import type { AccountView, AppSettings, AppState, BuiltinPanelView, CustomPanel, PanelAction, PanelActionEntry, PanelCell, PanelExtrasView, SwitchProfile, SyncView, TileColor, TrialTarget, UpdateProgress } from "./types";
 
 export type ProfileExitAction = "hide" | "quit";
 export type NavigationTarget = "home" | "settings" | "profiles";
@@ -83,19 +83,28 @@ const browserBuiltinDefaults: BuiltinPanelView[] = [
     [browserTile("Back", { type: "back" }), browserTile("Close menu", { type: "close" })],
   ] } },
 ];
+// As shipped, each menu has its own colour and Home's tiles wear the colour of the panel they open.
+const browserMenuColors: Record<string, TileColor> = { mouse: "green", editing: "orange", windows: "purple", browser: "pink", tabs: "pink", media: "red", zoom: "yellow", displays: "yellow", scanning: "grey" };
+const browserOpeningColor = (action: PanelAction): TileColor | undefined => action.type !== "openPanel" ? undefined
+  : action.panel === "keyboard" ? "blue" : action.panel === "mouse" || action.panel === "point" ? "green"
+  : typeof action.panel === "object" ? browserMenuColors[action.panel.menu] : undefined;
+for (const menu of browserBuiltinDefaults) {
+  menu.color = browserMenuColors[menu.kind] ?? null;
+  if (menu.kind === "home") for (const cell of menu.default.rows.flat()) { const color = browserOpeningColor(cell.action); if (color) cell.color = color; }
+}
 let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults);
 // The mouse panel's and the keyboard's keys, enough for a plain browser to draw them.
 const browserKey = (label: string, weight = 1) => ({ label, weight });
 const browserKeys = (labels: string, weight = 1) => labels.split("").map((label) => browserKey(label, weight));
 const browserExtrasDefaults: PanelExtrasView[] = [
-  { target: "mouse", name: "Mouse panel", rows: [], columns: [], fixed: [
+  { target: "mouse", name: "Mouse panel", color: "green", rows: [], columns: [], fixed: [
     ["Left click", "Right click", "Double click", "Start drag"].map((label) => browserKey(label)),
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
     ["Home", "Speed and more", "Keyboard", "Close"].map((label) => browserKey(label)),
   ] },
-  { target: "keyboard", name: "Keyboard", rows: [], columns: [], fixed: [
+  { target: "keyboard", name: "Keyboard", color: "blue", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],
     [browserKey("Caps lock", 1.6), ...browserKeys("asdfghjkl'"), browserKey("↩", 1.9)],
     [browserKey("⬆", 1.6), ...browserKeys("zxcvbnm,./")],

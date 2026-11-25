@@ -51,12 +51,13 @@ export type PictureEditing = {
   newColumn: React.ReactNode;
 };
 
-/** A panel drawn as the scan will show it: a title band, then the rows of
+/** A panel drawn as the scan will show it: a band with the panel's name, in
+ *  the panel's colour (`accent`) if it has one, then the rows of
  *  tiles sharing each row's width by span. A native panel's own keys
  *  (`fixed`) are drawn faintly, with the user's rows above the last of
  *  them, where the panel scans them, and the user's columns down the right.
  *  Purely visual unless `editing` is given. */
-export function PanelPicture({ panel, fixed, columns = [], editing, theme, title = "Switchify PC", className = "" }: { panel: CustomPanel; fixed?: PictureCell[][]; columns?: PanelCell[][]; editing?: PictureEditing; theme?: PanelTheme; title?: string; className?: string }) {
+export function PanelPicture({ panel, fixed, columns = [], editing, theme, accent, title = panel.name, className = "" }: { panel: CustomPanel; fixed?: PictureCell[][]; columns?: PanelCell[][]; editing?: PictureEditing; theme?: PanelTheme; accent?: TileColor | null; title?: string; className?: string }) {
   const colours = picturePalette(theme);
   // The name says what is on the panel, row by row, since the tiles are decoration here.
   const label = (cell: PanelCell) => cell.label.trim() || "unlabelled";
@@ -114,7 +115,7 @@ export function PanelPicture({ panel, fixed, columns = [], editing, theme, title
     ? { role: "group", "aria-label": `${panel.name} as it will scan: ${description}` }
     : { role: "img", "aria-label": `Picture of ${panel.name}: ${description}` };
   return <div className={`panel-picture ${className}`.trim()} {...accessible} style={{ background: colours.panel, borderColor: colours.border, color: colours.text }}>
-    <div className="panel-picture-band" style={{ background: colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
+    <div className="panel-picture-band" data-color={accent ?? undefined} style={{ background: accent ? colours.tiles[accent] : colours.band, borderColor: colours.bandBorder }}><span>{title}</span></div>
     <div className="panel-picture-rows">
       {lines.map(line)}
       {editing && columns.length > 0 && <div className="panel-column-toolbars">

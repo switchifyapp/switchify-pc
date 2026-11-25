@@ -321,6 +321,10 @@ pub struct FrameTile {
     /// Light or dark, already resolved from the panel theme and the system
     /// setting, so a change redraws every tile.
     pub appearance: crate::panel_theme::Appearance,
+    /// The colour of the panel this tile belongs to, which tints the band
+    /// along the panel's top. Set on the background and the two tiles on
+    /// the band; None for keys and for panels without one.
+    pub band: Option<crate::panel_theme::TileColor>,
     pub text: String,
     pub rect: Rect,
     pub scale: f64,
@@ -339,6 +343,7 @@ impl FrameTile {
             thickness: Default::default(),
             color,
             appearance,
+            band: None,
             text: String::new(),
             style: Some(TileStyle {
                 role: TileRole::Panel,

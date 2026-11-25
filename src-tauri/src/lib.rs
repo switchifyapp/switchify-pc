@@ -881,6 +881,8 @@ fn delete_custom_panel(
 struct BuiltinPanelView {
     kind: String,
     name: String,
+    /// The colour the menu shows on its band when built-in colours are on.
+    color: Option<panel_theme::TileColor>,
     default: custom_panels::CustomPanel,
     #[serde(rename = "override")]
     rearranged: Option<custom_panels::CustomPanel>,
@@ -895,6 +897,7 @@ fn list_builtin_panels(app: AppHandle) -> Vec<BuiltinPanelView> {
             let key = builtin_panels::key(kind);
             BuiltinPanelView {
                 name: kind.label().into(),
+                color: builtin_panels::menu_color(kind),
                 default: builtin_panels::default_document(kind),
                 // An older rearranged Home shows what it scans as.
                 rearranged: overrides
@@ -940,6 +943,8 @@ fn reset_builtin_panel(
 struct PanelExtrasView {
     target: String,
     name: String,
+    /// The colour the panel shows on its band when built-in colours are on.
+    color: Option<panel_theme::TileColor>,
     fixed: Vec<Vec<panel_extras::PictureCell>>,
     rows: panel_extras::Rows,
     columns: panel_extras::Rows,
@@ -955,6 +960,10 @@ fn list_panel_extras(app: AppHandle) -> Vec<PanelExtrasView> {
             PanelExtrasView {
                 target: target.key().into(),
                 name: target.label().into(),
+                color: builtin_panels::panel_color(match target {
+                    panel_extras::Target::Mouse => panel_actions::BuiltInPanel::Mouse,
+                    panel_extras::Target::Keyboard => panel_actions::BuiltInPanel::Keyboard,
+                }),
                 fixed: panel_extras::fixed_picture(target),
                 rows: panel.rows,
                 columns: panel.columns,

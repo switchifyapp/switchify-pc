@@ -479,6 +479,12 @@ impl Workflow {
             .set_panel_theme(self.point.config.mouse_scan.panel_theme);
         self.menu
             .set_panel_theme(self.point.config.menu_scan.panel_theme);
+        self.keyboard
+            .set_panel_colors(self.point.config.keyboard_scan.panel_colors);
+        self.mouse
+            .set_panel_colors(self.point.config.mouse_scan.panel_colors);
+        self.menu
+            .set_panel_colors(self.point.config.menu_scan.panel_colors);
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
@@ -912,7 +918,8 @@ impl Workflow {
     fn build(&self, kind: Kind) -> Menu {
         let options = self.point.config.menu_scan;
         if crate::builtin_panels::editable(kind) {
-            let mut document = crate::builtin_panels::document(kind, &self.menu_overrides);
+            let mut document =
+                crate::builtin_panels::document(kind, &self.menu_overrides, options.panel_colors);
             if self.panels.is_empty() {
                 // Nothing to list yet, so the tile that would list it is left out.
                 for row in &mut document.rows {

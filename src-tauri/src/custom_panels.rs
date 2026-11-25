@@ -801,7 +801,9 @@ mod tests {
             ..Contents::default()
         };
         assert_eq!(coloured.schema(), 3);
-        let mut home = crate::builtin_panels::default_document(crate::scan_menu::Kind::Home);
+        // Home as shipped wears colours; a plain one is what older builds wrote.
+        let mut home =
+            crate::builtin_panels::document(crate::scan_menu::Kind::Home, &BTreeMap::new(), false);
         let rearranged = Contents {
             overrides: BTreeMap::from([("home".to_string(), home.clone())]),
             ..Contents::default()

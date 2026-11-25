@@ -24,6 +24,8 @@ export type ScanOptions = {
 };
 export type ScanPreferences = Pick<ScanOptions, 'direction' | 'passLimit' | 'pattern' | 'thickness'>
   & { panelSize?: PanelSize; panelTheme?: PanelTheme;
+    /** Built-in panels wear their own colour on their band and on Home's tiles as shipped. Missing means on. */
+    panelColors?: boolean;
     /** Extra time on the first item after scanning starts or enters a group. Shared by every scanner; missing means off. */
     firstItemMs?: number;
     /** Each step inside a group, as a percentage of the scan rate. Missing means 100, the same rate. */
@@ -37,7 +39,7 @@ export function itemScanning(options: Pick<ScanOptions, 'pattern' | 'rowGroups'>
   return options.pattern === 'grouped' && options.rowGroups ? 'rowGroups' : options.pattern;
 }
 export const defaultScanPreferences: ScanPreferences = {
-  panelSize: 'medium', panelTheme: 'system', direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
+  panelSize: 'medium', panelTheme: 'system', panelColors: true, direction: 'forward', passLimit: 3, pattern: 'grouped', thickness: 'standard',
   point: {}, menu: {}, keyboard: {}, mouse: {},
 };
 /** Wait after typing, saved before the choice existed for every scanner, is still in effect. */

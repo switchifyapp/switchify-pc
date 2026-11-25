@@ -144,7 +144,8 @@ impl Dock {
 /// Height in panel units of the menu bar along the top of every panel, as
 /// in Grid 3: a slim band flush with the panel's top edge.
 pub const MENU_BAR_HEIGHT: f64 = 28.0;
-/// The name on the left of the menu bar.
+/// The name the band once showed on every panel; tests stand it in for one.
+#[cfg(test)]
 pub const MENU_BAR_TITLE: &str = "Switchify PC";
 /// The one menu bar item, on the right: it opens the Switchify PC window on Settings.
 pub const SETTINGS_ITEM: &str = "Settings";
@@ -241,6 +242,10 @@ pub struct Panel {
     pub row_scan: bool,
     pub thickness: Thickness,
     pub appearance: Appearance,
+    /// The panel's name, written on the left of its band.
+    pub title: String,
+    /// The panel's own colour, which tints its band. None for a plain band.
+    pub accent: Option<crate::panel_theme::TileColor>,
 }
 
 impl Panel {
@@ -273,7 +278,7 @@ impl Panel {
         let row_height = 64.0 * scale;
         let menu_bar_height = MENU_BAR_HEIGHT * scale;
         let mut frame = Frame::default();
-        frame.tiles.push(FrameTile::panel_background(
+        let mut background = FrameTile::panel_background(
             Rect {
                 x,
                 y,
@@ -283,7 +288,9 @@ impl Panel {
             scale,
             color,
             self.appearance,
-        ));
+        );
+        background.band = self.accent;
+        frame.tiles.push(background);
         let x = x + padding;
         let width = content_width;
         // The menu bar is a band flush with the panel's top: the name on the
@@ -295,7 +302,8 @@ impl Panel {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
-            text: MENU_BAR_TITLE.into(),
+            band: self.accent,
+            text: self.title.clone(),
             style: Some(TileStyle {
                 role: TileRole::Title,
                 active: false,
@@ -314,6 +322,7 @@ impl Panel {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
+            band: self.accent,
             text: SETTINGS_ITEM.into(),
             style: Some(TileStyle {
                 role: TileRole::MenuBar,
@@ -349,6 +358,7 @@ impl Panel {
                     thickness: self.thickness,
                     color,
                     appearance: self.appearance,
+                    band: None,
                     text: if key.hidden {
                         String::new()
                     } else {
@@ -438,6 +448,56 @@ mod tests {
     }
 
     #[test]
+    fn the_band_names_the_panel_and_wears_its_colour() {
+        use crate::panel_theme::TileColor;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let panel = |accent| Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
+            rows: vec![vec![key("a", 1.0)]],
+            message: None,
+            dock: Dock::default(),
+            selected: None,
+            row_scan: false,
+            thickness: Thickness::Thick,
+            appearance: Appearance::Dark,
+            title: "Editing".into(),
+            accent,
+        };
+        let frame = panel(Some(TileColor::Orange)).frame(screen, 1.0, ScannerColor::default());
+        let [background, title, settings, a] = frame.tiles.as_slice() else {
+            panic!("expected background, title, Settings and one key");
+        };
+        assert_eq!(title.text, "Editing");
+        assert_eq!(title.style.unwrap().role, TileRole::Title);
+        for tile in [background, title, settings] {
+            assert_eq!(tile.band, Some(TileColor::Orange));
+        }
+        assert_eq!(a.band, None);
+        // The band itself is drawn in the colour, as a tile of that colour is.
+        let image = crate::scan_tile::bitmap(background).unwrap();
+        let pixel = ((10 * image.width() + image.width() / 2) * 4) as usize;
+        assert_eq!(
+            image.data()[pixel..pixel + 3],
+            Appearance::Dark.tile_fill(TileColor::Orange)
+        );
+        // Without a colour the band is plain, and the name stays.
+        let plain = panel(None).frame(screen, 1.0, ScannerColor::default());
+        assert!(plain.tiles.iter().all(|tile| tile.band.is_none()));
+        assert_eq!(plain.tiles[1].text, "Editing");
+        let image = crate::scan_tile::bitmap(&plain.tiles[0]).unwrap();
+        assert_eq!(
+            image.data()[pixel..pixel + 3],
+            Appearance::Dark.palette().band
+        );
+    }
+
+    #[test]
     fn hidden_keys_keep_their_cell_and_scanner_column() {
         let hidden = hidden_key();
         let frame = Panel {
@@ -450,6 +510,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(
             Rect {
@@ -488,6 +550,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(
             Rect {
@@ -518,6 +582,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         };
         let screen = Rect {
             x: -1920.0,
@@ -586,6 +652,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         };
         let screen = Rect {
             x: 0.0,
@@ -629,6 +697,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let panel = frame.tiles[0].rect;
@@ -786,6 +856,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let key_offset = frame.tiles[1].rect.y - frame.tiles[0].rect.y;
@@ -818,6 +890,8 @@ mod tests {
                 row_scan: false,
                 thickness: Thickness::default(),
                 appearance: Appearance::Dark,
+                title: MENU_BAR_TITLE.into(),
+                accent: None,
             };
             let rect = panel.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
             let left = rect.x - screen.x;

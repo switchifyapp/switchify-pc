@@ -35,8 +35,10 @@ export type BuiltinEditing = { kind: string; rearranged: boolean };
  *  Delete. */
 export type ExtrasEditing = { target: string; fixed: PictureCell[][]; columns: PanelCell[][]; hasTiles: boolean };
 
-export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras, onClose, onSave, onSaveExtras, onDelete, onTry, onDirtyChange, onClearError }: {
-  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme; busy: boolean; error: string | null; builtin?: BuiltinEditing; extras?: ExtrasEditing;
+export function PanelEditor({ panel, panels, theme, accent, busy, error, builtin, extras, onClose, onSave, onSaveExtras, onDelete, onTry, onDirtyChange, onClearError }: {
+  panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme;
+  /** The colour a built-in panel shows on its band, when built-in colours are on. */
+  accent?: TileColor | null; busy: boolean; error: string | null; builtin?: BuiltinEditing; extras?: ExtrasEditing;
   onClose: () => void; onSave: (panel: CustomPanel) => Promise<void>; onSaveExtras?: (rows: PanelCell[][], columns: PanelCell[][]) => Promise<void>; onDelete: () => Promise<void>; onTry?: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; onClearError?: () => void;
 }) {
   const [draft, setDraft] = useState(panel);
@@ -237,7 +239,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
             {problems.rows && <p className="field-error">{problems.rows}</p>}
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
-            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large panel-picture-editing" editing={{
+            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} accent={accent} title={builtin || extras ? panel.name : draft.name.trim() || panel.name} className="panel-picture-large panel-picture-editing" editing={{
               tile: (cell, place, colours) => {
                 const here = selected?.column === place.column && selected?.row === place.row && selected?.cell === place.cell;
                 const problem = problemOf(place);
@@ -268,7 +270,7 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
           {selected && current
             ? <TileInspector pick={pick} selection={selected} cell={current} catalogue={catalogue} panels={panels} self={draft.id} problem={problemOf(selected)} lines={selected.column ? columns : draft.rows} lineLimit={selected.column ? maxExtraColumns : rowLimit} tileLimit={selected.column ? maxColumnTiles : maxTilesPerRow}
               onChange={(cell) => setCell(selected, cell)} onAction={(action) => chooseAction(selected, current, action)} onMove={(direction) => moveTile(selected, direction)} onMoveTo={(target) => moveTileTo(selected, target)} onRemove={() => removeTile(selected)} />
-            : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width and action, or a + to add one.</p></div>}
+            : <div className="panel-inspector-empty"><h2>No tile chosen</h2><p>Choose a tile on the left to change its label, width, colour and action, or a + to add one.</p></div>}
         </aside>
       </div>
     </div>

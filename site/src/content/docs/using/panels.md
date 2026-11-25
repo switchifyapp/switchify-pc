@@ -5,7 +5,7 @@ description: Make scanning panels of your own, rearrange Home and the built-in m
 
 A panel is a page of tiles that scans like the Home menu. Each tile does one thing when you choose it: presses keys, types a phrase, runs an action such as Copy or Play, opens the keyboard, the mouse panel or a built-in menu, or opens another panel of yours. The panel stays open after each action so you can choose the next one, until you choose a tile that goes **Back** or closes it.
 
-Choose the **Panels** tile at the top of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, in the light or dark panel theme you chose in Scanning settings.
+Choose the **Panels** tile at the top of the Switchify PC window to see your panels. Each one is shown as a small picture of the panel, drawn the way the scan will draw it, with its name on the bar along its top, in the light or dark panel theme you chose in Scanning settings.
 
 Below them, **Built-in menus and panels** lists everything else that scans, one row each, under the menu that opens it, so you can see what belongs to what:
 
@@ -57,7 +57,7 @@ Your panels are saved on this computer. If you sign in to your account, they go 
 
 ## Rearrange the built-in menus
 
-Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels and colours, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
+Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels and colours, or give a tile a different action. The menu keeps its name. As shipped, Home's tiles share the colour of the panel they open (see [Colours](/using/home-menu/#colours)); you can change or clear them like any tile's colour. Choose **Save changes** and the next scan uses your arrangement, colours included, even if you later turn off **Colour the built-in panels**; the row then says **Rearranged**.
 
 Three rules keep a menu usable: it must keep a tile that goes **Back** or closes it; Home must keep a tile that closes it, which ends scanning; and Home must keep **Scanning**, which holds Pause and Open Switchify. The editor says so and keeps Save off until the rule is met.
 
@@ -67,7 +67,7 @@ If you rearranged Home in an earlier version, it gains a row with **Displays** a
 
 The Shut down and Restart pages, the page of clicks that appears after you choose a point, and the mouse panel's own pages cannot be changed. More clicks, reached from that page of clicks, can.
 
-![The editor open on the built-in Home menu: its four rows of tiles drawn as they scan, each ending in a dashed plus button with tools beside it, a dashed Add row button under them, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
+![The editor open on the built-in Home menu: a bar named Home, then its four rows of tiles drawn as they scan, each tile that opens a panel in that panel's colour, each ending in a dashed plus button with tools beside it, a dashed Add row button under them, a Reset to default button beside Save changes, and no name field.](../../../assets/screenshots/builtin-menu-editor.png)
 
 Rearranged menus are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
@@ -81,7 +81,7 @@ The rows appear on the mouse panel's Movement page and on every keyboard page, j
 
 **Remove tiles** takes the panel back to its keys alone. Switchify PC asks first.
 
-![The editor open on the Keyboard: its keys drawn faintly with a row of two added tiles, Hello and My panels, above the last row of keys and a column of two tiles, Hi and Pause, beside them. Dashed plus buttons end the row and the column, another beside the first row of keys adds a column, and a dashed Add row button sits above the last row of keys. Column tools are under the picture, and a Remove tiles button beside Save changes.](../../../assets/screenshots/panel-extras-editor.png)
+![The editor open on the Keyboard: a blue bar named Keyboard, then its keys drawn faintly with a row of two added tiles, Hello and My panels, above the last row of keys and a column of two tiles, Hi and Pause, beside them. Dashed plus buttons end the row and the column, another beside the first row of keys adds a column, and a dashed Add row button sits above the last row of keys. Column tools are under the picture, and a Remove tiles button beside Save changes.](../../../assets/screenshots/panel-extras-editor.png)
 
 Added tiles are saved on this computer and, if you sign in to your account, go to your other computers with your settings.
 
