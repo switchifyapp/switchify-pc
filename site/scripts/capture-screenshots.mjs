@@ -98,18 +98,27 @@ const bridge = (platform) => {
       [tile("Back", { type: "back" }), tile("Close menu", { type: "close" })],
     ] } },
   ];
+  // Each built-in panel's colour, as the app sends it; Home's tiles wear the colour of what they open.
+  const menuColors = { mouse: "green", editing: "orange", windows: "purple", browser: "pink", tabs: "pink", media: "red", zoom: "yellow", displays: "yellow", scanning: "grey" };
+  const opening = (action) => action.type !== "openPanel" ? undefined
+    : action.panel === "keyboard" ? "blue" : action.panel === "mouse" || action.panel === "point" ? "green"
+    : typeof action.panel === "object" ? menuColors[action.panel.menu] : undefined;
+  for (const menu of builtins) {
+    menu.color = menuColors[menu.kind] ?? null;
+    if (menu.kind === "home") for (const cell of menu.default.rows.flat()) { const color = opening(cell.action); if (color) cell.color = color; }
+  }
   // The mouse panel and the keyboard, the keyboard with a row added below its keys.
   const key = (label, weight = 1) => ({ label, weight });
   const keys = (labels, weight = 1) => labels.split("").map((label) => key(label, weight));
   const extras = [
-    { target: "mouse", name: "Mouse panel", rows: [], columns: [], fixed: [
+    { target: "mouse", name: "Mouse panel", color: "green", rows: [], columns: [], fixed: [
       ["Left click", "Right click", "Double click", "Start drag"].map((label) => key(label)),
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
       ["Home", "Speed and more", "Keyboard", "Close"].map((label) => key(label)),
     ] },
-    { target: "keyboard", name: "Keyboard", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
+    { target: "keyboard", name: "Keyboard", color: "blue", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],
       [key("Caps lock", 1.6), ...keys("asdfghjkl'"), key("↩", 1.9)],
       [key("⬆", 1.6), ...keys("zxcvbnm,./")],

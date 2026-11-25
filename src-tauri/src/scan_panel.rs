@@ -144,14 +144,55 @@ impl Dock {
 /// Height in panel units of the menu bar along the top of every panel, as
 /// in Grid 3: a slim band flush with the panel's top edge.
 pub const MENU_BAR_HEIGHT: f64 = 28.0;
-/// The name on the left of the menu bar.
+/// The name the band once showed on every panel; tests stand it in for one.
+#[cfg(test)]
 pub const MENU_BAR_TITLE: &str = "Switchify PC";
 /// The one menu bar item, on the right: it opens the Switchify PC window on Settings.
 pub const SETTINGS_ITEM: &str = "Settings";
 /// Width in panel units of the Settings item.
 const SETTINGS_ITEM_WIDTH: f64 = 96.0;
-/// Width in panel units of the title, which keeps the name at the left as in Grid 3.
+/// The narrowest the title is, in panel units. The platforms centre a label in
+/// its tile, so a short name in a box this size sits at the left, as in Grid 3.
 const TITLE_WIDTH: f64 = 150.0;
+/// What the platforms keep clear each side of a label, in panel units.
+const LABEL_PADDING: f64 = 8.0;
+/// A character of the bold band font at its widest, capitals included, in
+/// panel units. Generous, so a name sized with it stays on one line.
+const TITLE_CHAR_WIDTH: f64 = 10.0;
+
+/// Wide scripts and emoji take about two characters' room.
+fn title_units(text: &str) -> f64 {
+    text.chars()
+        .map(|c| if u32::from(c) >= 0x2E80 { 2.0 } else { 1.0 })
+        .sum()
+}
+
+/// The panel's name as the band shows it, and the width of its tile, in panel
+/// units: on one line within `available`, shortened with an ellipsis when it
+/// would not fit. The band is shorter than two lines of text, so a name that
+/// wrapped would be cut off. The tile is only as wide as the name needs, so
+/// the name stays at the left of the band.
+pub fn band_title(name: &str, available: f64) -> (String, f64) {
+    let room = (available - 2.0 * LABEL_PADDING) / TITLE_CHAR_WIDTH;
+    let text = if title_units(name) <= room {
+        name.to_owned()
+    } else {
+        // The ellipsis takes one character's room.
+        let mut kept = String::new();
+        for c in name.chars() {
+            kept.push(c);
+            if title_units(&kept) + 1.0 > room {
+                kept.pop();
+                break;
+            }
+        }
+        format!("{}\u{2026}", kept.trim_end())
+    };
+    let width = (title_units(&text) * TITLE_CHAR_WIDTH + 2.0 * LABEL_PADDING)
+        .max(TITLE_WIDTH)
+        .min(available);
+    (text, width)
+}
 
 /// The whole pixels a tile covers once drawn. Windows places a tile window at
 /// its rounded origin with a rounded size; macOS snaps each edge. This covers
@@ -241,6 +282,10 @@ pub struct Panel {
     pub row_scan: bool,
     pub thickness: Thickness,
     pub appearance: Appearance,
+    /// The panel's name, written on the left of its band.
+    pub title: String,
+    /// The panel's own colour, which tints its band. None for a plain band.
+    pub accent: Option<crate::panel_theme::TileColor>,
 }
 
 impl Panel {
@@ -273,7 +318,7 @@ impl Panel {
         let row_height = 64.0 * scale;
         let menu_bar_height = MENU_BAR_HEIGHT * scale;
         let mut frame = Frame::default();
-        frame.tiles.push(FrameTile::panel_background(
+        let mut background = FrameTile::panel_background(
             Rect {
                 x,
                 y,
@@ -283,7 +328,9 @@ impl Panel {
             scale,
             color,
             self.appearance,
-        ));
+        );
+        background.band = self.accent;
+        frame.tiles.push(background);
         let x = x + padding;
         let width = content_width;
         // The menu bar is a band flush with the panel's top: the name on the
@@ -291,11 +338,15 @@ impl Panel {
         // is clicked with the mouse. Neither is ever scanned.
         let item_width = (SETTINGS_ITEM_WIDTH * scale).min(width / 2.0);
         let item_inset = 4.0 * scale;
+        // The name may take the band up to the Settings item.
+        let (title, title_width) =
+            band_title(&self.title, (width - item_width - gap).max(1.0) / scale);
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
-            text: MENU_BAR_TITLE.into(),
+            band: self.accent,
+            text: title,
             style: Some(TileStyle {
                 role: TileRole::Title,
                 active: false,
@@ -304,7 +355,7 @@ impl Panel {
             rect: Rect {
                 x,
                 y,
-                width: (TITLE_WIDTH * scale).min((width - item_width - gap).max(1.0)),
+                width: title_width * scale,
                 height: menu_bar_height,
             },
             scale,
@@ -314,6 +365,7 @@ impl Panel {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
+            band: self.accent,
             text: SETTINGS_ITEM.into(),
             style: Some(TileStyle {
                 role: TileRole::MenuBar,
@@ -349,6 +401,7 @@ impl Panel {
                     thickness: self.thickness,
                     color,
                     appearance: self.appearance,
+                    band: None,
                     text: if key.hidden {
                         String::new()
                     } else {
@@ -438,6 +491,84 @@ mod tests {
     }
 
     #[test]
+    fn a_long_name_is_shortened_to_one_line_on_the_band() {
+        // A short name keeps the narrow title box, so it sits at the left.
+        assert_eq!(band_title("Home", 440.0), ("Home".to_string(), TITLE_WIDTH));
+        // A longer one widens the box to fit it, never past what is there.
+        let (apps, width) = band_title("Apps and windows", 440.0);
+        assert_eq!(apps, "Apps and windows");
+        assert_eq!(width, 16.0 * TITLE_CHAR_WIDTH + 2.0 * LABEL_PADDING);
+        // Too long: shortened with an ellipsis, never after a space, and
+        // sized so even capitals fit inside the padding.
+        for name in [
+            "Greetings and phrases for the clinic",
+            "EMERGENCY PHRASES FOR THE CLINIC",
+        ] {
+            let (text, width) = band_title(name, 300.0);
+            assert!(text.ends_with('\u{2026}'), "{text}");
+            assert!(!text.contains(" \u{2026}"), "{text}");
+            assert!(width <= 300.0);
+            assert!(title_units(&text) * TITLE_CHAR_WIDTH <= width - 2.0 * LABEL_PADDING);
+        }
+        // Wide scripts take twice the room.
+        let (text, _) = band_title("\u{8868}\u{60C5}\u{8868}\u{60C5}\u{8868}\u{60C5}", 100.0);
+        assert!(text.ends_with('\u{2026}'), "{text}");
+        assert!(title_units(&text) * TITLE_CHAR_WIDTH <= 100.0 - 2.0 * LABEL_PADDING);
+        // No room at all still leaves a mark rather than nothing.
+        assert_eq!(band_title("Greetings", 1.0).0, "\u{2026}");
+    }
+
+    #[test]
+    fn the_band_names_the_panel_and_wears_its_colour() {
+        use crate::panel_theme::TileColor;
+        let screen = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let panel = |accent| Panel {
+            key_width: 380.0,
+            size: PanelSize::Medium,
+            rows: vec![vec![key("a", 1.0)]],
+            message: None,
+            dock: Dock::default(),
+            selected: None,
+            row_scan: false,
+            thickness: Thickness::Thick,
+            appearance: Appearance::Dark,
+            title: "Editing".into(),
+            accent,
+        };
+        let frame = panel(Some(TileColor::Orange)).frame(screen, 1.0, ScannerColor::default());
+        let [background, title, settings, a] = frame.tiles.as_slice() else {
+            panic!("expected background, title, Settings and one key");
+        };
+        assert_eq!(title.text, "Editing");
+        assert_eq!(title.style.unwrap().role, TileRole::Title);
+        for tile in [background, title, settings] {
+            assert_eq!(tile.band, Some(TileColor::Orange));
+        }
+        assert_eq!(a.band, None);
+        // The band itself is drawn in the colour, as a tile of that colour is.
+        let image = crate::scan_tile::bitmap(background).unwrap();
+        let pixel = ((10 * image.width() + image.width() / 2) * 4) as usize;
+        assert_eq!(
+            image.data()[pixel..pixel + 3],
+            Appearance::Dark.tile_fill(TileColor::Orange)
+        );
+        // Without a colour the band is plain, and the name stays.
+        let plain = panel(None).frame(screen, 1.0, ScannerColor::default());
+        assert!(plain.tiles.iter().all(|tile| tile.band.is_none()));
+        assert_eq!(plain.tiles[1].text, "Editing");
+        let image = crate::scan_tile::bitmap(&plain.tiles[0]).unwrap();
+        assert_eq!(
+            image.data()[pixel..pixel + 3],
+            Appearance::Dark.palette().band
+        );
+    }
+
+    #[test]
     fn hidden_keys_keep_their_cell_and_scanner_column() {
         let hidden = hidden_key();
         let frame = Panel {
@@ -450,6 +581,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(
             Rect {
@@ -488,6 +621,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(
             Rect {
@@ -518,6 +653,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::Thick,
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         };
         let screen = Rect {
             x: -1920.0,
@@ -586,6 +723,8 @@ mod tests {
             row_scan: true,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         };
         let screen = Rect {
             x: 0.0,
@@ -629,6 +768,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let panel = frame.tiles[0].rect;
@@ -786,6 +927,8 @@ mod tests {
             row_scan: false,
             thickness: Thickness::default(),
             appearance: Appearance::Dark,
+            title: MENU_BAR_TITLE.into(),
+            accent: None,
         }
         .frame(screen, 1.0, ScannerColor::default());
         let key_offset = frame.tiles[1].rect.y - frame.tiles[0].rect.y;
@@ -818,6 +961,8 @@ mod tests {
                 row_scan: false,
                 thickness: Thickness::default(),
                 appearance: Appearance::Dark,
+                title: MENU_BAR_TITLE.into(),
+                accent: None,
             };
             let rect = panel.frame(screen, 1.0, ScannerColor::default()).tiles[0].rect;
             let left = rect.x - screen.x;

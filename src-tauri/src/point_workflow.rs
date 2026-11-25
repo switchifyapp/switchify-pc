@@ -466,6 +466,8 @@ impl Workflow {
             self.elapsed = 0;
             self.open(Kind::Actions);
         }
+        let colors_changed =
+            self.point.config.menu_scan.panel_colors != config.menu_scan.panel_colors;
         self.point.config = config;
         self.keyboard
             .set_panel_size(self.point.config.keyboard_scan.panel_size);
@@ -479,6 +481,18 @@ impl Workflow {
             .set_panel_theme(self.point.config.mouse_scan.panel_theme);
         self.menu
             .set_panel_theme(self.point.config.menu_scan.panel_theme);
+        self.keyboard
+            .set_panel_colors(self.point.config.keyboard_scan.panel_colors);
+        self.mouse
+            .set_panel_colors(self.point.config.mouse_scan.panel_colors);
+        self.menu
+            .set_panel_colors(self.point.config.menu_scan.panel_colors);
+        // Home as shipped takes its tile colours from the setting, so an open
+        // built-in menu is rebuilt to follow it. It scans again from the top,
+        // as after a save; a pause or wait carries over.
+        if colors_changed {
+            self.refresh_page(Saved::Menus);
+        }
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu
@@ -912,7 +926,8 @@ impl Workflow {
     fn build(&self, kind: Kind) -> Menu {
         let options = self.point.config.menu_scan;
         if crate::builtin_panels::editable(kind) {
-            let mut document = crate::builtin_panels::document(kind, &self.menu_overrides);
+            let mut document =
+                crate::builtin_panels::document(kind, &self.menu_overrides, options.panel_colors);
             if self.panels.is_empty() {
                 // Nothing to list yet, so the tile that would list it is left out.
                 for row in &mut document.rows {

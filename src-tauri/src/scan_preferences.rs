@@ -104,6 +104,9 @@ pub struct Preferences {
     pub panel_size: PanelSize,
     /// Shared by every panel, like `panel_size`.
     pub panel_theme: PanelTheme,
+    /// Whether built-in panels wear their own colour: on the band along
+    /// their top, and on Home's tiles as shipped. Shared by every panel.
+    pub panel_colors: bool,
     pub direction: Direction,
     pub pass_limit: usize,
     pub pattern: Pattern,
@@ -130,6 +133,7 @@ impl Default for Preferences {
         Self {
             panel_size: PanelSize::Medium,
             panel_theme: PanelTheme::System,
+            panel_colors: true,
             direction: Direction::Forward,
             pass_limit: 3,
             pattern: Pattern::Grouped,
@@ -150,6 +154,7 @@ impl Default for Preferences {
 pub struct Resolved {
     pub panel_size: PanelSize,
     pub panel_theme: PanelTheme,
+    pub panel_colors: bool,
     pub automatic: bool,
     pub interval_ms: u64,
     pub direction: Direction,
@@ -194,6 +199,7 @@ impl Preferences {
         Resolved {
             panel_size: self.panel_size,
             panel_theme: self.panel_theme,
+            panel_colors: self.panel_colors,
             automatic: local.automatic.unwrap_or(automatic),
             interval_ms: local
                 .interval_ms
@@ -292,6 +298,7 @@ fn forget_unknown_choices(value: &mut serde_json::Value, optional: bool) {
     fields.retain(|name, choice| match name.as_str() {
         "panelSize" => !optional && PanelSize::deserialize(&*choice).is_ok(),
         "panelTheme" => !optional && PanelTheme::deserialize(&*choice).is_ok(),
+        "panelColors" => !optional && choice.is_boolean(),
         "nextScan" => (optional && choice.is_null()) || NextScan::deserialize(&*choice).is_ok(),
         "startFrom" => (optional && choice.is_null()) || StartFrom::deserialize(&*choice).is_ok(),
         "pattern" => (optional && choice.is_null()) || Pattern::deserialize(&*choice).is_ok(),
@@ -337,6 +344,33 @@ mod tests {
                     size
                 );
             }
+        }
+    }
+
+    #[test]
+    fn built_in_panel_colours_default_on_and_are_shared_by_every_panel() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"panelColors":"yes"}),
+            serde_json::json!({"panelColors":null}),
+        ] {
+            assert!(read(value).panel_colors);
+        }
+        let mut value = serde_json::to_value(Preferences {
+            panel_colors: false,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(value["panelColors"], false);
+        // An area never has a choice of its own.
+        value["menu"] = serde_json::json!({"panelColors":true});
+        let restored = read(value);
+        for area in [Area::Point, Area::Menu, Area::Mouse, Area::Keyboard] {
+            assert!(
+                !restored
+                    .resolve(area, false, 1000, ScannerColor::Blue)
+                    .panel_colors
+            );
         }
     }
 

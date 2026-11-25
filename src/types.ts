@@ -167,6 +167,8 @@ export type BuiltinPanelView = {
   /** The menu's name in the backend, such as "home" or "editing". */
   kind: string;
   name: string;
+  /** The colour the menu shows on its band when built-in colours are on. */
+  color?: TileColor | null;
   default: CustomPanel;
   override: CustomPanel | null;
 };
@@ -179,6 +181,8 @@ export type PictureCell = { label: string; weight: number };
 export type PanelExtrasView = {
   target: "mouse" | "keyboard";
   name: string;
+  /** The colour the panel shows on its band when built-in colours are on. */
+  color?: TileColor | null;
   fixed: PictureCell[][];
   rows: PanelCell[][];
   /** Each column runs down the right of the keys from the top row. */

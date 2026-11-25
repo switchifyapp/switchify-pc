@@ -5,6 +5,7 @@
 use crate::{
     custom_panels::{Cell, CustomPanel},
     panel_actions::{BuiltInPanel, PanelAction},
+    panel_theme::TileColor,
     scan_menu::{Item, Kind},
 };
 use std::collections::BTreeMap;
@@ -89,8 +90,46 @@ fn cell(item: Item) -> Option<Cell> {
     })
 }
 
+/// The colour of a menu, grouped by what it is for: the pointer pages green,
+/// Apps and windows with its power pages purple, Editing orange, Browser and
+/// Tabs pink, Media red, the screen menus yellow and Scanning grey. Home and
+/// the user's own panels have none.
+pub fn menu_color(kind: Kind) -> Option<TileColor> {
+    use TileColor::*;
+    Some(match kind {
+        Kind::Mouse | Kind::Actions | Kind::Scroll | Kind::ConfirmDrag => Green,
+        Kind::Windows | Kind::ShutDown | Kind::Restart => Purple,
+        Kind::Editing => Orange,
+        Kind::Browser | Kind::Tabs => Pink,
+        Kind::Media => Red,
+        Kind::Zoom | Kind::Displays => Yellow,
+        Kind::Scanning => Grey,
+        Kind::Home | Kind::More | Kind::Panels | Kind::Custom => return None,
+    })
+}
+
+/// The colour of a built-in panel: the keyboard blue, point scanning and
+/// the mouse panel green like the other pointer pages, a menu its own.
+pub fn panel_color(panel: BuiltInPanel) -> Option<TileColor> {
+    match panel {
+        BuiltInPanel::Keyboard => Some(TileColor::Blue),
+        BuiltInPanel::Mouse | BuiltInPanel::Point => Some(TileColor::Green),
+        BuiltInPanel::Switchify => None,
+        BuiltInPanel::Menu(kind) => menu_color(kind),
+    }
+}
+
+/// The colour a tile that opens a built-in panel takes on Home as shipped.
+fn opening_color(action: &PanelAction) -> Option<TileColor> {
+    match action {
+        PanelAction::OpenPanel { panel } => panel_color(*panel),
+        _ => None,
+    }
+}
+
 /// The menu as shipped. Home carries a My panels tile; the runtime leaves
-/// it out while the user has no panels.
+/// it out while the user has no panels. Home's tiles that open a built-in
+/// panel wear that panel's colour.
 pub fn default_document(kind: Kind) -> CustomPanel {
     let mut rows: Vec<Vec<Cell>> = kind
         .rows()
@@ -101,6 +140,9 @@ pub fn default_document(kind: Kind) -> CustomPanel {
     if kind == Kind::Home {
         if let Some(last) = rows.last_mut() {
             last.insert(1, cell(Item::Panels).expect("My panels is a tile"));
+        }
+        for cell in rows.iter_mut().flatten() {
+            cell.color = opening_color(&cell.action);
         }
     }
     CustomPanel {
@@ -145,12 +187,22 @@ pub fn validate_overrides(overrides: &BTreeMap<String, CustomPanel>) -> Result<(
     Ok(())
 }
 
-/// The document to scan for a menu: the override if there is one.
-pub fn document(kind: Kind, overrides: &BTreeMap<Kind, CustomPanel>) -> CustomPanel {
+/// The document to scan for a menu: the override if there is one. Without
+/// built-in colours (`colors` false), a menu as shipped is plain; colours
+/// the user chose on a rearranged menu stay.
+pub fn document(kind: Kind, overrides: &BTreeMap<Kind, CustomPanel>, colors: bool) -> CustomPanel {
     overrides
         .get(&kind)
         .map(|panel| upgraded(kind, panel))
-        .unwrap_or_else(|| default_document(kind))
+        .unwrap_or_else(|| {
+            let mut panel = default_document(kind);
+            if !colors {
+                for cell in panel.rows.iter_mut().flatten() {
+                    cell.color = None;
+                }
+            }
+            panel
+        })
 }
 
 /// Whether a tile on the panel opens this menu.
@@ -287,7 +339,7 @@ mod tests {
         assert_eq!(validate_edit(Kind::Home, &new), Ok(()));
         // The runtime scans the upgraded Home.
         let by_kind = BTreeMap::from([(Kind::Home, old.clone())]);
-        assert_eq!(document(Kind::Home, &by_kind), new);
+        assert_eq!(document(Kind::Home, &by_kind, true), new);
         // A Home that already has Scanning, and every other menu, stay as saved.
         assert_eq!(upgraded(Kind::Home, &new), new);
         let editing = default_document(Kind::Editing);
@@ -316,9 +368,9 @@ mod tests {
         overrides.insert(key(Kind::Home), home.clone());
         assert_eq!(validate_overrides(&overrides), Ok(()));
         let by_kind = by_kind(&overrides);
-        assert_eq!(document(Kind::Home, &by_kind), home);
+        assert_eq!(document(Kind::Home, &by_kind, true), home);
         assert_eq!(
-            document(Kind::Editing, &by_kind),
+            document(Kind::Editing, &by_kind, true),
             default_document(Kind::Editing)
         );
         // A rearrangement of the retired More actions page is kept, unused.
@@ -330,5 +382,107 @@ mod tests {
         assert!(!super::by_kind(&overrides).contains_key(&Kind::More));
         overrides.insert("shutDown".into(), default_document(Kind::ShutDown));
         assert!(validate_overrides(&overrides).is_err());
+    }
+
+    #[test]
+    fn home_tiles_wear_the_colour_of_the_panel_they_open() {
+        let home = default_document(Kind::Home);
+        let color = |label: &str| {
+            home.rows
+                .iter()
+                .flatten()
+                .find(|cell| cell.label == label)
+                .unwrap()
+                .color
+        };
+        assert_eq!(color("Point"), Some(TileColor::Green));
+        assert_eq!(color("Mouse"), Some(TileColor::Green));
+        assert_eq!(color("Keyboard"), Some(TileColor::Blue));
+        assert_eq!(color("Apps and windows"), Some(TileColor::Purple));
+        assert_eq!(color("Editing"), Some(TileColor::Orange));
+        assert_eq!(color("Browser"), Some(TileColor::Pink));
+        assert_eq!(color("Media"), Some(TileColor::Red));
+        assert_eq!(color("Zoom"), Some(TileColor::Yellow));
+        assert_eq!(color("Displays"), Some(TileColor::Yellow));
+        assert_eq!(color("Scanning"), Some(TileColor::Grey));
+        // Tiles that open nothing of ours stay plain.
+        assert_eq!(color("My panels"), None);
+        assert_eq!(color("Close menu"), None);
+        // A tile opening a menu wears the colour that menu shows on its band.
+        for cell in home.rows.iter().flatten() {
+            if let PanelAction::OpenPanel {
+                panel: BuiltInPanel::Menu(kind),
+            } = cell.action
+            {
+                assert_eq!(cell.color, menu_color(kind), "{}", cell.label);
+            }
+        }
+        // The other menus as shipped are plain, and Home still validates.
+        for kind in EDITABLE.into_iter().filter(|&kind| kind != Kind::Home) {
+            assert!(default_document(kind)
+                .rows
+                .iter()
+                .flatten()
+                .all(|cell| cell.color.is_none()));
+        }
+        assert_eq!(validate_edit(Kind::Home, &home), Ok(()));
+        // Without built-in colours Home as shipped is plain; a rearranged
+        // Home keeps the colours it was saved with.
+        let plain = document(Kind::Home, &BTreeMap::new(), false);
+        assert!(plain.rows.iter().flatten().all(|cell| cell.color.is_none()));
+        assert_eq!(document(Kind::Home, &BTreeMap::new(), true), home);
+        let mut chosen = home.clone();
+        chosen.rows[0][0].color = Some(TileColor::Pink);
+        let overrides = BTreeMap::from([(Kind::Home, chosen.clone())]);
+        assert_eq!(document(Kind::Home, &overrides, false), chosen);
+        assert_eq!(panel_color(BuiltInPanel::Switchify), None);
+        assert_eq!(menu_color(Kind::Custom), None);
+    }
+
+    #[test]
+    fn open_menus_name_themselves_and_wear_their_colour_unless_turned_off() {
+        let screen = crate::scanning::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let band = |menu: crate::scan_menu::Menu| {
+            let frame = menu.frame(screen, 1.0, crate::scan_panel::Dock::default(), false);
+            (frame.tiles[1].text.clone(), frame.tiles[0].band)
+        };
+        let on = crate::scan_preferences::Resolved::default();
+        let off = crate::scan_preferences::Resolved {
+            panel_colors: false,
+            ..on
+        };
+        let editing = default_document(Kind::Editing);
+        assert_eq!(
+            band(crate::scan_menu::Menu::builtin(Kind::Editing, &editing, on)),
+            ("Editing".to_string(), Some(TileColor::Orange))
+        );
+        assert_eq!(
+            band(crate::scan_menu::Menu::builtin(
+                Kind::Editing,
+                &editing,
+                off
+            )),
+            ("Editing".to_string(), None)
+        );
+        let home = default_document(Kind::Home);
+        assert_eq!(
+            band(crate::scan_menu::Menu::builtin(Kind::Home, &home, on)),
+            ("Home".to_string(), None)
+        );
+        // One of the user's panels shows its own name and no colour.
+        let mine = crate::custom_panels::sample("greetings", "Greetings");
+        assert_eq!(
+            band(crate::scan_menu::Menu::custom(&mine, on)),
+            ("Greetings".to_string(), None)
+        );
+        assert_eq!(
+            band(crate::scan_menu::Menu::configured(Kind::Actions, on)),
+            ("Actions".to_string(), Some(TileColor::Green))
+        );
     }
 }

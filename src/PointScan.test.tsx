@@ -772,6 +772,24 @@ it("defaults old settings to Match system and saves one shared panel theme", asy
   expect(screen.queryByText("Panel theme")).not.toBeInTheDocument();
 });
 
+it("shows built-in panel colours on for older settings and saves turning them off", async () => {
+  const oldPreferences = { ...defaultScanPreferences, panelColors: undefined };
+  mocks.invoke.mockImplementation(async (command, args) => command === "get_point_scan"
+    ? { ...initial, config: { ...initial.config, scanPreferences: oldPreferences } }
+    : { ...initial, ...args });
+  render(<PointScan />);
+  await screen.findByText(initial.message);
+  more();
+  const toggle = screen.getByRole("checkbox", { name: "Colour the built-in panels" });
+  expect(toggle).toBeChecked();
+  fireEvent.click(toggle);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenLastCalledWith("configure_point_scan", {
+    config: expect.objectContaining({ scanPreferences: expect.objectContaining({ panelColors: false, panelSize: "medium" }) })
+  }));
+  fireEvent.click(screen.getByRole("button", { name: "Customise mouse scanning" }));
+  expect(screen.queryByRole("checkbox", { name: "Colour the built-in panels" })).not.toBeInTheDocument();
+});
+
 it("saves row groups beside the pattern older versions read and lets an area choose its own", async () => {
   // The keyboard's own pattern was saved before row groups existed.
   const saved = { ...initial, config: { ...initial.config, scanPreferences: { ...defaultScanPreferences, keyboard: { pattern: "grouped" as const } } } };

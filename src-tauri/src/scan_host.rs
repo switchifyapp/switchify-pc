@@ -390,6 +390,7 @@ mod platform {
                 thickness: Default::default(),
                 color: Default::default(),
                 appearance: Default::default(),
+                band: None,
                 text: "Settings".into(),
                 rect,
                 scale: 1.0,

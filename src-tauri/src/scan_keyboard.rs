@@ -348,6 +348,9 @@ impl Keyboard {
     pub fn set_panel_theme(&mut self, theme: crate::scan_preferences::PanelTheme) {
         self.scan.options.panel_theme = theme;
     }
+    pub fn set_panel_colors(&mut self, colors: bool) {
+        self.scan.options.panel_colors = colors;
+    }
 
     #[cfg(test)]
     pub fn new(mac: bool) -> Self {
@@ -1314,6 +1317,15 @@ impl Keyboard {
             row_scan: highlight_row,
             thickness: Default::default(),
             appearance: self.scan.options.panel_theme.appearance(),
+            title: "Keyboard".into(),
+            accent: self
+                .scan
+                .options
+                .panel_colors
+                .then(|| {
+                    crate::builtin_panels::panel_color(crate::panel_actions::BuiltInPanel::Keyboard)
+                })
+                .flatten(),
         }
         .frame(screen, units, color)
     }

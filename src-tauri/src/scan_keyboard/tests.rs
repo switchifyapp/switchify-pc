@@ -1552,7 +1552,10 @@ fn an_empty_suggestion_row_stays_blank() {
         .tiles
         .iter()
         .skip(1)
-        .filter(|tile| !tile.is_menu_bar() && tile.text != crate::scan_panel::MENU_BAR_TITLE)
+        .filter(|tile| {
+            !tile.is_menu_bar()
+                && tile.style.map(|s| s.role) != Some(crate::scanning::TileRole::Title)
+        })
         .all(|tile| is_placeholder(tile) || tile.rect.y > first_row_top + 40.0));
     assert!(frame
         .tiles

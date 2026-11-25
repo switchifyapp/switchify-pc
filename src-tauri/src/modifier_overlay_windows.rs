@@ -1080,8 +1080,26 @@ mod tests {
                 },
             )
             .frame(screen, 1.0, mouse.dock, false);
+            // Home with its tiles in the colours of what they open, and a
+            // menu with its own colour on its band.
+            let menu = |kind| {
+                crate::scan_menu::Menu::builtin(
+                    kind,
+                    &crate::builtin_panels::default_document(kind),
+                    Resolved {
+                        panel_size: size,
+                        panel_theme: theme,
+                        ..Default::default()
+                    },
+                )
+                .frame(screen, 1.0, mouse.dock, false)
+            };
+            let home_frame = menu(crate::scan_menu::Kind::Home);
+            let editing_frame = menu(crate::scan_menu::Kind::Editing);
             for (name, frame) in [
                 ("panel-colours", colours_frame),
+                ("home", home_frame),
+                ("editing", editing_frame),
                 ("mouse", mouse_frame),
                 ("mouse-more", mouse_more_frame),
                 ("keyboard", keyboard_frame),

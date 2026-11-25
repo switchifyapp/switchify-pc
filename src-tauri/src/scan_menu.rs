@@ -151,6 +151,8 @@ pub struct Menu {
     pub kind: Kind,
     /// Set while one of the user's panels is open.
     pub custom_id: Option<String>,
+    /// The open custom panel's name, for its band.
+    title: Option<String>,
     rows: Vec<Vec<Item>>,
     /// The open custom panel's tiles, indexed by `Item::Custom`.
     cells: Vec<CustomCell>,
@@ -166,6 +168,9 @@ impl Menu {
     }
     pub fn set_panel_theme(&mut self, theme: crate::scan_preferences::PanelTheme) {
         self.scan.options.panel_theme = theme;
+    }
+    pub fn set_panel_colors(&mut self, colors: bool) {
+        self.scan.options.panel_colors = colors;
     }
 
     #[cfg(test)]
@@ -205,6 +210,7 @@ impl Menu {
         Self {
             kind,
             custom_id: None,
+            title: None,
             rows,
             cells: Vec::new(),
             names: Vec::new(),
@@ -223,6 +229,7 @@ impl Menu {
         let mut menu = Self::custom(document, options);
         menu.kind = kind;
         menu.custom_id = None;
+        menu.title = None;
         menu
     }
     /// The user's panels by name, three to a row, then Back and Close menu.
@@ -257,6 +264,7 @@ impl Menu {
             .collect();
         let mut menu = Self::with_rows(Kind::Custom, rows, options);
         menu.custom_id = Some(panel.id.clone());
+        menu.title = Some(panel.name.clone());
         menu.cells = cells;
         menu
     }
@@ -382,6 +390,14 @@ impl Menu {
             row_scan: self.scan.row_scan() || self.scan.group_scan() || self.scan.nav.escaping(),
             thickness: options.thickness,
             appearance: options.panel_theme.appearance(),
+            title: self
+                .title
+                .clone()
+                .unwrap_or_else(|| self.kind.label().into()),
+            accent: options
+                .panel_colors
+                .then(|| crate::builtin_panels::menu_color(self.kind))
+                .flatten(),
         }
         .frame(screen, units, options.color)
     }

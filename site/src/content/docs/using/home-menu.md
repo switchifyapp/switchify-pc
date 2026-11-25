@@ -30,6 +30,21 @@ Switchify PC asks Windows or macOS to shut down or restart and lets open apps cl
 
 In Settings you can choose whether Select opens Home every time, or returns to the last mode you used.
 
-Home and the menus it opens have a slim bar along their top, with the Switchify PC name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The menu stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work.
+Home and the menus it opens have a slim bar along their top, with the menu's name on the left and a **Settings** button on the right. Click the button with a mouse to open the Switchify PC window on its Settings page. The menu stays where it is while the pointer is over the bar, even when it is set to move out of the pointer's way. The bar itself never takes focus; the Switchify PC window opens in front of your work.
+
+## Colours
+
+Each built-in panel has a colour, and the bar along its top shows it beside the panel's name. Home's tiles share the colour of the panel they open, so the colour you choose on Home is the colour you see when the panel opens.
+
+- Blue: the keyboard.
+- Green: the mouse panel, More clicks and the pages after you choose a point. Home's **Point** tile is green too.
+- Purple: Apps and windows, with Shut down and Restart.
+- Orange: Editing.
+- Pink: Browser and Tabs.
+- Red: Media.
+- Yellow: Zoom and Displays.
+- Grey: Scanning.
+
+Home, My panels and your own panels have plain bars. To turn the colours off, turn off **Colour the built-in panels** in [Scanning settings](/using/scanning-settings/). If you [rearrange Home](/using/panels/#rearrange-the-built-in-menus), its tiles keep the colours they had when you saved, and you can change or clear them in the editor.
 
 Nothing else is written across a menu: the highlight shows what Select will choose. While a menu is waiting or paused, nothing is highlighted; press Select to carry on. Only a failure is written out: if an action could not be done, a short message appears beside the menu and goes away when you deal with it.

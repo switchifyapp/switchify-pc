@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 21;
+pub const SCHEMA_VERSION: u32 = 22;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -257,7 +257,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             17 => upgrade_v17(value)?,
             18 => upgrade_v18(value)?,
             19 => upgrade_v19(value)?,
-            _ => upgrade_v20(value)?,
+            20 => upgrade_v20(value)?,
+            _ => upgrade_v21(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -656,6 +657,22 @@ fn upgrade_v20(mut value: Value) -> Result<Value, ParseError> {
             "it does not match version 20 settings".into(),
         ));
     }
+    value["schemaVersion"] = Value::from(21);
+    Ok(value)
+}
+
+/// Version 21 had no choice about built-in panel colours. Version 22 adds
+/// it, on, as a new install has it.
+fn upgrade_v21(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(21)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    value
+        .pointer_mut("/pointScan/scanPreferences")
+        .and_then(Value::as_object_mut)
+        .filter(|preferences| !preferences.contains_key("panelColors"))
+        .ok_or_else(|| ParseError::Invalid("it does not match version 21 settings".into()))?
+        .insert("panelColors".into(), Value::Bool(true));
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }
@@ -895,6 +912,13 @@ pub fn apply(app: &AppHandle, incoming: Document) -> Result<Applied, String> {
 /// A current document as an older version wrote it.
 #[cfg(test)]
 pub(crate) fn written_by(mut value: Value, version: u32) -> Value {
+    if version < 22 {
+        value
+            .pointer_mut("/pointScan/scanPreferences")
+            .and_then(Value::as_object_mut)
+            .unwrap()
+            .remove("panelColors");
+    }
     if version < 15 {
         value["app"]
             .as_object_mut()

@@ -41,6 +41,7 @@ Choosing **Back** in a menu opens the menu above it afresh, scanning from the be
 - **Highlight thickness**: thin, standard or thick.
 - **Panel size**: small, medium or large.
 - **Panel theme**: match system, light or dark. This colours the keyboard, the mouse panel, Home, the action menus and [your own panels](/using/panels/). **Match system** follows your computer's light or dark setting, and the panels change when it does. On light panels the scanner colour is drawn in a deeper shade so the highlight stays easy to see.
+- **Colour the built-in panels**: on unless you turn it off. Each built-in panel shows its own colour on the bar along its top, beside its name, so you can tell where you are at a glance: the keyboard is blue, the mouse panel and the pages after you choose a point are green, and each menu has a colour of its own (see [Home](/using/home-menu/#colours)). Home's tiles share the colour of the panel they open. Off, the bars are plain, and so are Home's tiles unless you rearranged Home. A rearranged menu keeps the colours it was saved with, and colours you gave tiles yourself stay either way.
 - Panels can move away from the pointer.
 
 ## Different settings for menus and the keyboard

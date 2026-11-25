@@ -11,6 +11,10 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     use crate::scanning::TileRole;
     let style = tile.style;
     let palette = tile.appearance.palette();
+    // A panel with a colour of its own wears it on the band along its top.
+    let band = tile
+        .band
+        .map_or(palette.band, |color| tile.appearance.tile_fill(color));
     let rgb = |[r, g, b]: [u8; 3]| Color::from_rgba8(r, g, b, 255);
     if tile.is_panel_background() {
         let mut bitmap = Pixmap::new(
@@ -34,12 +38,12 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
             None,
         );
         // The menu bar band along the top, inside the rounded corners.
-        let band = (crate::scan_panel::MENU_BAR_HEIGHT * tile.scale) as f32;
-        if band < bitmap.height() as f32 {
-            paint.set_color(rgb(palette.band));
-            let band = band_outline(bitmap.width() as f32, band, (18.0 * tile.scale) as f32);
+        let height = (crate::scan_panel::MENU_BAR_HEIGHT * tile.scale) as f32;
+        if height < bitmap.height() as f32 {
+            paint.set_color(rgb(band));
+            let outline = band_outline(bitmap.width() as f32, height, (18.0 * tile.scale) as f32);
             bitmap.fill_path(
-                &band,
+                &outline,
                 &paint,
                 FillRule::Winding,
                 Transform::identity(),
@@ -55,7 +59,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     .ok_or("Cannot allocate keyboard key")?;
     // The title sits flat on the band.
     if style.is_some_and(|s| s.role == TileRole::Title) {
-        bitmap.fill(rgb(palette.band));
+        bitmap.fill(rgb(band));
         return Ok(bitmap);
     }
     // An empty slot: the panel colour with a faint dashed outline where a key
@@ -98,7 +102,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         _ => palette.other,
     };
     bitmap.fill(if on_band {
-        rgb(palette.band)
+        rgb(band)
     } else {
         rgb(palette.panel)
     });
@@ -331,6 +335,7 @@ mod tests {
             scale: 1.0,
             selected: false,
             appearance: Default::default(),
+            band: None,
         };
         assert_eq!(
             keyboard_font_size(&tile(TileRole::Utility, "\u{232B}")),
@@ -435,6 +440,7 @@ mod tests {
             scale: 1.0,
             selected,
             appearance,
+            band: None,
         };
         let at = |image: &Pixmap, x: usize, y: usize| {
             let pixel = (y * 64 + x) * 4;
@@ -489,6 +495,7 @@ mod tests {
                 scale: 1.0,
                 selected: true,
                 appearance: Default::default(),
+                band: None,
             };
             let image = bitmap(&tile).unwrap();
             let pixel = ((28 * 176 + 88) * 4) as usize;
@@ -523,6 +530,7 @@ mod tests {
             }),
             color: ScannerColor::Red,
             appearance,
+            band: None,
             text: "Hello".into(),
             rect: Rect {
                 x: 0.0,
@@ -590,6 +598,7 @@ mod tests {
             }),
             color: ScannerColor::White,
             appearance,
+            band: None,
             text: "a".into(),
             rect: Rect {
                 x: 0.0,
