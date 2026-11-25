@@ -745,6 +745,51 @@ mod tests {
             serde_json::from_value::<CustomPanel>(value.clone()).unwrap(),
             panel
         );
+        // The scanned panel draws the coloured tiles in their colour, a way out
+        // included, and the rest as before.
+        let mut drawn = panel.clone();
+        drawn.rows[1][0].color = Some(TileColor::Red);
+        let frame = crate::scan_menu::Menu::custom(&drawn, Default::default()).frame(
+            crate::scanning::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+            1.0,
+            crate::scan_panel::Dock::default(),
+            false,
+        );
+        let role = |text: &str| {
+            let tile = frame.tiles.iter().find(|tile| tile.text == text).unwrap();
+            tile.style.unwrap().role
+        };
+        use crate::scanning::TileRole;
+        assert_eq!(role("Copy"), TileRole::Utility);
+        assert_eq!(role("Hello"), TileRole::Tinted(TileColor::Green));
+        assert_eq!(role("Back"), TileRole::Tinted(TileColor::Red));
+        assert_eq!(
+            crate::scan_menu::Menu::custom(&sample("a", "A"), Default::default())
+                .frame(
+                    crate::scanning::Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1920.0,
+                        height: 1080.0
+                    },
+                    1.0,
+                    crate::scan_panel::Dock::default(),
+                    false,
+                )
+                .tiles
+                .iter()
+                .find(|tile| tile.text == "Back")
+                .unwrap()
+                .style
+                .unwrap()
+                .role,
+            TileRole::Toolbar
+        );
         // Only the fixed colours are accepted.
         let mut unknown = value.clone();
         unknown["rows"][0][1]["color"] = serde_json::json!("#ff0000");

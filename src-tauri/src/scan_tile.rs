@@ -267,7 +267,7 @@ pub fn keyboard_font_size(tile: &FrameTile) -> f64 {
         Some(crate::scanning::TileRole::Character) if tile.text.chars().count() == 1 => 24.0,
         // Key glyphs such as ⌫ share the letter size. Other single-character
         // utility text, such as a one-letter prediction, keeps the utility size.
-        Some(crate::scanning::TileRole::Utility)
+        Some(crate::scanning::TileRole::Utility | crate::scanning::TileRole::Tinted(_))
             if crate::scan_keyboard::Keyboard::LARGE_GLYPHS.contains(&tile.text.as_str()) =>
         {
             24.0
@@ -355,6 +355,10 @@ mod tests {
             assert_eq!(keyboard_font_size(&tile(TileRole::Utility, shift)), 16.0);
         }
         assert_eq!(keyboard_font_size(&tile(TileRole::Toolbar, "•")), 16.0);
+        // Colouring a tile never changes the size of its label.
+        let tinted = TileRole::Tinted(crate::panel_theme::TileColor::Blue);
+        assert_eq!(keyboard_font_size(&tile(tinted, "\u{2191}")), 24.0);
+        assert_eq!(keyboard_font_size(&tile(tinted, "Esc")), 16.0);
     }
 
     #[test]
