@@ -181,4 +181,24 @@ describe("PanelEditor", () => {
     fireEvent.click(within(confirm).getByRole("button", { name: "Delete panel" }));
     await waitFor(() => expect(onDelete).toHaveBeenCalled());
   });
+
+  it("gives a tile a colour, shows it on the picture and takes it away again", async () => {
+    const { onSave } = mount();
+    fireEvent.click(screen.getByRole("button", { name: /Row 1, tile 1: Keyboard/ }));
+    const colour = screen.getByRole("combobox", { name: "Tile colour" });
+    expect(colour).toHaveValue("");
+    expect(within(colour).getAllByRole("option").map((option) => option.textContent)).toEqual(["Default", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Grey"]);
+    fireEvent.change(colour, { target: { value: "green" } });
+    const tile = screen.getByRole("button", { name: /Row 1, tile 1: Keyboard, .*, green$/ });
+    expect(tile).toHaveAttribute("data-color", "green");
+    expect(tile).toHaveStyle({ background: "#1e703c", color: "#ffffff" });
+    fireEvent.click(screen.getByRole("button", { name: "Save panel" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0].rows[0][0]).toEqual({ label: "Keyboard", action: { type: "openPanel", panel: "keyboard" }, span: 1, color: "green" });
+    expect(onSave.mock.calls[0][0].rows[0][1]).not.toHaveProperty("color");
+    // Default leaves the colour out of the tile, so the panel is as it was and there is nothing to save.
+    fireEvent.change(colour, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: /Row 1, tile 1: Keyboard/ })).not.toHaveAttribute("data-color");
+    expect(screen.getByRole("button", { name: "Save panel" })).toBeDisabled();
+  });
 });

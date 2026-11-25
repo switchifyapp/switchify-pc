@@ -405,9 +405,9 @@ impl MousePanel {
     }
     fn role(&self, key: Key) -> TileRole {
         match key {
-            Key::Extra(..) | Key::Column(..) => self.cell(key).map_or(TileRole::Utility, |cell| {
-                crate::panel_extras::role(&cell.action)
-            }),
+            Key::Extra(..) | Key::Column(..) => self
+                .cell(key)
+                .map_or(TileRole::Utility, crate::panel_extras::role),
             Key::Move(..) => TileRole::Character,
             Key::More
             | Key::Movement
@@ -489,6 +489,7 @@ mod tests {
             label: label.into(),
             action: crate::panel_actions::PanelAction::Back,
             span: 1,
+            color: None,
         };
         panel.set_extras(PanelExtras::rows(vec![vec![tile("Hello")]]));
         assert!(panel.suspended(), "the error pause survives the new rows");

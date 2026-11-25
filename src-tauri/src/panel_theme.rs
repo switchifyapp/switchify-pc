@@ -42,6 +42,35 @@ impl PanelTheme {
     }
 }
 
+/// A colour the user gave one of their tiles. A fixed set, so each has a
+/// shade for dark panels and one for light panels that keeps the label and
+/// the scan highlight readable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TileColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+    Pink,
+    Grey,
+}
+impl TileColor {
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Red,
+        Self::Orange,
+        Self::Yellow,
+        Self::Green,
+        Self::Blue,
+        Self::Purple,
+        Self::Pink,
+        Self::Grey,
+    ];
+}
+
 /// What a panel is drawn with once the system setting has been consulted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Appearance {
@@ -90,6 +119,32 @@ impl Appearance {
                 ScannerColor::Blue => [25, 103, 210],
                 ScannerColor::Yellow => [176, 112, 0],
                 ScannerColor::White => [58, 64, 76],
+            },
+        }
+    }
+    /// The face of a tile the user coloured. The label keeps the palette's
+    /// text colour, so dark panels use deep shades and light panels pale ones.
+    pub fn tile_fill(self, color: TileColor) -> [u8; 3] {
+        match self {
+            Self::Dark => match color {
+                TileColor::Red => [150, 40, 40],
+                TileColor::Orange => [156, 84, 20],
+                TileColor::Yellow => [130, 106, 10],
+                TileColor::Green => [30, 112, 60],
+                TileColor::Blue => [28, 90, 160],
+                TileColor::Purple => [104, 62, 160],
+                TileColor::Pink => [156, 48, 110],
+                TileColor::Grey => [104, 112, 126],
+            },
+            Self::Light => match color {
+                TileColor::Red => [255, 170, 165],
+                TileColor::Orange => [255, 196, 130],
+                TileColor::Yellow => [250, 228, 120],
+                TileColor::Green => [160, 225, 170],
+                TileColor::Blue => [160, 200, 255],
+                TileColor::Purple => [208, 184, 255],
+                TileColor::Pink => [255, 180, 220],
+                TileColor::Grey => [176, 183, 194],
             },
         }
     }
@@ -143,6 +198,66 @@ mod tests {
             assert!(luma(light) < luma(color.rgb()), "{color:?}");
             assert_ne!(Appearance::Light.highlight_fill(color), [255, 255, 255]);
         }
+    }
+
+    #[test]
+    fn tile_colours_keep_the_label_readable_and_never_pass_for_the_highlight() {
+        // WCAG relative luminance and contrast ratio.
+        let luminance = |rgb: [u8; 3]| {
+            let channel = |c: u8| {
+                let c = f64::from(c) / 255.0;
+                if c <= 0.03928 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
+        };
+        let contrast = |a: [u8; 3], b: [u8; 3]| {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        };
+        let distance = |a: [u8; 3], b: [u8; 3]| -> u32 {
+            (0..3).map(|i| u32::from(a[i].abs_diff(b[i]))).sum()
+        };
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let palette = appearance.palette();
+            let fills = TileColor::ALL.map(|color| appearance.tile_fill(color));
+            for (index, fill) in fills.iter().enumerate() {
+                let color = TileColor::ALL[index];
+                assert!(
+                    contrast(palette.text, *fill) >= 4.5,
+                    "{appearance:?} {color:?}"
+                );
+                // Told apart from an uncoloured tile and from every other colour.
+                for plain in [palette.utility, palette.other, palette.panel] {
+                    assert!(distance(*fill, plain) >= 40, "{appearance:?} {color:?}");
+                }
+                for other in &fills[index + 1..] {
+                    assert!(distance(*fill, *other) >= 40, "{appearance:?} {color:?}");
+                }
+                // A coloured tile never looks like a highlighted one.
+                for scanner in [
+                    ScannerColor::Red,
+                    ScannerColor::Green,
+                    ScannerColor::Blue,
+                    ScannerColor::Yellow,
+                    ScannerColor::White,
+                ] {
+                    assert!(
+                        distance(*fill, appearance.highlight_fill(scanner)) >= 40,
+                        "{appearance:?} {color:?} {scanner:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            serde_json::to_value(TileColor::ALL).unwrap(),
+            serde_json::json!([
+                "red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"
+            ])
+        );
     }
 
     #[test]

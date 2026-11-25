@@ -144,6 +144,7 @@ pub struct CustomCell {
     pub label: String,
     pub span: u8,
     pub action: PanelAction,
+    pub color: Option<crate::panel_theme::TileColor>,
 }
 
 pub struct Menu {
@@ -247,6 +248,7 @@ impl Menu {
                             label: cell.label.clone(),
                             span: cell.span,
                             action: cell.action.clone(),
+                            color: cell.color,
                         });
                         Item::Custom(cells.len() - 1)
                     })
@@ -299,6 +301,12 @@ impl Menu {
         }
     }
     fn item_role(&self, item: Item) -> TileRole {
+        // A colour the user chose replaces the face the action gives.
+        if let Item::Custom(index) = item {
+            if let Some(color) = self.cells.get(index).and_then(|cell| cell.color) {
+                return TileRole::Tinted(color);
+            }
+        }
         match item {
             Item::Custom(index) => match self.cells.get(index).map(|cell| &cell.action) {
                 Some(PanelAction::Back | PanelAction::Close) => TileRole::Toolbar,

@@ -295,6 +295,9 @@ pub enum TileRole {
     Character,
     Utility,
     Toolbar,
+    /// A tile the user gave a colour, which replaces the face its action
+    /// would have had.
+    Tinted(crate::panel_theme::TileColor),
     /// The Settings item on the bar along the top of a panel. It is clicked
     /// with the mouse, never scanned.
     MenuBar,

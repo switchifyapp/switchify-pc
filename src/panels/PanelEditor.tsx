@@ -4,10 +4,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { Textarea, IconButton, Button, Input, Select } from "../ui/controls";
 import { api } from "../api";
-import { PanelPicture, toolbarAction, type TilePlace } from "./PanelPicture";
+import { PanelPicture, tileColors, toolbarAction, type TilePlace } from "./PanelPicture";
 import { actionProblem, chordFromEvent, columnProblems, defaultLabel, describeAction, friendlyKey, maxColumnTiles, maxExtraColumns, maxExtraRows, maxLabelChars, maxRows, maxSpan, maxTextChars, maxTilesPerRow, panelProblems, sameAction, searchActions } from "./actions";
 import type { PanelTheme } from "../scanning/preferences";
-import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell, PictureCell } from "../types";
+import type { CustomPanel, PanelAction, PanelActionEntry, PanelCell, PictureCell, TileColor } from "../types";
 
 export const maxPanelNameChars = 50;
 export const maxPanelDescriptionChars = 200;
@@ -17,6 +17,14 @@ export const maxPanelDescriptionChars = 200;
 type Selection = TilePlace;
 
 const blankTile = (): PanelCell => ({ label: "Back", action: { type: "back" }, span: 1 });
+
+/** The tile in another colour, or (no colour) with its usual face. An unset
+ *  colour is left out, as the saved tile leaves it out. */
+const withColor = (cell: PanelCell, color: TileColor | ""): PanelCell => {
+  const next = { ...cell };
+  if (color) next.color = color; else delete next.color;
+  return next;
+};
 
 /** Edits one panel: its name, its rows of tiles, and what each tile does.
  *  Nothing is saved until Save; leaving with changes asks first. */
@@ -230,11 +238,13 @@ export function PanelEditor({ panel, panels, theme, busy, error, builtin, extras
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
             <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} className="panel-picture-large panel-picture-editing" editing={{
-              tile: (cell, place) => {
+              tile: (cell, place, colours) => {
                 const here = selected?.column === place.column && selected?.row === place.row && selected?.cell === place.cell;
                 const problem = problemOf(place);
                 const where = `${place.column ? "Column" : "Row"} ${place.row + 1}, tile ${place.cell + 1}`;
-                return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-invalid={problem ? true : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
+                const colour = tileColors.find((candidate) => candidate.value === cell.color);
+                // A coloured tile is drawn as the panel will draw it, in the panel theme's shade and text colour.
+                return <Button id={tileId(place)} className="panel-editor-tile" data-selected={here || undefined} data-toolbar={toolbarAction(cell.action) || undefined} data-color={cell.color} data-invalid={problem ? true : undefined} style={cell.color ? { background: colours.tiles[cell.color], color: colours.text } : undefined} aria-pressed={here} aria-label={`${where}: ${cell.label.trim() || "no label"}, ${describeAction(cell.action, catalogue, panels)}${colour ? `, ${colour.label.toLowerCase()}` : ""}${problem ? `, ${problem}` : ""}`} onClick={() => choose(place)}>{cell.label.trim() || <em>No label</em>}</Button>;
               },
               rowEnd: (rowIndex) => draft.rows[rowIndex].length < maxTilesPerRow && addButton(addId(false, rowIndex), `Add tile to row ${rowIndex + 1}`, () => addTile(rowIndex)),
               columnEnd: (columnIndex) => columns[columnIndex].length < maxColumnTiles && addButton(addId(true, columnIndex), `Add tile to column ${columnIndex + 1}`, () => addColumnTile(columnIndex)),
@@ -299,6 +309,7 @@ function TileInspector({ pick, selection, cell, catalogue, panels, self, problem
     <label className="field"><span>Label</span><Input value={cell.label} maxLength={maxLabelChars} aria-invalid={labelProblem ? true : undefined} aria-describedby={labelProblem ? `${ids}-label-error` : undefined} onChange={(event) => onChange({ ...cell, label: event.target.value })} /></label>
     {labelProblem && <p id={`${ids}-label-error`} className="field-error">{labelProblem}</p>}
     <label className="field"><span>Width</span><Select value={cell.span} aria-label="Tile width" onChange={(event) => onChange({ ...cell, span: Number(event.target.value) })}>{Array.from({ length: maxSpan }, (_, index) => index + 1).map((span) => <option key={span} value={span}>{span === 1 ? "Normal" : `${span} tiles wide`}</option>)}</Select></label>
+    <label className="field"><span>Colour</span><Select value={cell.color ?? ""} aria-label="Tile colour" onChange={(event) => onChange(withColor(cell, event.target.value as TileColor | ""))}><option value="">Default</option>{tileColors.map((colour) => <option key={colour.value} value={colour.value}>{colour.label}</option>)}</Select></label>
     <label className="field"><span>{selection.column ? "Column" : "Row"}</span><Select value={String(selection.row)} aria-label={`Move tile to ${lineNoun}`} onChange={(event) => { const value = event.target.value; if (value === "new") onMoveTo("new"); else if (Number(value) !== selection.row) onMoveTo(Number(value)); }}>
       {lines.map((line, index) => <option key={index} value={index} disabled={index !== selection.row && line.length >= tileLimit}>{selection.column ? "Column" : "Row"} {index + 1}{index === selection.row ? " (here)" : line.length >= tileLimit ? " (full)" : ""}</option>)}
       <option value="new" disabled={lines.length >= lineLimit}>New {lineNoun}{lines.length >= lineLimit ? " (no room)" : ""}</option>

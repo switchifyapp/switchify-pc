@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 21;
 const MAX_CUSTOM_PROFILES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -256,7 +256,8 @@ pub fn parse(mut value: Value, schema_version: u32) -> Result<Document, ParseErr
             16 => upgrade_v16(value)?,
             17 => upgrade_v17(value)?,
             18 => upgrade_v18(value)?,
-            _ => upgrade_v19(value)?,
+            19 => upgrade_v19(value)?,
+            _ => upgrade_v20(value)?,
         };
     }
     let document: Document = serde_json::from_value(value.clone())
@@ -611,6 +612,50 @@ fn upgrade_v19(mut value: Value) -> Result<Value, ParseError> {
         &[0, 500, 1000, 1500, 2000],
         19,
     )?;
+    value["schemaVersion"] = Value::from(20);
+    Ok(value)
+}
+
+/// Version 20 tiles had no colour. Version 21 lets a tile on a panel, a
+/// rearranged menu or around the mouse panel's and the keyboard's keys carry
+/// one, left out when unset, so the tiles themselves need no change.
+fn upgrade_v20(mut value: Value) -> Result<Value, ParseError> {
+    if value.get("schemaVersion") != Some(&Value::from(20)) {
+        return Err(ParseError::Invalid("version mismatch".into()));
+    }
+    let panels = value
+        .get("panels")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    let menus = value
+        .get("menuOverrides")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|menus| menus.values());
+    let extras = value
+        .get("panelExtras")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|extras| extras.values());
+    let coloured = panels
+        .chain(menus)
+        .filter_map(|panel| panel.get("rows"))
+        .chain(
+            extras
+                .flat_map(|panel| [panel.get("rows"), panel.get("columns")])
+                .flatten(),
+        )
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(Value::as_array)
+        .flatten()
+        .any(|tile| tile.get("color").is_some());
+    if coloured {
+        return Err(ParseError::Invalid(
+            "it does not match version 20 settings".into(),
+        ));
+    }
     value["schemaVersion"] = Value::from(SCHEMA_VERSION);
     Ok(value)
 }

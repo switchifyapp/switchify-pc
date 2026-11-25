@@ -1777,6 +1777,7 @@ fn suggestions_span_the_keys_when_columns_are_drawn() {
         label: "Hi".into(),
         action: PanelAction::Text { text: "Hi".into() },
         span: 1,
+        color: None,
     };
     let mut k = Keyboard::new(false);
     k.enable_predictions(true);
@@ -1818,6 +1819,7 @@ fn a_tile_beside_the_suggestions_is_reached_under_row_groups() {
         label: "Hi".into(),
         action: PanelAction::Text { text: "Hi".into() },
         span: 1,
+        color: None,
     };
     let mut k = Keyboard::configured(
         false,
@@ -1875,6 +1877,7 @@ fn row_groups_skip_the_group_of_empty_generated_slots_beside_tiles() {
         label: "Hi".into(),
         action: PanelAction::Text { text: "Hi".into() },
         span: 1,
+        color: None,
     };
     let mut k = Keyboard::configured(
         false,

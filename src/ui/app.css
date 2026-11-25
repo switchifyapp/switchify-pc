@@ -456,6 +456,8 @@ section[data-found], div[data-found]:not(.tile) { padding: 10px; margin: -10px; 
 .btn.panel-editor-tile[data-selected] { border-color: var(--scan); outline: 2px solid var(--scan); outline-offset: -2px; }
 .btn.panel-editor-tile[data-invalid] { border-color: var(--status-error); }
 .btn.panel-editor-tile em { color: var(--muted); font-style: italic; font-weight: 400; }
+/* On a coloured tile the placeholder takes the tile's text colour, which the shade is chosen for. */
+.btn.panel-editor-tile[data-color] em { color: inherit; }
 
 .panel-editor-picture h2, .panel-grid-editor h2 { margin-bottom: 4px; }
 .panel-inspector { position: sticky; top: 108px; max-height: calc(100dvh - 124px); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; background: var(--surface); }

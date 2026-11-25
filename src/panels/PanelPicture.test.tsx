@@ -31,6 +31,21 @@ describe("PanelPicture", () => {
     expect(within(picture).getByText("Switchify PC")).toBeInTheDocument();
   });
 
+  it("draws a coloured tile in the panel theme's shade of its colour", () => {
+    const coloured: CustomPanel = { ...panel, rows: [[{ ...panel.rows[0][0], color: "green" }, panel.rows[0][1]], [{ ...panel.rows[1][0], color: "red" }]] };
+    const { unmount } = render(<PanelPicture panel={coloured} theme="dark" />);
+    expect(screen.getByText("Copy")).toHaveStyle({ background: picturePalette("dark").tiles.green });
+    expect(screen.getByText("Copy")).toHaveAttribute("data-color", "green");
+    // A colour replaces the toolbar face of a way out; an uncoloured tile keeps its usual face.
+    expect(screen.getByText("Back")).toHaveStyle({ background: picturePalette("dark").tiles.red });
+    expect(screen.getByText("Hello")).toHaveStyle({ background: picturePalette("dark").utility });
+    expect(screen.getByText("Hello")).not.toHaveAttribute("data-color");
+    unmount();
+    render(<PanelPicture panel={coloured} theme="light" />);
+    expect(screen.getByText("Copy")).toHaveStyle({ background: picturePalette("light").tiles.green });
+    expect(picturePalette("light").tiles.green).not.toBe(picturePalette("dark").tiles.green);
+  });
+
   it("draws a native panel's keys faintly before the rows added below them", () => {
     const fixed = [[{ label: "q", weight: 1 }], [{ label: "Space", weight: 4 }]];
     render(<PanelPicture panel={panel} fixed={fixed} theme="dark" />);

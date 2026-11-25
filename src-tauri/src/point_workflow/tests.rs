@@ -203,6 +203,7 @@ fn board(id: &str, name: &str, cells: Vec<Vec<(&str, PanelAction)>>) -> CustomPa
                         label: label.into(),
                         action,
                         span: 1,
+                        color: None,
                     })
                     .collect()
             })
@@ -267,6 +268,7 @@ fn clicking_panel() -> CustomPanel {
         label: label.into(),
         action,
         span: 1,
+        color: None,
     };
     CustomPanel {
         id: "clicker".into(),
@@ -681,6 +683,7 @@ fn a_my_panels_tile_on_any_menu_lists_the_panels_once_there_are_some() {
         label: "Mine".into(),
         action: PanelAction::MyPanels,
         span: 1,
+        color: None,
     };
     let overrides = crate::builtin_panels::by_kind(&std::collections::BTreeMap::from([(
         key(Kind::Editing),
@@ -2602,6 +2605,7 @@ fn extra(label: &str, action: PanelAction, span: u8) -> crate::custom_panels::Ce
         label: label.into(),
         action,
         span,
+        color: None,
     }
 }
 #[test]

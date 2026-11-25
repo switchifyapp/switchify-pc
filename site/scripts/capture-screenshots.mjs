@@ -52,10 +52,10 @@ const bridge = (platform) => {
   const scan = { config: scanConfig, enabled: true, phase: "idle", paused: false, message: "Ready.", supported: true };
   const remote = { schemaVersion: 1, revision: 1, slots: Array.from({ length: 8 }, () => ({ pressAction: null, holdActions: [] })) };
   // Two made-up panels and a slice of the action library, enough for the Panels pages.
-  const tile = (label, action, span = 1) => ({ label, action, span });
+  const tile = (label, action, span = 1, color) => ({ label, action, span, ...(color ? { color } : {}) });
   const panels = [
     { id: "greetings", version: 3, name: "Greetings", description: "Things I say a lot", rows: [
-      [tile("Hello", { type: "text", text: "Hello, how are you?" }), tile("Thank you", { type: "text", text: "Thank you very much." }), tile("Yes", { type: "text", text: "Yes" }), tile("No", { type: "text", text: "No" })],
+      [tile("Hello", { type: "text", text: "Hello, how are you?" }, 1, "blue"), tile("Thank you", { type: "text", text: "Thank you very much." }, 1, "blue"), tile("Yes", { type: "text", text: "Yes" }, 1, "green"), tile("No", { type: "text", text: "No" }, 1, "red")],
       [tile("Keyboard", { type: "openPanel", panel: "keyboard" }), tile("Writing", { type: "openCustomPanel", id: "writing" })],
       [tile("Back", { type: "back" }), tile("Close", { type: "close" })],
     ] },
@@ -308,7 +308,7 @@ for (const platform of ["windows", "macos"]) {
   await shot(page, "panels", "main");
   await page.setViewport({ width: 1280, height: 1150, deviceScaleFactor: 2 });
   await click(page, "Greetings, 8 tiles");
-  await click(page, "Row 1, tile 1: Hello, Type \"Hello, how are you?\"");
+  await click(page, "Row 1, tile 1: Hello, Type \"Hello, how are you?\", blue");
   await shot(page, "panel-editor", "main");
   await page.close();
 }

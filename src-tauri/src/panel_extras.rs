@@ -179,11 +179,12 @@ pub fn by_target(extras: &Extras) -> BTreeMap<Target, PanelExtras> {
         .collect()
 }
 
-/// How a tile is drawn on a native panel: the ways out look like the
-/// panel's own bottom row.
-pub fn role(action: &PanelAction) -> TileRole {
-    match action {
-        PanelAction::Back | PanelAction::Close => TileRole::Toolbar,
+/// How a tile is drawn on a native panel: in its colour if the user gave it
+/// one; otherwise the ways out look like the panel's own bottom row.
+pub fn role(cell: &Cell) -> TileRole {
+    match (cell.color, &cell.action) {
+        (Some(color), _) => TileRole::Tinted(color),
+        (None, PanelAction::Back | PanelAction::Close) => TileRole::Toolbar,
         _ => TileRole::Utility,
     }
 }
@@ -244,6 +245,7 @@ mod tests {
             label: label.into(),
             action,
             span: 1,
+            color: None,
         }
     }
 
@@ -288,8 +290,15 @@ mod tests {
 
     #[test]
     fn ways_out_are_drawn_as_toolbar_keys_and_leave_the_panel() {
-        assert_eq!(role(&PanelAction::Close), TileRole::Toolbar);
-        assert_eq!(role(&PanelAction::Pause), TileRole::Utility);
+        assert_eq!(role(&tile("Close", PanelAction::Close)), TileRole::Toolbar);
+        assert_eq!(role(&tile("Pause", PanelAction::Pause)), TileRole::Utility);
+        // A colour the user chose wins over either.
+        let mut close = tile("Close", PanelAction::Close);
+        close.color = Some(crate::panel_theme::TileColor::Red);
+        assert_eq!(
+            role(&close),
+            TileRole::Tinted(crate::panel_theme::TileColor::Red)
+        );
         assert!(leaves(&PanelAction::Back));
         assert!(leaves(&PanelAction::MyPanels));
         assert!(!leaves(&PanelAction::Text { text: "x".into() }));

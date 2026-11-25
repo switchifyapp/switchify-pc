@@ -146,7 +146,12 @@ export type PanelCell = {
   action: PanelAction;
   /** Width in units of a normal tile, 1 to 4. */
   span: number;
+  /** A colour for the tile's face. Left out for the usual face. */
+  color?: TileColor;
 };
+
+/** The colours a tile can be given. Each has a shade for dark panels and one for light panels. */
+export type TileColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "grey";
 
 /** A user-built panel. The backend owns `version`. */
 export type CustomPanel = {
