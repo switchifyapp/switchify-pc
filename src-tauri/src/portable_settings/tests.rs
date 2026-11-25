@@ -76,6 +76,7 @@ fn version_eight_documents_read_with_no_extra_rows() {
             text: "Hello".into(),
         },
         span: 1,
+        color: None,
     };
     let mut local = local();
     local.panel_extras.insert(
@@ -122,6 +123,85 @@ fn version_eight_documents_read_with_no_extra_rows() {
 }
 
 #[test]
+fn version_twenty_documents_read_with_no_tile_colours_and_colours_sync() {
+    use crate::panel_theme::TileColor;
+    let hello = custom_panels::Cell {
+        label: "Hello".into(),
+        action: crate::panel_actions::PanelAction::Text {
+            text: "Hello".into(),
+        },
+        span: 1,
+        color: None,
+    };
+    let mut plain = local();
+    plain.menu_overrides.insert(
+        "home".into(),
+        crate::builtin_panels::default_document(crate::scan_menu::Kind::Home),
+    );
+    plain.panel_extras.insert(
+        "keyboard".into(),
+        crate::panel_extras::PanelExtras {
+            rows: vec![vec![hello.clone()]],
+            columns: vec![vec![hello]],
+        },
+    );
+    // A document without colours is, tile for tile, what version 20 wrote.
+    let current = serde_json::to_value(plain.document()).unwrap();
+    assert!(current["panels"][0]["rows"][0][0].get("color").is_none());
+    let version_twenty = written_by(current, 20);
+    let parsed = parse(version_twenty.clone(), 20).unwrap();
+    assert_eq!(parsed.schema_version, SCHEMA_VERSION);
+    assert_eq!(parsed, plain.document());
+    assert!(plan(&plain, parsed).unwrap().is_empty());
+    // A colour in each place a tile can be syncs and applies.
+    let mut coloured = plain.clone();
+    coloured.panels[0].rows[0][0].color = Some(TileColor::Green);
+    coloured.menu_overrides.get_mut("home").unwrap().rows[0][0].color = Some(TileColor::Blue);
+    let keyboard = coloured.panel_extras.get_mut("keyboard").unwrap();
+    keyboard.rows[0][0].color = Some(TileColor::Pink);
+    keyboard.columns[0][0].color = Some(TileColor::Grey);
+    let value = serde_json::to_value(coloured.document()).unwrap();
+    assert_eq!(value["panels"][0]["rows"][0][0]["color"], json!("green"));
+    assert_eq!(
+        value["menuOverrides"]["home"]["rows"][0][0]["color"],
+        json!("blue")
+    );
+    assert_eq!(
+        value["panelExtras"]["keyboard"]["columns"][0][0]["color"],
+        json!("grey")
+    );
+    let parsed = parse(value.clone(), SCHEMA_VERSION).unwrap();
+    assert_eq!(parsed, coloured.document());
+    let planned = plan(&plain, parsed).unwrap();
+    assert_eq!(
+        planned.panels.unwrap()[0].rows[0][0].color,
+        Some(TileColor::Green)
+    );
+    assert!(planned.menu_overrides.is_some() && planned.panel_extras.is_some());
+    // Version 20 had no colours, so a version 20 document with one, wherever
+    // it is, is refused, as is a colour that is not on the list.
+    for pointer in [
+        "/panels/0/rows/0/0",
+        "/menuOverrides/home/rows/0/0",
+        "/panelExtras/keyboard/rows/0/0",
+        "/panelExtras/keyboard/columns/0/0",
+    ] {
+        let mut early = version_twenty.clone();
+        early.pointer_mut(pointer).unwrap()["color"] = json!("red");
+        assert!(
+            matches!(parse(early, 20), Err(ParseError::Invalid(_))),
+            "{pointer}"
+        );
+    }
+    let mut unknown = value;
+    unknown["panels"][0]["rows"][0][0]["color"] = json!("teal");
+    assert!(matches!(
+        parse(unknown, SCHEMA_VERSION),
+        Err(ParseError::Invalid(_))
+    ));
+}
+
+#[test]
 fn version_nine_documents_keep_their_rows_and_gain_no_columns() {
     let hello = custom_panels::Cell {
         label: "Hello".into(),
@@ -129,6 +209,7 @@ fn version_nine_documents_keep_their_rows_and_gain_no_columns() {
             text: "Hello".into(),
         },
         span: 1,
+        color: None,
     };
     let mut local = local();
     local.panel_extras.insert(

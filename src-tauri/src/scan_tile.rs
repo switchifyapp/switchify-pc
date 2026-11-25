@@ -94,6 +94,7 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         Some(TileRole::Character) => palette.character,
         Some(TileRole::Utility) => palette.utility,
         Some(TileRole::MenuBar) => palette.menu_bar,
+        Some(TileRole::Tinted(color)) => tile.appearance.tile_fill(color),
         _ => palette.other,
     };
     bitmap.fill(if on_band {
@@ -101,12 +102,17 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
     } else {
         rgb(palette.panel)
     });
-    let fill = if tile.selected {
+    // A tile the user coloured keeps its colour while highlighted, so the
+    // colour still tells the tiles apart as the scan passes. Its highlight
+    // is the full border, in a row too, with a line in the text colour
+    // inside it, which shows against any tile colour.
+    let tinted = matches!(style.map(|s| s.role), Some(TileRole::Tinted(_)));
+    let fill = if tile.selected && !tinted {
         tile.appearance.highlight_fill(tile.color)
     } else {
         base
     };
-    let stroke_width = if tile.selected && !style.is_some_and(|s| s.row_scan) {
+    let stroke_width = if tile.selected && (tinted || !style.is_some_and(|s| s.row_scan)) {
         3.0
     } else {
         1.0
@@ -147,6 +153,23 @@ pub fn bitmap(tile: &FrameTile) -> Result<Pixmap, String> {
         Transform::identity(),
         None,
     );
+    if tile.selected && tinted {
+        let line = (tile.scale as f32).max(1.0);
+        // Snapped to whole pixels so the line is drawn crisp.
+        let inner =
+            ((inset + stroke_width / 2.0).round() + line / 2.0).min(width.min(height) / 4.0);
+        paint.set_color(rgb(palette.text));
+        bitmap.stroke_path(
+            &key_outline(width, height, inner, (radius - (inner - inset)).max(0.0)),
+            &paint,
+            &Stroke {
+                width: line,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+    }
     if style.is_some_and(|s| s.active) {
         paint.set_color(rgb(tile.appearance.highlight(tile.color)));
         if let Some(rect) = tiny_skia::Rect::from_xywh(
@@ -478,6 +501,73 @@ mod tests {
                 &bitmap(&tile).unwrap().data()[pixel..pixel + 3],
                 &crate::panel_theme::Appearance::Dark.highlight_fill(color)
             );
+        }
+    }
+
+    #[test]
+    fn coloured_tiles_keep_their_colour_and_gain_a_two_line_border_when_highlighted() {
+        use crate::{
+            panel_theme::{Appearance, TileColor},
+            scanning::{Rect, ScannerColor, TileRole, TileStyle},
+        };
+        let tile = |appearance, role, selected, row_scan| FrameTile {
+            thickness: Default::default(),
+            style: Some(TileStyle {
+                role,
+                active: false,
+                row_scan,
+            }),
+            color: ScannerColor::Red,
+            appearance,
+            text: "Hello".into(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 176.0,
+                height: 56.0,
+            },
+            scale: 1.0,
+            selected,
+        };
+        let at = |image: &Pixmap, x: usize, y: usize| {
+            let pixel = (y * 176 + x) * 4;
+            [
+                image.data()[pixel],
+                image.data()[pixel + 1],
+                image.data()[pixel + 2],
+            ]
+        };
+        let column = |image: &Pixmap| (0..28).map(|y| at(image, 88, y)).collect::<Vec<_>>();
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            let palette = appearance.palette();
+            for color in TileColor::ALL {
+                let role = TileRole::Tinted(color);
+                let face = appearance.tile_fill(color);
+                let plain = bitmap(&tile(appearance, role, false, false)).unwrap();
+                assert_eq!(at(&plain, 88, 28), face, "{appearance:?} {color:?}");
+                assert!(!column(&plain).contains(&palette.text));
+                // Highlighted alone or in a row, the face is unchanged and the
+                // border is the highlight with a text-coloured line inside.
+                for row_scan in [false, true] {
+                    let selected = bitmap(&tile(appearance, role, true, row_scan)).unwrap();
+                    assert_eq!(at(&selected, 88, 28), face, "{appearance:?} {color:?}");
+                    let edge = column(&selected);
+                    let highlight = edge
+                        .iter()
+                        .filter(|&&p| p == appearance.highlight(ScannerColor::Red))
+                        .count();
+                    assert!(highlight >= 2, "{appearance:?} {color:?} {row_scan}");
+                    assert!(edge.contains(&palette.text), "{appearance:?} {color:?}");
+                    assert_ne!(selected.data(), plain.data());
+                }
+            }
+            // An uncoloured tile is highlighted as before: a tinted face, no inner line.
+            let selected = bitmap(&tile(appearance, TileRole::Utility, true, false)).unwrap();
+            assert_eq!(
+                at(&selected, 88, 28),
+                appearance.highlight_fill(ScannerColor::Red)
+            );
+            assert!(!column(&selected).contains(&palette.text));
         }
     }
 

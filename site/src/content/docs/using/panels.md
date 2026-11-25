@@ -12,7 +12,7 @@ Below them, **Built-in menus and panels** lists everything else that scans, one 
 - **On Home**: the Home menu, then the mouse panel, the keyboard and the menus Home opens: Apps and windows, Editing, Browser with Tabs under it, Media, Zoom, Displays and Scanning.
 - **After choosing a point**: **More clicks**, the middle, triple and modified clicks offered on the page that opens after you choose a point. The mouse panel's Speed and more page opens it too, and the row says so.
 
-![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs, then Displays; After choosing a point lists More clicks, also on the mouse panel. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
+![The Panels page: a row of two tiles at the top showing Your panels and Built-in menus, two panels, Greetings and Writing, each drawn as a small picture of its tiles, some of them coloured, with its name underneath, a New panel button, and below them Built-in menus and panels as two lists. On Home lists Home, Mouse panel, Keyboard, Editing, Browser and, indented under it, Tabs, then Displays; After choosing a point lists More clicks, also on the mouse panel. Each menu row says Not changed.](../../../assets/screenshots/panels.png)
 
 ## Make a panel
 
@@ -26,6 +26,7 @@ The editor draws the panel as it will scan. Wide pictures scroll sideways while 
 
 - **Label** is the word or two written on the tile. Keep it short so it fits.
 - **Width** makes a tile two, three or four times as wide as a normal tile. The tiles in a row share the row's width between them.
+- **Colour** gives the tile a colour so tiles that belong together are easy to find, for example green for greetings or red for anything to do with power. Choose Red, Orange, Yellow, Green, Blue, Purple, Pink or Grey, or **Default** for the usual tile. Each colour has a deep shade for dark panels and a pale one for light panels, so the label stays easy to read in both. The picture shows the colour as you choose it. When the scan reaches a coloured tile, the tile keeps its colour and gets a thick border in your scan colour with a thin line inside it.
 - **Action** is what the tile does. Search the list by what you want, for example "copy", "volume" or "new tab", and choose an action. Some actions need a little more: **Press keys** asks you to press the keys on your keyboard, **Type text** asks for the text, and **Open one of my panels** asks which panel.
 
 A dashed **+** shows each place a new tile can go: at the end of every row with room for another tile, and **Add row** under the last row. Choose one to add a tile there; the new tile is chosen, ready to change on the right. A row holds up to eight tiles and a panel up to twelve rows; once there is no room, the **+** is not shown. Beside each row are its tools: move it up or down, or remove it. Column tools sit below the picture, labelled **Column 1**, **Column 2**, and so on. With a tile chosen, the arrows move it along its row, **Row** moves it to the end of another row or a new one, and **Remove tile** takes it away. Nothing changes on the scanned panel until you choose **Save panel**; if you leave with unsaved changes, Switchify PC asks first.
@@ -36,7 +37,7 @@ If something stops the panel saving, such as a tile with no label or a link to a
 
 **Try it** opens the panel in the scanner straight away, as it would open from Home, so you can see and use it without leaving the editor. The Switchify PC window goes out of the way first, because the tiles act on whatever window is in front. Save first: Try it uses the panel as it was last saved, so it is off while there are unsaved changes. To come back to the editor, choose **Switchify** on Home (Back takes you there from a panel), or Switchify PC on the taskbar or in the Dock. Built-in menus, the mouse panel and the keyboard can be tried the same way. If the panel is open in the scanner when you save, it changes there and then, scanning again from the top. The mouse panel and the keyboard take new tiles the same way, unless the pointer is being moved or scrolled at that moment; then they change when the panel is next opened. A panel you delete closes, and the page it opened from is shown instead: Home, when you were trying it.
 
-![The editor for the Greetings panel: the panel drawn as it will scan, each row ending in a dashed plus button with its tools beside it, a dashed Add row button under the last row, the Hello tile chosen, and on the right its label, width, row, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
+![The editor for the Greetings panel: the panel drawn as it will scan, each row ending in a dashed plus button with its tools beside it, a dashed Add row button under the last row, Hello and Thank you coloured blue, Yes green and No red, the Hello tile chosen, and on the right its label, width, colour set to Blue, row, action "Type Hello, how are you?" and the searchable list of actions.](../../../assets/screenshots/panel-editor.png)
 
 ## What a tile can do
 
@@ -52,11 +53,11 @@ If something stops the panel saving, such as a tile with no label or a link to a
 
 Actions act on the window in front, as Home does. A tile that opens a panel you have since deleted says so when chosen.
 
-Your panels are saved on this computer. If you sign in to your account, they go to your other computers with your settings.
+Your panels are saved on this computer. If you sign in to your account, they go to your other computers with your settings. Keep Switchify PC up to date on all of them. A computer on a version from before tile colours stops syncing settings until you update it.
 
 ## Rearrange the built-in menus
 
-Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
+Home and the menus it opens, More clicks, and Tabs inside Browser can all be rearranged. Choose a menu's row to open it in the same editor and move, add or remove its tiles, change their labels and colours, or give a tile a different action. The menu keeps its name. Choose **Save changes** and the next scan uses your arrangement; the row then says **Rearranged**.
 
 Three rules keep a menu usable: it must keep a tile that goes **Back** or closes it; Home must keep a tile that closes it, which ends scanning; and Home must keep **Scanning**, which holds Pause and Open Switchify. The editor says so and keeps Save off until the rule is met.
 
@@ -72,7 +73,7 @@ Rearranged menus are saved on this computer and, if you sign in to your account,
 
 ## Add tiles around the mouse panel's and the keyboard's keys
 
-**Mouse panel** and **Keyboard** in the On Home list are the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row**, just above the last row of keys, for a row of your own, or the **+** beside the first row of keys for a column. Give each tile a label and an action as on any panel. The keys are drawn faintly and cannot be chosen; your tiles sit among them where they will scan, each row and column ending in a **+** while it has room. Each row's tools are beside it and each column's tools under it. With a tile chosen, **Row** or **Column** on the right moves it to another row or column, or a new one. Choose **Save changes**; the row then says what you added.
+**Mouse panel** and **Keyboard** in the On Home list are the two scanning panels with their keys. The keys cannot be changed, but you can add tiles of your own around them: a phrase you type often, a shortcut, or a link to one of your panels. Choose a panel, then **Add row**, just above the last row of keys, for a row of your own, or the **+** beside the first row of keys for a column. Give each tile a label, an action and, if you like, a colour, as on any panel. The keys are drawn faintly and cannot be chosen; your tiles sit among them where they will scan, each row and column ending in a **+** while it has room. Each row's tools are beside it and each column's tools under it. With a tile chosen, **Row** or **Column** on the right moves it to another row or column, or a new one. Choose **Save changes**; the row then says what you added.
 
 Up to four rows fit above the last row of keys, and each row shares the panel's width between its tiles, as on your own panels. Up to two columns of up to six tiles run down the right of the keys from the top row; a column longer than the panel adds rows of its own below it, and a column is as wide as its widest tile.
 

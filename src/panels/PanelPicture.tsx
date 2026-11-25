@@ -1,13 +1,27 @@
-import type { CustomPanel, PanelAction, PanelCell, PictureCell } from "../types";
+import type { CustomPanel, PanelAction, PanelCell, PictureCell, TileColor } from "../types";
 import type { PanelTheme } from "../scanning/preferences";
 import { lightPanels } from "../scanning/preferences";
 
-/** The native panels' colours, so a picture looks like the panel will. */
-const palettes = {
-  dark: { panel: "#141820", band: "#1e2430", utility: "#222936", toolbar: "#191e28", border: "#3e4859", bandBorder: "#4a566c", text: "#ffffff" },
-  light: { panel: "#f0f2f6", band: "#e2e6ed", utility: "#eceff4", toolbar: "#f4f6f9", border: "#c4cbd6", bandBorder: "#b0b9c8", text: "#141820" },
-} as const;
-type Palette = (typeof palettes)[keyof typeof palettes];
+/** The colours a tile can be given, in the order they are offered. */
+export const tileColors: { value: TileColor; label: string }[] = [
+  { value: "red", label: "Red" }, { value: "orange", label: "Orange" }, { value: "yellow", label: "Yellow" }, { value: "green", label: "Green" },
+  { value: "blue", label: "Blue" }, { value: "purple", label: "Purple" }, { value: "pink", label: "Pink" }, { value: "grey", label: "Grey" },
+];
+
+/** The native panels' colours, so a picture looks like the panel will.
+ *  `tiles` are the faces of coloured tiles, as `tile_fill` draws them. */
+const palettes: Record<"dark" | "light", Palette> = {
+  dark: { panel: "#141820", band: "#1e2430", utility: "#222936", toolbar: "#191e28", border: "#3e4859", bandBorder: "#4a566c", text: "#ffffff",
+    tiles: { red: "#962828", orange: "#9c5414", yellow: "#826a0a", green: "#1e703c", blue: "#1c5aa0", purple: "#683ea0", pink: "#9c306e", grey: "#68707e" } },
+  light: { panel: "#f0f2f6", band: "#e2e6ed", utility: "#eceff4", toolbar: "#f4f6f9", border: "#c4cbd6", bandBorder: "#b0b9c8", text: "#141820",
+    tiles: { red: "#ffaaa5", orange: "#ffc482", yellow: "#fae478", green: "#a0e1aa", blue: "#a0c8ff", purple: "#d0b8ff", pink: "#ffb4dc", grey: "#b0b7c2" } },
+};
+export type Palette = { panel: string; band: string; utility: string; toolbar: string; border: string; bandBorder: string; text: string; tiles: Record<TileColor, string> };
+
+/** The face of a tile in a picture: its colour if it has one, otherwise the face its action gives. */
+export function tileFace(cell: PanelCell, colours: Palette) {
+  return cell.color ? colours.tiles[cell.color] : toolbarAction(cell.action) ? colours.toolbar : colours.utility;
+}
 
 /** Back and Close tiles are drawn like the panels' toolbar keys. */
 export function toolbarAction(action: PanelAction) {
@@ -119,5 +133,5 @@ function FixedTile({ cell, colours, hidden }: { cell: PictureCell; colours: Pale
 
 function PictureTile({ cell, colours, width, "data-column": column }: { cell: PanelCell; colours: Palette; width?: number; "data-column"?: number }) {
   const toolbar = toolbarAction(cell.action);
-  return <span className="panel-picture-tile" data-toolbar={toolbar || undefined} data-column={column} style={{ flexGrow: width ?? cell.span, flexBasis: 0, background: toolbar ? colours.toolbar : colours.utility, borderColor: colours.border }}>{cell.label}</span>;
+  return <span className="panel-picture-tile" data-toolbar={toolbar || undefined} data-color={cell.color} data-column={column} style={{ flexGrow: width ?? cell.span, flexBasis: 0, background: tileFace(cell, colours), borderColor: colours.border }}>{cell.label}</span>;
 }

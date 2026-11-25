@@ -18,8 +18,9 @@ pub const MAX_LABEL_CHARS: usize = 40;
 /// Widest a tile may be, in units of a normal tile.
 pub const MAX_SPAN: u8 = 4;
 /// Version 2 added the built-in menu overrides and the extra rows on the
-/// mouse panel and the keyboard; a version 1 file still loads.
-const STORE_SCHEMA: u32 = 2;
+/// mouse panel and the keyboard; version 3 added tile colours. Older files
+/// still load.
+const STORE_SCHEMA: u32 = 3;
 
 /// One tile. The label is what people read; the action is what Select does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +31,10 @@ pub struct Cell {
     /// Width in units of a normal tile, 1 to 4. The row shares its width
     /// out by span. An integer, so the synced document round-trips exactly.
     pub span: u8,
+    /// A colour for the tile's face. Left out of the saved tile when unset,
+    /// so a panel without colours is written exactly as it always was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<crate::panel_theme::TileColor>,
 }
 
 /// A saved panel. `version` rises on every change so other computers and
@@ -189,6 +194,34 @@ struct Contents {
     extras: crate::panel_extras::Extras,
 }
 
+impl Contents {
+    /// The lowest store version that can hold these contents, so an older
+    /// build can still read the file after a rollback: 1 with only panels,
+    /// 2 with rearranged menus or extra tiles, 3 once any tile has a colour.
+    /// A build that cannot read a version sets the file aside untouched.
+    fn schema(&self) -> u32 {
+        let coloured = self
+            .panels
+            .iter()
+            .chain(self.overrides.values())
+            .flat_map(|panel| &panel.rows)
+            .chain(
+                self.extras
+                    .values()
+                    .flat_map(|extras| extras.rows.iter().chain(&extras.columns)),
+            )
+            .flatten()
+            .any(|cell| cell.color.is_some());
+        if coloured {
+            STORE_SCHEMA
+        } else if self.overrides.is_empty() && self.extras.is_empty() {
+            1
+        } else {
+            2
+        }
+    }
+}
+
 pub struct Controller {
     contents: Mutex<Contents>,
 }
@@ -273,14 +306,8 @@ pub fn extras(app: &AppHandle) -> crate::panel_extras::Extras {
 fn write(app: &AppHandle, contents: &Contents) -> Result<(), String> {
     let p = path(app)?;
     std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    // A file with only panels stays version 1, so an older build can still
-    // read it after a rollback.
     let store = Store {
-        schema_version: if contents.overrides.is_empty() && contents.extras.is_empty() {
-            1
-        } else {
-            STORE_SCHEMA
-        },
+        schema_version: contents.schema(),
         panels: contents.panels.clone(),
         overrides: contents.overrides.clone(),
         extras: contents.extras.clone(),
@@ -648,6 +675,7 @@ pub(crate) fn sample(id: &str, name: &str) -> CustomPanel {
                         command: crate::scan_menu::Command::Copy,
                     },
                     span: 1,
+                    color: None,
                 },
                 Cell {
                     label: "Hello".into(),
@@ -655,12 +683,14 @@ pub(crate) fn sample(id: &str, name: &str) -> CustomPanel {
                         text: "Hello there".into(),
                     },
                     span: 2,
+                    color: None,
                 },
             ],
             vec![Cell {
                 label: "Back".into(),
                 action: PanelAction::Back,
                 span: 1,
+                color: None,
             }],
         ],
     }
@@ -694,6 +724,70 @@ mod tests {
         let mut extra = serde_json::to_value(&panel).unwrap();
         extra["colour"] = serde_json::json!("red");
         assert!(serde_json::from_value::<CustomPanel>(extra).is_err());
+    }
+
+    #[test]
+    fn a_tile_colour_is_saved_only_when_set_and_raises_the_store_version() {
+        use crate::panel_theme::TileColor;
+        let mut panel = sample("greetings", "Greetings");
+        let plain = Contents {
+            panels: vec![panel.clone()],
+            ..Contents::default()
+        };
+        assert_eq!(plain.schema(), 1);
+        panel.rows[0][1].color = Some(TileColor::Green);
+        assert_eq!(panel.validate(), Ok(()));
+        assert!(!panel.same_content(&sample("greetings", "Greetings")));
+        let value = serde_json::to_value(&panel).unwrap();
+        assert!(value["rows"][0][0].get("color").is_none());
+        assert_eq!(value["rows"][0][1]["color"], "green");
+        assert_eq!(
+            serde_json::from_value::<CustomPanel>(value.clone()).unwrap(),
+            panel
+        );
+        // Only the fixed colours are accepted.
+        let mut unknown = value.clone();
+        unknown["rows"][0][1]["color"] = serde_json::json!("#ff0000");
+        assert!(serde_json::from_value::<CustomPanel>(unknown).is_err());
+        // A colour anywhere marks the file as version 3; without one the
+        // version is what it always was.
+        let coloured = Contents {
+            panels: vec![panel.clone()],
+            ..Contents::default()
+        };
+        assert_eq!(coloured.schema(), 3);
+        let mut home = crate::builtin_panels::default_document(crate::scan_menu::Kind::Home);
+        let rearranged = Contents {
+            overrides: BTreeMap::from([("home".to_string(), home.clone())]),
+            ..Contents::default()
+        };
+        assert_eq!(rearranged.schema(), 2);
+        home.rows[0][0].color = Some(TileColor::Blue);
+        let rearranged = Contents {
+            overrides: BTreeMap::from([("home".to_string(), home)]),
+            ..Contents::default()
+        };
+        assert_eq!(rearranged.schema(), 3);
+        let mut extras = crate::panel_extras::PanelExtras {
+            rows: Vec::new(),
+            columns: vec![vec![panel.rows[0][0].clone()]],
+        };
+        let around = |extras: &crate::panel_extras::PanelExtras| Contents {
+            extras: BTreeMap::from([("mouse".to_string(), extras.clone())]),
+            ..Contents::default()
+        };
+        assert_eq!(around(&extras).schema(), 2);
+        extras.columns[0][0].color = Some(TileColor::Pink);
+        assert_eq!(around(&extras).schema(), 3);
+        // A version 3 file loads with its colours.
+        let file = serde_json::to_vec(&Store {
+            schema_version: coloured.schema(),
+            panels: coloured.panels.clone(),
+            overrides: BTreeMap::new(),
+            extras: BTreeMap::new(),
+        })
+        .unwrap();
+        assert_eq!(load(&file).unwrap(), coloured);
     }
 
     #[test]

@@ -1216,11 +1216,9 @@ impl Keyboard {
     fn style(&self, key: Key, row_scan: bool) -> TileStyle {
         TileStyle {
             role: match key {
-                Key::Extra(..) | Key::Column(..) => {
-                    self.cell(key).map_or(TileRole::Utility, |cell| {
-                        crate::panel_extras::role(&cell.action)
-                    })
-                }
+                Key::Extra(..) | Key::Column(..) => self
+                    .cell(key)
+                    .map_or(TileRole::Utility, crate::panel_extras::role),
                 Key::Character(..) => TileRole::Character,
                 Key::Page(_)
                 | Key::Layout

@@ -1025,6 +1025,7 @@ mod tests {
                         text: "Hello".into(),
                     },
                     span: 1,
+                    color: None,
                 }]],
             });
             let columns_frame = keyboard.frame(screen, 1.0, ScannerColor::default());
@@ -1042,7 +1043,45 @@ mod tests {
             mouse.choose(crate::scan_mouse::Key::More);
             mouse.blocks = true;
             let mouse_more_frame = mouse.frame(screen, 1.0, ScannerColor::default(), false);
+            // One of the user's panels with a tile in every colour, an
+            // uncoloured tile and the ways out; the scan is on the first row.
+            let coloured = |label: &str, color| crate::custom_panels::Cell {
+                label: label.into(),
+                action: crate::panel_actions::PanelAction::Text { text: label.into() },
+                span: 1,
+                color,
+            };
+            use crate::panel_theme::TileColor::*;
+            let mut ways_out = crate::custom_panels::sample("colours", "Colours").rows;
+            let colours_panel = crate::custom_panels::CustomPanel {
+                rows: vec![
+                    vec![
+                        coloured("Red", Some(Red)),
+                        coloured("Orange", Some(Orange)),
+                        coloured("Yellow", Some(Yellow)),
+                        coloured("Green", Some(Green)),
+                    ],
+                    vec![
+                        coloured("Blue", Some(Blue)),
+                        coloured("Purple", Some(Purple)),
+                        coloured("Pink", Some(Pink)),
+                        coloured("Grey", Some(Grey)),
+                    ],
+                    vec![coloured("Default", None), ways_out.remove(1).remove(0)],
+                ],
+                ..crate::custom_panels::sample("colours", "Colours")
+            };
+            let colours_frame = crate::scan_menu::Menu::custom(
+                &colours_panel,
+                Resolved {
+                    panel_size: size,
+                    panel_theme: theme,
+                    ..Default::default()
+                },
+            )
+            .frame(screen, 1.0, mouse.dock, false);
             for (name, frame) in [
+                ("panel-colours", colours_frame),
                 ("mouse", mouse_frame),
                 ("mouse-more", mouse_more_frame),
                 ("keyboard", keyboard_frame),

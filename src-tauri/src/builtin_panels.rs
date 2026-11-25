@@ -85,6 +85,7 @@ fn cell(item: Item) -> Option<Cell> {
         label: item.label().into(),
         action,
         span: 1,
+        color: None,
     })
 }
 
