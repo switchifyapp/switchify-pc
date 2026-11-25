@@ -4433,16 +4433,20 @@ fn home_follows_the_built_in_colours_setting_while_it_is_open() {
     };
     let blue = crate::scanning::TileRole::Tinted(crate::panel_theme::TileColor::Blue);
     assert_eq!(keyboard_tile(&s), (blue, None));
-    // Turned off while Home is open: its tiles go plain at once, and the scan
-    // keeps its place.
+    // Turned off while Home is open: its tiles go plain at once, and Home
+    // scans again from the top, as it does after a save.
+    let selected = |s: &Session<Workflow>| {
+        s.technique
+            .frame()
+            .tiles
+            .iter()
+            .filter(|t| t.selected)
+            .map(|t| t.text.clone())
+            .collect::<Vec<_>>()
+    };
+    let first = selected(&s);
     s.action(Action::Next);
-    let before = s
-        .technique
-        .frame()
-        .tiles
-        .iter()
-        .filter(|t| t.selected)
-        .count();
+    assert_ne!(selected(&s), first);
     let mut point = s.technique.point.config.clone();
     for options in [
         &mut point.menu_scan,
@@ -4455,14 +4459,7 @@ fn home_follows_the_built_in_colours_setting_while_it_is_open() {
     s.technique.apply_config(point.clone(), false);
     assert_eq!(s.technique.menu.kind, Kind::Home);
     assert_ne!(keyboard_tile(&s).0, blue);
-    let after = s
-        .technique
-        .frame()
-        .tiles
-        .iter()
-        .filter(|t| t.selected)
-        .count();
-    assert_eq!(before, after);
+    assert_eq!(selected(&s), first);
     // And back on.
     for options in [&mut point.menu_scan, &mut point.scan] {
         options.panel_colors = true;

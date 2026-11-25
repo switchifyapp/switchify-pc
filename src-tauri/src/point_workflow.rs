@@ -488,7 +488,8 @@ impl Workflow {
         self.menu
             .set_panel_colors(self.point.config.menu_scan.panel_colors);
         // Home as shipped takes its tile colours from the setting, so an open
-        // built-in menu is rebuilt to follow it, keeping its place in the scan.
+        // built-in menu is rebuilt to follow it. It scans again from the top,
+        // as after a save; a pause or wait carries over.
         if colors_changed {
             self.refresh_page(Saved::Menus);
         }

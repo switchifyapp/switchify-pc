@@ -52,12 +52,12 @@ const POINT_MENUS = ["mouse"];
 const INSIDE: Record<string, string> = { tabs: "browser" };
 const ALSO: Record<string, string> = { mouse: "also on the mouse panel" };
 
-/** The small text under a built-in menu's name: its state, then where else it lives. */
 /** A menu as shipped without the colours Home's tiles wear, as it scans with built-in colours off. */
 export function plainPanel(panel: CustomPanel): CustomPanel {
   return { ...panel, rows: panel.rows.map((row) => row.map(({ color: _color, ...cell }) => cell)) };
 }
 
+/** The small text under a built-in menu's name: its state, then where else it lives. */
 export function builtinSummary(menu: BuiltinPanelView) {
   const state = menu.override ? "rearranged" : "not changed";
   const place = INSIDE[menu.kind] ? "in Browser" : ALSO[menu.kind] ?? null;

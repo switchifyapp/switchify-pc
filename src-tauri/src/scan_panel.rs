@@ -151,20 +151,47 @@ pub const MENU_BAR_TITLE: &str = "Switchify PC";
 pub const SETTINGS_ITEM: &str = "Settings";
 /// Width in panel units of the Settings item.
 const SETTINGS_ITEM_WIDTH: f64 = 96.0;
-/// The width in panel units a character of the title takes at most, on average,
-/// in the bold band font. Used to keep a long name to one line.
-const TITLE_CHAR_WIDTH: f64 = 8.5;
+/// The narrowest the title is, in panel units. The platforms centre a label in
+/// its tile, so a short name in a box this size sits at the left, as in Grid 3.
+const TITLE_WIDTH: f64 = 150.0;
+/// What the platforms keep clear each side of a label, in panel units.
+const LABEL_PADDING: f64 = 8.0;
+/// A character of the bold band font at its widest, capitals included, in
+/// panel units. Generous, so a name sized with it stays on one line.
+const TITLE_CHAR_WIDTH: f64 = 10.0;
 
-/// The panel's name as the band shows it: on one line in `width` panel units,
-/// shortened with an ellipsis when it would not fit. The band is shorter than
-/// two lines of text, so a name that wrapped would be cut off.
-pub fn band_title(name: &str, width: f64) -> String {
-    let room = ((width / TITLE_CHAR_WIDTH).floor() as usize).max(2);
-    if name.chars().count() <= room {
-        return name.to_owned();
-    }
-    let kept: String = name.chars().take(room - 1).collect();
-    format!("{}\u{2026}", kept.trim_end())
+/// Wide scripts and emoji take about two characters' room.
+fn title_units(text: &str) -> f64 {
+    text.chars()
+        .map(|c| if u32::from(c) >= 0x2E80 { 2.0 } else { 1.0 })
+        .sum()
+}
+
+/// The panel's name as the band shows it, and the width of its tile, in panel
+/// units: on one line within `available`, shortened with an ellipsis when it
+/// would not fit. The band is shorter than two lines of text, so a name that
+/// wrapped would be cut off. The tile is only as wide as the name needs, so
+/// the name stays at the left of the band.
+pub fn band_title(name: &str, available: f64) -> (String, f64) {
+    let room = (available - 2.0 * LABEL_PADDING) / TITLE_CHAR_WIDTH;
+    let text = if title_units(name) <= room {
+        name.to_owned()
+    } else {
+        // The ellipsis takes one character's room.
+        let mut kept = String::new();
+        for c in name.chars() {
+            kept.push(c);
+            if title_units(&kept) + 1.0 > room {
+                kept.pop();
+                break;
+            }
+        }
+        format!("{}\u{2026}", kept.trim_end())
+    };
+    let width = (title_units(&text) * TITLE_CHAR_WIDTH + 2.0 * LABEL_PADDING)
+        .max(TITLE_WIDTH)
+        .min(available);
+    (text, width)
 }
 
 /// The whole pixels a tile covers once drawn. Windows places a tile window at
@@ -311,14 +338,15 @@ impl Panel {
         // is clicked with the mouse. Neither is ever scanned.
         let item_width = (SETTINGS_ITEM_WIDTH * scale).min(width / 2.0);
         let item_inset = 4.0 * scale;
-        // The name takes the band up to the Settings item.
-        let title_width = (width - item_width - gap).max(1.0);
+        // The name may take the band up to the Settings item.
+        let (title, title_width) =
+            band_title(&self.title, (width - item_width - gap).max(1.0) / scale);
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
             band: self.accent,
-            text: band_title(&self.title, title_width / scale),
+            text: title,
             style: Some(TileStyle {
                 role: TileRole::Title,
                 active: false,
@@ -327,7 +355,7 @@ impl Panel {
             rect: Rect {
                 x,
                 y,
-                width: title_width,
+                width: title_width * scale,
                 height: menu_bar_height,
             },
             scale,
@@ -464,17 +492,30 @@ mod tests {
 
     #[test]
     fn a_long_name_is_shortened_to_one_line_on_the_band() {
-        assert_eq!(band_title("Apps and windows", 440.0), "Apps and windows");
-        assert_eq!(band_title("Greetings", 80.0), "Greetings");
-        let short = band_title("Greetings and phrases for the clinic", 100.0);
-        assert_eq!(short, "Greetings\u{2026}");
-        assert!(short.chars().count() as f64 * TITLE_CHAR_WIDTH <= 100.0 + TITLE_CHAR_WIDTH);
-        // A trailing space never sits before the ellipsis, and some text always shows.
-        assert_eq!(
-            band_title("Greetings and phrases", 85.0),
-            "Greetings\u{2026}"
-        );
-        assert_eq!(band_title("Greetings", 1.0), "G\u{2026}");
+        // A short name keeps the narrow title box, so it sits at the left.
+        assert_eq!(band_title("Home", 440.0), ("Home".to_string(), TITLE_WIDTH));
+        // A longer one widens the box to fit it, never past what is there.
+        let (apps, width) = band_title("Apps and windows", 440.0);
+        assert_eq!(apps, "Apps and windows");
+        assert_eq!(width, 16.0 * TITLE_CHAR_WIDTH + 2.0 * LABEL_PADDING);
+        // Too long: shortened with an ellipsis, never after a space, and
+        // sized so even capitals fit inside the padding.
+        for name in [
+            "Greetings and phrases for the clinic",
+            "EMERGENCY PHRASES FOR THE CLINIC",
+        ] {
+            let (text, width) = band_title(name, 300.0);
+            assert!(text.ends_with('\u{2026}'), "{text}");
+            assert!(!text.contains(" \u{2026}"), "{text}");
+            assert!(width <= 300.0);
+            assert!(title_units(&text) * TITLE_CHAR_WIDTH <= width - 2.0 * LABEL_PADDING);
+        }
+        // Wide scripts take twice the room.
+        let (text, _) = band_title("\u{8868}\u{60C5}\u{8868}\u{60C5}\u{8868}\u{60C5}", 100.0);
+        assert!(text.ends_with('\u{2026}'), "{text}");
+        assert!(title_units(&text) * TITLE_CHAR_WIDTH <= 100.0 - 2.0 * LABEL_PADDING);
+        // No room at all still leaves a mark rather than nothing.
+        assert_eq!(band_title("Greetings", 1.0).0, "\u{2026}");
     }
 
     #[test]
