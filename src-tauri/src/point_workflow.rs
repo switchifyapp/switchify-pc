@@ -466,6 +466,8 @@ impl Workflow {
             self.elapsed = 0;
             self.open(Kind::Actions);
         }
+        let colors_changed =
+            self.point.config.menu_scan.panel_colors != config.menu_scan.panel_colors;
         self.point.config = config;
         self.keyboard
             .set_panel_size(self.point.config.keyboard_scan.panel_size);
@@ -485,6 +487,11 @@ impl Workflow {
             .set_panel_colors(self.point.config.mouse_scan.panel_colors);
         self.menu
             .set_panel_colors(self.point.config.menu_scan.panel_colors);
+        // Home as shipped takes its tile colours from the setting, so an open
+        // built-in menu is rebuilt to follow it, keeping its place in the scan.
+        if colors_changed {
+            self.refresh_page(Saved::Menus);
+        }
 
         self.keyboard.set_layout(self.point.config.keyboard_layout);
         self.menu

@@ -37,7 +37,7 @@ Home and the menus it opens have a slim bar along their top, with the menu's nam
 Each built-in panel has a colour, and the bar along its top shows it beside the panel's name. Home's tiles share the colour of the panel they open, so the colour you choose on Home is the colour you see when the panel opens.
 
 - Blue: the keyboard.
-- Green: point scanning, the mouse panel, More clicks and the pages after you choose a point.
+- Green: the mouse panel, More clicks and the pages after you choose a point. Home's **Point** tile is green too.
 - Purple: Apps and windows, with Shut down and Restart.
 - Orange: Editing.
 - Pink: Browser and Tabs.

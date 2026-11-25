@@ -151,8 +151,21 @@ pub const MENU_BAR_TITLE: &str = "Switchify PC";
 pub const SETTINGS_ITEM: &str = "Settings";
 /// Width in panel units of the Settings item.
 const SETTINGS_ITEM_WIDTH: f64 = 96.0;
-/// Width in panel units of the title, which keeps the name at the left as in Grid 3.
-const TITLE_WIDTH: f64 = 150.0;
+/// The width in panel units a character of the title takes at most, on average,
+/// in the bold band font. Used to keep a long name to one line.
+const TITLE_CHAR_WIDTH: f64 = 8.5;
+
+/// The panel's name as the band shows it: on one line in `width` panel units,
+/// shortened with an ellipsis when it would not fit. The band is shorter than
+/// two lines of text, so a name that wrapped would be cut off.
+pub fn band_title(name: &str, width: f64) -> String {
+    let room = ((width / TITLE_CHAR_WIDTH).floor() as usize).max(2);
+    if name.chars().count() <= room {
+        return name.to_owned();
+    }
+    let kept: String = name.chars().take(room - 1).collect();
+    format!("{}\u{2026}", kept.trim_end())
+}
 
 /// The whole pixels a tile covers once drawn. Windows places a tile window at
 /// its rounded origin with a rounded size; macOS snaps each edge. This covers
@@ -298,12 +311,14 @@ impl Panel {
         // is clicked with the mouse. Neither is ever scanned.
         let item_width = (SETTINGS_ITEM_WIDTH * scale).min(width / 2.0);
         let item_inset = 4.0 * scale;
+        // The name takes the band up to the Settings item.
+        let title_width = (width - item_width - gap).max(1.0);
         frame.tiles.push(FrameTile {
             thickness: self.thickness,
             color,
             appearance: self.appearance,
             band: self.accent,
-            text: self.title.clone(),
+            text: band_title(&self.title, title_width / scale),
             style: Some(TileStyle {
                 role: TileRole::Title,
                 active: false,
@@ -312,7 +327,7 @@ impl Panel {
             rect: Rect {
                 x,
                 y,
-                width: (TITLE_WIDTH * scale).min((width - item_width - gap).max(1.0)),
+                width: title_width,
                 height: menu_bar_height,
             },
             scale,
@@ -445,6 +460,21 @@ mod tests {
         let mut hidden = key("", 1.0);
         hidden.hidden = true;
         hidden
+    }
+
+    #[test]
+    fn a_long_name_is_shortened_to_one_line_on_the_band() {
+        assert_eq!(band_title("Apps and windows", 440.0), "Apps and windows");
+        assert_eq!(band_title("Greetings", 80.0), "Greetings");
+        let short = band_title("Greetings and phrases for the clinic", 100.0);
+        assert_eq!(short, "Greetings\u{2026}");
+        assert!(short.chars().count() as f64 * TITLE_CHAR_WIDTH <= 100.0 + TITLE_CHAR_WIDTH);
+        // A trailing space never sits before the ellipsis, and some text always shows.
+        assert_eq!(
+            band_title("Greetings and phrases", 85.0),
+            "Greetings\u{2026}"
+        );
+        assert_eq!(band_title("Greetings", 1.0), "G\u{2026}");
     }
 
     #[test]

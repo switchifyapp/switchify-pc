@@ -276,7 +276,7 @@ export function ScannerPreferences({ controller, requestedArea, onAreaOpened, po
     />}
     {area === 'shared' && <div className="scanner-preference" data-setting="panel-colours">
       <Toggle label="Colour the built-in panels" checked={settings.panelColors ?? true} disabled={disabled} onChange={panelColors => update('scanPreferences', { ...settings, panelColors })} />
-      <p className="setting-note">Each built-in panel shows its own colour on the band along its top, beside its name: the keyboard blue, the mouse panel and point scanning green, and each menu its own. Home's tiles share the colour of the panel they open. Colours you give tiles yourself stay when this is off.</p>
+      <p className="setting-note">Each built-in panel shows its own colour on the band along its top, beside its name: the keyboard blue, the mouse panel and the pages after you choose a point green, and each menu its own. Home's tiles share the colour of the panel they open. Off, the bars are plain, and so are Home's tiles unless you rearranged Home; colours saved with a rearranged menu or your own tiles stay.</p>
     </div>}
     {field('color', 'Scanner colour', locked => <fieldset disabled={locked}><legend>Scanner colour</legend><div className="scanner-colours">
       {scannerColors.map(colour => <label key={colour}><Input type="radio" name="scanner-colour" value={colour} checked={effective.color === colour} onChange={() => change('color', colour)} /><span className={`color-swatch ${colour}`} aria-hidden="true" /><span>{colour[0].toUpperCase() + colour.slice(1)}</span></label>)}

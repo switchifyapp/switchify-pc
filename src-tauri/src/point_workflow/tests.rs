@@ -4415,3 +4415,58 @@ fn session_uses_each_areas_automatic_setting_without_ignoring_pause_or_hold() {
     s.tick(250, false);
     assert_eq!(s.frame(), keyboard);
 }
+
+#[test]
+fn home_follows_the_built_in_colours_setting_while_it_is_open() {
+    let mut s = home_session();
+    s.action(Action::Select);
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    let keyboard_tile = |s: &Session<Workflow>| {
+        let frame = s.technique.frame();
+        let tile = frame
+            .tiles
+            .iter()
+            .find(|tile| tile.text == "Keyboard")
+            .unwrap()
+            .clone();
+        (tile.style.unwrap().role, frame.tiles[0].band)
+    };
+    let blue = crate::scanning::TileRole::Tinted(crate::panel_theme::TileColor::Blue);
+    assert_eq!(keyboard_tile(&s), (blue, None));
+    // Turned off while Home is open: its tiles go plain at once, and the scan
+    // keeps its place.
+    s.action(Action::Next);
+    let before = s
+        .technique
+        .frame()
+        .tiles
+        .iter()
+        .filter(|t| t.selected)
+        .count();
+    let mut point = s.technique.point.config.clone();
+    for options in [
+        &mut point.menu_scan,
+        &mut point.keyboard_scan,
+        &mut point.mouse_scan,
+        &mut point.scan,
+    ] {
+        options.panel_colors = false;
+    }
+    s.technique.apply_config(point.clone(), false);
+    assert_eq!(s.technique.menu.kind, Kind::Home);
+    assert_ne!(keyboard_tile(&s).0, blue);
+    let after = s
+        .technique
+        .frame()
+        .tiles
+        .iter()
+        .filter(|t| t.selected)
+        .count();
+    assert_eq!(before, after);
+    // And back on.
+    for options in [&mut point.menu_scan, &mut point.scan] {
+        options.panel_colors = true;
+    }
+    s.technique.apply_config(point, false);
+    assert_eq!(keyboard_tile(&s).0, blue);
+}
