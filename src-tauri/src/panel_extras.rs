@@ -33,9 +33,19 @@ impl Target {
             Self::Keyboard => "keyboard",
         }
     }
+    /// The name the Panels page lists the panel under.
     pub fn label(self) -> &'static str {
         match self {
             Self::Mouse => "Mouse panel",
+            Self::Keyboard => "Keyboard",
+        }
+    }
+    /// The name on the bar along the panel's top. Like every panel title it
+    /// is a bare name in sentence case, the words of the Home tile that
+    /// opens the panel, with no "panel" or "menu" after it.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Mouse => "Mouse",
             Self::Keyboard => "Keyboard",
         }
     }
@@ -286,6 +296,13 @@ mod tests {
         assert!(validate_all(&extras).is_err());
         assert_eq!(Target::from_key("keyboard"), Some(Target::Keyboard));
         assert_eq!(Target::from_key("Mouse"), None);
+    }
+
+    #[test]
+    fn a_panel_is_titled_with_the_words_of_the_home_tile_that_opens_it() {
+        use crate::scan_menu::Item;
+        assert_eq!(Target::Mouse.title(), Item::MousePanel.label());
+        assert_eq!(Target::Keyboard.title(), Item::Keyboard.label());
     }
 
     #[test]

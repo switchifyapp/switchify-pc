@@ -474,7 +474,7 @@ impl MousePanel {
             row_scan: highlight_row,
             thickness: self.scan.options.thickness,
             appearance: self.scan.options.panel_theme.appearance(),
-            title: "Mouse panel".into(),
+            title: crate::panel_extras::Target::Mouse.title().into(),
             accent: self
                 .scan
                 .options

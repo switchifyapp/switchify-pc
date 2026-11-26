@@ -1317,7 +1317,7 @@ impl Keyboard {
             row_scan: highlight_row,
             thickness: Default::default(),
             appearance: self.scan.options.panel_theme.appearance(),
-            title: "Keyboard".into(),
+            title: crate::panel_extras::Target::Keyboard.title().into(),
             accent: self
                 .scan
                 .options

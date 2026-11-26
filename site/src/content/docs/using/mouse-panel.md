@@ -17,7 +17,7 @@ Choose **Mouse** from [Home](/using/home-menu/), or give a switch **Mouse** unde
 - **Close** to stop scanning. To change to [point scanning](/using/point-scanning/) instead, choose **Home**, then **Point**.
 - Rows and columns of your own tiles, if you added any in the [Panels](/using/panels/) section. Rows sit just above the bottom row; columns run down the right of the keys.
 
-The panel has a slim bar along its top with the name Mouse panel and a **Settings** button, then the buttons. The bar is green unless you turned off **Colour the built-in panels** in [Scanning settings](/using/scanning-settings/). Nothing else is written on it: the highlight shows what Select will choose. While the panel is waiting or paused, or the pointer is moving until you stop it, nothing is highlighted; press Select to carry on. Only a failure is written out: if an action could not be done, a short message appears just above the panel, or below it when the panel is at the top of the display, and goes away when you deal with it.
+The panel has a slim bar along its top with the name Mouse and a **Settings** button, then the buttons. The bar is green unless you turned off **Colour the built-in panels** in [Scanning settings](/using/scanning-settings/). Nothing else is written on it: the highlight shows what Select will choose. While the panel is waiting or paused, or the pointer is moving until you stop it, nothing is highlighted; press Select to carry on. Only a failure is written out: if an action could not be done, a short message appears just above the panel, or below it when the panel is at the top of the display, and goes away when you deal with it.
 
 ## Speed and repeat
 

@@ -181,6 +181,8 @@ export type PictureCell = { label: string; weight: number };
 export type PanelExtrasView = {
   target: "mouse" | "keyboard";
   name: string;
+  /** The name on the panel's band, which a picture of the panel shows. */
+  title: string;
   /** The colour the panel shows on its band when built-in colours are on. */
   color?: TileColor | null;
   fixed: PictureCell[][];

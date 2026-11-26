@@ -1046,6 +1046,8 @@ describe("Switchify PC shell", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Label" }), { target: { value: "Second" } });
     expect(screen.getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
     const picture = screen.getByRole("group", { name: "Mouse panel as it will scan: its keys only; columns: Back, Second" });
+    // The bar is drawn as it scans: the bare name, as on the Home tile.
+    expect(document.querySelector(".panel-picture-band")).toHaveTextContent(/^Mouse$/);
     expect(within(picture).getByRole("button", { name: /^Column 1, tile 2: Second/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saveExtras).toHaveBeenCalled());

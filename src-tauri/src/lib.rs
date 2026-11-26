@@ -943,6 +943,8 @@ fn reset_builtin_panel(
 struct PanelExtrasView {
     target: String,
     name: String,
+    /// The name on the panel's band, which a picture of the panel shows.
+    title: String,
     /// The colour the panel shows on its band when built-in colours are on.
     color: Option<panel_theme::TileColor>,
     fixed: Vec<Vec<panel_extras::PictureCell>>,
@@ -960,6 +962,7 @@ fn list_panel_extras(app: AppHandle) -> Vec<PanelExtrasView> {
             PanelExtrasView {
                 target: target.key().into(),
                 name: target.label().into(),
+                title: target.title().into(),
                 color: builtin_panels::panel_color(match target {
                     panel_extras::Target::Mouse => panel_actions::BuiltInPanel::Mouse,
                     panel_extras::Target::Keyboard => panel_actions::BuiltInPanel::Keyboard,

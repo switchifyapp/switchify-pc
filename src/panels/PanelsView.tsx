@@ -83,7 +83,7 @@ export function PanelsView({ controller, theme, panelColors = true, onDirtyChang
   useEffect(() => () => setEditing(false), [setEditing]);
   const openPanel = (panel: CustomPanel, opener: string | null) => { openerRef.current = opener; clearError(); setEditing(true); setBuiltin(null); setExtra(null); setOpen(panel); };
   const openBuiltin = (menu: BuiltinPanelView) => { openerRef.current = `builtin-${menu.kind}`; clearError(); setEditing(true); setBuiltin({ kind: menu.kind, rearranged: menu.override !== null }); setExtra(null); setOpen(menu.override ?? (panelColors ? menu.default : plainPanel(menu.default))); setAccent(menu.color ?? null); };
-  const openExtras = (view: PanelExtrasView) => { openerRef.current = `extras-${view.target}`; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); setAccent(view.color ?? null); };
+  const openExtras = (view: PanelExtrasView) => { openerRef.current = `extras-${view.target}`; clearError(); setEditing(true); setBuiltin(null); setExtra({ target: view.target, title: view.title, fixed: view.fixed, columns: view.columns, hasTiles: view.rows.length > 0 || view.columns.length > 0 }); setOpen(extrasPanel(view)); setAccent(view.color ?? null); };
   const closePanel = () => {
     setEditing(false);
     setOpen(null);
