@@ -111,14 +111,14 @@ const bridge = (platform) => {
   const key = (label, weight = 1) => ({ label, weight });
   const keys = (labels, weight = 1) => labels.split("").map((label) => key(label, weight));
   const extras = [
-    { target: "mouse", name: "Mouse panel", color: "green", rows: [], columns: [], fixed: [
+    { target: "mouse", name: "Mouse panel", title: "Mouse", color: "green", rows: [], columns: [], fixed: [
       ["Left click", "Right click", "Double click", "Start drag"].map((label) => key(label)),
       ["↖", "↑", "↗", "Scroll up"].map((label) => key(label)),
       ["←", "Radar", "→"].map((label) => key(label)),
       ["↙", "↓", "↘", "Scroll down"].map((label) => key(label)),
       ["Home", "Speed and more", "Keyboard", "Close"].map((label) => key(label)),
     ] },
-    { target: "keyboard", name: "Keyboard", color: "blue", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
+    { target: "keyboard", name: "Keyboard", title: "Keyboard", color: "blue", rows: [[tile("Hello", { type: "text", text: "Hello, how are you?" }, 2), tile("My panels", { type: "myPanels" })]], columns: [[tile("Hi", { type: "text", text: "Hi there" }), tile("Pause", { type: "pause" })]], fixed: [
       [key("⇥", 1.6), ...keys("qwertyuiop"), key("⌫", 1.9)],
       [key("Caps lock", 1.6), ...keys("asdfghjkl'"), key("↩", 1.9)],
       [key("⬆", 1.6), ...keys("zxcvbnm,./")],

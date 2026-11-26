@@ -97,14 +97,14 @@ let browserBuiltins: BuiltinPanelView[] = structuredClone(browserBuiltinDefaults
 const browserKey = (label: string, weight = 1) => ({ label, weight });
 const browserKeys = (labels: string, weight = 1) => labels.split("").map((label) => browserKey(label, weight));
 const browserExtrasDefaults: PanelExtrasView[] = [
-  { target: "mouse", name: "Mouse panel", color: "green", rows: [], columns: [], fixed: [
+  { target: "mouse", name: "Mouse panel", title: "Mouse", color: "green", rows: [], columns: [], fixed: [
     ["Left click", "Right click", "Double click", "Start drag"].map((label) => browserKey(label)),
     ["↖", "↑", "↗", "Scroll up"].map((label) => browserKey(label)),
     ["←", "Radar", "→"].map((label) => browserKey(label)),
     ["↙", "↓", "↘", "Scroll down"].map((label) => browserKey(label)),
     ["Home", "Speed and more", "Keyboard", "Close"].map((label) => browserKey(label)),
   ] },
-  { target: "keyboard", name: "Keyboard", color: "blue", rows: [], columns: [], fixed: [
+  { target: "keyboard", name: "Keyboard", title: "Keyboard", color: "blue", rows: [], columns: [], fixed: [
     [browserKey("⇥", 1.6), ...browserKeys("qwertyuiop"), browserKey("⌫", 1.9)],
     [browserKey("Caps lock", 1.6), ...browserKeys("asdfghjkl'"), browserKey("↩", 1.9)],
     [browserKey("⬆", 1.6), ...browserKeys("zxcvbnm,./")],

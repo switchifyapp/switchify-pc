@@ -33,7 +33,7 @@ export type BuiltinEditing = { kind: string; rearranged: boolean };
 /** The tiles around a native panel's keys being edited: the keys are shown
  *  but fixed, there may be no rows or columns, and Remove tiles replaces
  *  Delete. */
-export type ExtrasEditing = { target: string; fixed: PictureCell[][]; columns: PanelCell[][]; hasTiles: boolean };
+export type ExtrasEditing = { target: string; title: string; fixed: PictureCell[][]; columns: PanelCell[][]; hasTiles: boolean };
 
 export function PanelEditor({ panel, panels, theme, accent, busy, error, builtin, extras, onClose, onSave, onSaveExtras, onDelete, onTry, onDirtyChange, onClearError }: {
   panel: CustomPanel; panels: CustomPanel[]; theme?: PanelTheme;
@@ -239,7 +239,7 @@ export function PanelEditor({ panel, panels, theme, accent, busy, error, builtin
             {problems.rows && <p className="field-error">{problems.rows}</p>}
             {problems.columns && <p className="field-error">{problems.columns}</p>}
             {[...draft.rows.map((_, index) => [`row-${index}`, `Row ${index + 1}`]), ...columns.map((_, index) => [`column-${index}`, `Column ${index + 1}`])].map(([key, place]) => problems[key] && <p key={key} className="field-error">{place}: {problems[key]}</p>)}
-            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} accent={accent} title={builtin || extras ? panel.name : draft.name.trim() || panel.name} className="panel-picture-large panel-picture-editing" editing={{
+            <PanelPicture panel={draft} fixed={extras?.fixed} columns={extras ? columns : undefined} theme={theme} accent={accent} title={extras ? extras.title : builtin ? panel.name : draft.name.trim() || panel.name} className="panel-picture-large panel-picture-editing" editing={{
               tile: (cell, place, colours) => {
                 const here = selected?.column === place.column && selected?.row === place.row && selected?.cell === place.cell;
                 const problem = problemOf(place);
