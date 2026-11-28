@@ -15,7 +15,7 @@ Look for the Switchify mark there: two dots joined by a curve, in one colour. It
 
 **Text size**, in **Settings**, then **General**, makes the text and controls in the Switchify PC window bigger or smaller. Choose **Match system**, or a size from **100%** to **200%**.
 
-- **Match system** is the starting choice. On Windows it follows **Text size** in Windows Settings, under **Accessibility**, and changes when you change that. A Mac has no text size setting that apps can follow, so on a Mac it uses 100%.
+- **Match system** is the starting choice. On Windows it follows **Text size** in Windows Settings, under **Accessibility**, and changes when you change that. On a Mac, Switchify PC can’t follow a system text size, so Match system uses 100%.
 - A size you choose stays the same whatever Windows is set to.
 
 Text size covers the Switchify PC window only. To make the keyboard, the mouse panel and the other scan panels bigger, use **Panel size** in [Scanning settings](/using/scanning-settings/#appearance). Text size stays on this computer and does not sync.

@@ -541,7 +541,7 @@ describe("Switchify PC settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
 
     openSection("General");
-    const sizes = screen.getByRole("group", { name: "Text size" });
+    const sizes = screen.getByRole("group", { name: "Size" });
     expect(within(sizes).getAllByRole("button").map((button) => button.textContent))
       .toEqual(["Match system", "100%", "125%", "150%", "175%", "200%"]);
     expect(within(sizes).getByRole("button", { name: "Match system" })).toHaveAttribute("aria-pressed", "true");

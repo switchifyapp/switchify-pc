@@ -43,6 +43,7 @@ fn local() -> Local {
             start_with_system: true,
             share_diagnostics: true,
             auto_approve_account_devices: false,
+            text_size_percent: 150,
             ..AppSettings::default()
         },
         profiles,
@@ -354,6 +355,7 @@ fn document_excludes_device_only_values() {
         "startWithSystem",
         "shareDiagnostics",
         "autoApproveAccountDevices",
+        "textSizePercent",
         "learnWordPrediction",
         "telemetry",
         "desktopId",
@@ -1208,6 +1210,7 @@ fn plan_keeps_local_only_settings() {
     assert!(settings.start_with_system);
     assert!(settings.share_diagnostics);
     assert!(!settings.auto_approve_account_devices);
+    assert_eq!(settings.text_size_percent, 150);
     assert!(plan.switches.is_none() && plan.point_scan.is_none() && plan.remote.is_none());
 }
 

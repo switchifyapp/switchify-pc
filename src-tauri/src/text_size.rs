@@ -65,9 +65,6 @@ fn watch(app: &AppHandle) {
 
     /// Keeps the settings object, and so its change handler, alive.
     struct Watcher(#[allow(dead_code)] UISettings);
-    // SAFETY: UISettings is an agile WinRT object, usable from any thread.
-    unsafe impl Send for Watcher {}
-    unsafe impl Sync for Watcher {}
 
     let Ok(settings) = UISettings::new() else {
         return;

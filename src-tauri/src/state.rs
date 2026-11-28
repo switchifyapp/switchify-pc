@@ -178,8 +178,10 @@ impl AppSettings {
         {
             return Err("Cursor overlay setting is invalid.".into());
         }
-        if self.text_size_percent != 0 && !TEXT_SIZE_PERCENTS.contains(&self.text_size_percent) {
-            return Err("Text size is invalid.".into());
+        // A size this build does not offer, such as one saved by a newer
+        // build, falls back to matching the system instead of blocking saves.
+        if !TEXT_SIZE_PERCENTS.contains(&self.text_size_percent) {
+            self.text_size_percent = 0;
         }
         self.cursor_overlay_size = self.cursor_overlay_size.to_lowercase();
         self.cursor_overlay_color = self.cursor_overlay_color.to_lowercase();
@@ -1280,6 +1282,24 @@ mod tests {
             ..AppSettings::default()
         };
         assert!(value.normalized().is_err());
+    }
+    #[test]
+    fn text_sizes_this_build_does_not_offer_match_the_system() {
+        let normalized = |text_size_percent| {
+            AppSettings {
+                text_size_percent,
+                ..AppSettings::default()
+            }
+            .normalized()
+            .unwrap()
+            .text_size_percent
+        };
+        for offered in [0, 100, 125, 150, 175, 200] {
+            assert_eq!(normalized(offered), offered);
+        }
+        for unknown in [50, 120, 225, 300] {
+            assert_eq!(normalized(unknown), 0);
+        }
     }
     #[test]
     fn pointer_speed_normalization_rounds_and_clamps_to_supported_steps() {
