@@ -11,13 +11,22 @@ Look for the Switchify mark there: two dots joined by a curve, in one colour. It
 
 **Pause listening** hands your switch keys back to other apps until you choose **Resume listening**. See [Use the switch key as a normal key](/get-started/add-a-switch/#use-the-switch-key-as-a-normal-key).
 
+## Text size
+
+**Text size**, in **Settings**, then **General**, makes the text and controls in the Switchify PC window bigger or smaller. Choose **Match system**, or a size from **100%** to **200%**.
+
+- **Match system** is the starting choice. On Windows it follows **Text size** in Windows Settings, under **Accessibility**, and changes when you change that. On a Mac, Switchify PC can’t follow a system text size, so Match system uses 100%.
+- A size you choose stays the same whatever Windows is set to.
+
+Text size covers the Switchify PC window only. To make the keyboard, the mouse panel and the other scan panels bigger, use **Panel size** in [Scanning settings](/using/scanning-settings/#appearance). Text size stays on this computer and does not sync.
+
 ## Account
 
 Signing in is optional. It uses the same Switchify account as the Android app: enter your email and the six-digit code it receives. There is no password.
 
 **What syncs** between your computers: pointer, repeat, dwell and cursor settings; your switches and what they do; scanning preferences; keyboard layout; Switch Forwarding profiles; remote switch slots; and your [panels](/using/panels/), including rearranged built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.
 
-**What never syncs:** paired devices and their pairing tokens, the **Approve phones on this account automatically** setting, the **Sync switches** setting, your diagnostics choice, setup progress and start with system.
+**What never syncs:** paired devices and their pairing tokens, the **Approve phones on this account automatically** setting, the **Sync switches** setting, your diagnostics choice, setup progress, text size and start with system.
 
 ### Keep switches on one computer
 

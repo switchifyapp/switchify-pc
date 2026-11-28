@@ -102,6 +102,23 @@ pub struct AppSettings {
     /// computer with its own switch interface. Local to this install.
     #[serde(default = "default_sync_switches")]
     pub sync_switches: bool,
+    /// Text size of the main window as a percentage, or 0 to match the
+    /// system text size. Local to this install, since screens differ.
+    #[serde(default)]
+    pub text_size_percent: u16,
+}
+
+/// Fixed text sizes the main window offers besides matching the system.
+pub const TEXT_SIZE_PERCENTS: [u16; 5] = [100, 125, 150, 175, 200];
+
+/// A size this build does not offer, such as one saved by a newer build,
+/// falls back to matching the system (0) instead of blocking saves.
+pub fn offered_text_size(percent: u16) -> u16 {
+    if TEXT_SIZE_PERCENTS.contains(&percent) {
+        percent
+    } else {
+        0
+    }
 }
 
 impl Default for AppSettings {
@@ -130,6 +147,7 @@ impl Default for AppSettings {
             share_diagnostics: false,
             auto_approve_account_devices: default_auto_approve_account_devices(),
             sync_switches: default_sync_switches(),
+            text_size_percent: 0,
         }
     }
 }
@@ -170,6 +188,7 @@ impl AppSettings {
         {
             return Err("Cursor overlay setting is invalid.".into());
         }
+        self.text_size_percent = offered_text_size(self.text_size_percent);
         self.cursor_overlay_size = self.cursor_overlay_size.to_lowercase();
         self.cursor_overlay_color = self.cursor_overlay_color.to_lowercase();
         Ok(self)
@@ -442,6 +461,7 @@ impl AppModel {
             None => TelemetryConsent::Undecided,
         };
         saved.settings.share_diagnostics = telemetry_consent == TelemetryConsent::Enabled;
+        saved.settings.text_size_percent = offered_text_size(saved.settings.text_size_percent);
         let telemetry = TelemetryService::new(storage.telemetry_path(), telemetry_consent);
         let desktop_id = saved
             .desktop_id
@@ -915,6 +935,22 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_text_size_this_build_does_not_offer_loads_as_match_system() {
+        let root =
+            std::env::temp_dir().join(format!("switchify-text-size-{}", uuid::Uuid::new_v4()));
+        let path = root.join("state.json");
+        let model = AppModel::with_storage_for_test(AppStorage::at(path.clone()));
+        let settings = AppSettings {
+            text_size_percent: 250,
+            ..AppSettings::default()
+        };
+        model.persist_settings(&settings).unwrap();
+
+        let restored = AppModel::with_storage_for_test(AppStorage::at(path));
+        assert_eq!(restored.snapshot().settings.text_size_percent, 0);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
     fn fresh_storage_starts_with_a_new_unpaired_identity() {
         let root = std::env::temp_dir().join(format!("switchify-fresh-{}", uuid::Uuid::new_v4()));
         let model = AppModel::with_storage(AppStorage::at(root.join("state.json")));
@@ -1271,6 +1307,24 @@ mod tests {
         assert!(value.normalized().is_err());
     }
     #[test]
+    fn text_sizes_this_build_does_not_offer_match_the_system() {
+        let normalized = |text_size_percent| {
+            AppSettings {
+                text_size_percent,
+                ..AppSettings::default()
+            }
+            .normalized()
+            .unwrap()
+            .text_size_percent
+        };
+        for offered in [0, 100, 125, 150, 175, 200] {
+            assert_eq!(normalized(offered), offered);
+        }
+        for unknown in [50, 120, 225, 300] {
+            assert_eq!(normalized(unknown), 0);
+        }
+    }
+    #[test]
     fn pointer_speed_normalization_rounds_and_clamps_to_supported_steps() {
         assert_eq!(normalize_pointer_scale_percent(1.0), Ok(5));
         assert_eq!(normalize_pointer_scale_percent(122.0), Ok(120));
@@ -1429,6 +1483,7 @@ mod tests {
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
         assert!(settings.auto_approve_account_devices);
         assert!(settings.sync_switches);
+        assert_eq!(settings.text_size_percent, 0);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);

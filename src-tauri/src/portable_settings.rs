@@ -47,8 +47,9 @@ pub struct Document {
 
 /// `AppSettings` without `start_with_system` (registered with this OS),
 /// `share_diagnostics` (consent must be given on each install),
-/// `auto_approve_account_devices` (pairing is per install) and
-/// `sync_switches` (each computer can have its own switch interface).
+/// `auto_approve_account_devices` (pairing is per install),
+/// `sync_switches` (each computer can have its own switch interface) and
+/// `text_size_percent` (screens differ between computers).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PortableAppSettings {
@@ -113,6 +114,7 @@ impl PortableAppSettings {
             share_diagnostics: local.share_diagnostics,
             auto_approve_account_devices: local.auto_approve_account_devices,
             sync_switches: local.sync_switches,
+            text_size_percent: local.text_size_percent,
             pointer_scale_percent: self.pointer_scale_percent,
             mouse_repeat_enabled: self.mouse_repeat_enabled,
             move_repeat_interval_ms: self.move_repeat_interval_ms,

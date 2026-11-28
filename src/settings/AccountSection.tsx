@@ -10,8 +10,8 @@ import { Toggle } from "./controls";
 const panels = "and your panels, including changes to the built-in menus and the tiles you add around the mouse panel's and the keyboard's keys.";
 const syncs = `Pointer, repeat, dwell and cursor settings; your switches and their keys; scanning and keyboard layout; your switch profiles; remote switches; ${panels}`;
 const syncsWithoutSwitches = `Pointer, repeat, dwell and cursor settings; scanning and keyboard layout; your switch profiles; ${panels}`;
-const staysHere = "Phone pairings, phone approval, diagnostics sharing, setup progress and starting with your computer.";
-const staysHereWithSwitches = "Your switches, their keys and timing, and remote switches; phone pairings, phone approval, diagnostics sharing, setup progress and starting with your computer.";
+const staysHere = "Phone pairings, phone approval, diagnostics sharing, setup progress, text size and starting with your computer.";
+const staysHereWithSwitches = "Your switches, their keys and timing, and remote switches; phone pairings, phone approval, diagnostics sharing, setup progress, text size and starting with your computer.";
 
 type FocusTarget = "email" | "code" | "signOut" | "deleteAccount" | "keepAccount";
 type Screen = "loading" | "unavailable" | "keychain" | "signedIn" | "pending" | "signedOut";

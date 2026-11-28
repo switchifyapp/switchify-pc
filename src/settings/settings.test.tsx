@@ -535,6 +535,22 @@ describe("Switchify PC settings", () => {
     expect(startup).not.toBeChecked();
   });
 
+  it("matches the system text size until a fixed size is chosen", async () => {
+    const save = vi.spyOn(api, "saveSettings");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+    openSection("General");
+    const sizes = screen.getByRole("group", { name: "Size" });
+    expect(within(sizes).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Match system", "100%", "125%", "150%", "175%", "200%"]);
+    expect(within(sizes).getByRole("button", { name: "Match system" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(within(sizes).getByRole("button", { name: "150%" }));
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ textSizePercent: 150 })));
+    expect(within(sizes).getByRole("button", { name: "150%" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("does not replay a consumed Updates focus request on normal Settings navigation", async () => {
     browserState.updater = { status: "available", version: "1.0.0-beta.2", downloadedBytes: 0, totalBytes: null, error: null, retryAction: null };
     render(<App />);
@@ -574,6 +590,7 @@ describe("Switchify PC settings", () => {
 
   it.each([
     ["startup", "Start with system", "startup", "General"],
+    ["font size", "Text size", "text-size", "General"],
     ["dwell", "Click when I stop", "dwell", "Input"],
     ["privacy", "Anonymous diagnostics", "privacy", "Privacy"],
     ["licence", "Licence", "licence", "Licence"],

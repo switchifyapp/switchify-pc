@@ -25,7 +25,7 @@ const bridge = (platform) => {
     keyRepeatEnabled: true, keyRepeatIntervalMs: 250, keyRepeatInitialDelayMs: 500, scanKeyRepeatEnabled: false,
     dwellClickEnabled: false, dwellClickDelayMs: 1000, cursorOverlayEnabled: true, cursorOverlaySize: "medium",
     cursorOverlayColor: "red", cursorOverlayVisibility: "whileControlling", cursorCrosshairs: false,
-    shareDiagnostics: false, autoApproveAccountDevices: true, syncSwitches: true,
+    shareDiagnostics: false, autoApproveAccountDevices: true, syncSwitches: true, textSizePercent: 0,
   };
   const app = {
     bluetooth: "advertising", accessibility: platform === "macos" ? "required" : "granted", desktopId: "docs",

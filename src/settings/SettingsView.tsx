@@ -12,7 +12,7 @@ import { Button } from "../ui/controls";
 import type { FindContext } from "../find/index";
 
 const categories = [
-  { id: "general", title: "General", description: "Starting Switchify with your computer." },
+  { id: "general", title: "General", description: "Starting Switchify with your computer, and text size." },
   { id: "input", title: "Input", description: "Dwell clicking and repeating held keys." },
   { id: "privacy", title: "Privacy", description: "Choose whether to share anonymous diagnostics." },
   { id: "updates", title: "Updates", description: "Check, download and install app updates." },
@@ -63,7 +63,7 @@ export function SettingsView({ section, onSectionChange, arriving, state, update
       </nav>
     </> : <>
     <div><Button className="secondary" onClick={() => onSectionChange(null)}>Back to settings</Button></div>
-    {category === "general" && <GeneralSection settings={settings} update={update} />}
+    {category === "general" && <GeneralSection settings={settings} update={update} platform={state.capabilities.platform} />}
     {category === "input" && <InputSection settings={settings} update={update} />}
     {category === "privacy" && <PrivacySection state={state} settings={settings} update={update} chooseTelemetry={chooseTelemetry} busy={busy} />}
     {category === "updates" && <UpdatesSection state={state} update={updater} run={updateAction} cancel={cancelUpdate} sectionRef={updatesRef} />}

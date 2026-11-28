@@ -67,6 +67,7 @@ mod switch_practice;
 mod switch_runtime;
 mod switches;
 mod telemetry;
+mod text_size;
 mod timing;
 mod tray_icon;
 mod updater;
@@ -705,6 +706,7 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
         previous_dwell_delay,
         previous_mouse_repeat_enabled,
         previous_key_repeat_enabled,
+        previous_text_size,
     ) = {
         let state = &model
             .shared
@@ -719,6 +721,7 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
             state.settings.dwell_click_delay_ms,
             state.settings.mouse_repeat_enabled,
             state.settings.key_repeat_enabled,
+            state.settings.text_size_percent,
         )
     };
     if settings.start_with_system != previous_start_with_system {
@@ -748,7 +751,12 @@ fn apply_app_settings(app: &AppHandle, settings: AppSettings) -> Result<(), Stri
     {
         platform_stop_mouse_repeat(app);
     }
+    // Only a change rezooms, so an unrelated save keeps any Ctrl + or - zoom.
+    let text_size_changed = settings.text_size_percent != previous_text_size;
     overlay.apply_settings(settings);
+    if text_size_changed {
+        text_size::apply(app);
+    }
     Ok(())
 }
 
@@ -2204,6 +2212,7 @@ pub fn run() {
             prediction::delete_learned_words(app.handle());
             point_scan_runtime::install(app.handle());
             settings_sync::install(app.handle());
+            text_size::install(app.handle());
             install_tray(app)?;
             if updater_is_configured(app.config().plugins.0.get("updater")) {
                 let model = app.state::<AppModel>();

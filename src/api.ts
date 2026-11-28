@@ -22,7 +22,7 @@ export const browserState: AppState = {
     dwellClickEnabled: false, dwellClickDelayMs: 1000,
     cursorOverlayEnabled: true, cursorOverlaySize: "medium", cursorOverlayColor: "red",
     cursorOverlayVisibility: "whileControlling",
-    cursorCrosshairs: false, shareDiagnostics: false, autoApproveAccountDevices: true, syncSwitches: true,
+    cursorCrosshairs: false, shareDiagnostics: false, autoApproveAccountDevices: true, syncSwitches: true, textSizePercent: 0,
   },
   capabilities: {
     platform: navigator.userAgent.includes("Mac") ? "macos" : "windows",
