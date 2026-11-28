@@ -10,8 +10,10 @@ use crate::state::AppModel;
 const LARGEST_SYSTEM_SCALE: f64 = 2.25;
 
 /// The webview zoom for a saved text size, given the system text size the
-/// webview already applies. 0 means match the system.
+/// webview already applies. 0, or a size this build does not offer, means
+/// match the system.
 pub fn zoom_factor(text_size_percent: u16, system: f64) -> f64 {
+    let text_size_percent = crate::state::offered_text_size(text_size_percent);
     if text_size_percent == 0 {
         return 1.0;
     }
@@ -102,5 +104,11 @@ mod tests {
         assert_eq!(zoom_factor(100, 0.5), 1.0);
         assert_eq!(zoom_factor(200, 9.0), 2.0 / 2.25);
         assert_eq!(zoom_factor(125, f64::NAN), 1.25);
+    }
+
+    #[test]
+    fn a_size_this_build_does_not_offer_matches_the_system() {
+        assert_eq!(zoom_factor(250, 1.0), 1.0);
+        assert_eq!(zoom_factor(1000, 1.5), 1.0);
     }
 }
