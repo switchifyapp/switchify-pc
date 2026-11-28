@@ -46,6 +46,8 @@ export type AppSettings = {
   shareDiagnostics: boolean;
   autoApproveAccountDevices: boolean;
   syncSwitches: boolean;
+  /** Main window text size as a percentage, or 0 to match the system. */
+  textSizePercent: number;
 };
 
 export type PlatformCapabilities = {

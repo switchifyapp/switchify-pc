@@ -9,6 +9,7 @@ import { actionLabel } from "../scanning/useSwitches";
 import { lastModeName, selectOpensHome, type PointScanConfig, type PointScanState } from "../scanning/useScanning";
 import { areaOptions, defaultScanPreferences, itemScanning, itemScanningLabels, sharedOptions, type ScanArea } from "../scanning/preferences";
 import { speedLevelLabel } from "../settings/pointerSpeedScale";
+import { textSizeLabel } from "../settings/textSize";
 import { needsInputAccess } from "../inputAccess";
 
 /** The pages of the app. Mouse pointer settings live on Scanning and the account on Settings. */
@@ -125,8 +126,8 @@ const catalogue = [
     value: (c) => c.config ? cap(c.config.scannerColor) : null, related: ["thickness", "overlay-colour", "panel-theme"] },
   { id: "thickness", label: "Highlight thickness", words: ["thin", "thick", "line", "border", "width", "hard to see"], page: "scanning", section: "appearance",
     value: (c) => c.config ? cap(sharedOptions(c.config).thickness) : null, related: ["colour", "panel-size"] },
-  { id: "panel-size", label: "Panel size", words: ["bigger", "smaller", "tiles", "large", "small", "text size", "zoom", "keyboard size"], page: "scanning", section: "appearance",
-    value: (c) => c.config ? cap(c.config.scanPreferences?.panelSize ?? defaultScanPreferences.panelSize ?? "medium") : null, related: ["panel-theme", "thickness", "your-panels"] },
+  { id: "panel-size", label: "Panel size", words: ["bigger", "smaller", "tiles", "large", "small", "panel text", "zoom", "keyboard size"], page: "scanning", section: "appearance",
+    value: (c) => c.config ? cap(c.config.scanPreferences?.panelSize ?? defaultScanPreferences.panelSize ?? "medium") : null, related: ["panel-theme", "thickness", "your-panels", "text-size"] },
   { id: "panel-theme", label: "Panel theme", words: ["light", "dark", "dark mode", "light mode", "match system", "contrast", "colours"], page: "scanning", section: "appearance",
     value: (c) => c.config ? ({ system: "Match system", light: "Light", dark: "Dark" })[c.config.scanPreferences?.panelTheme ?? "system"] : null, related: ["panel-size", "colour", "panel-colours"] },
   { id: "panel-colours", label: "Colour the built-in panels", words: ["panel colours", "colour coded", "tell panels apart", "which panel", "band", "home tiles", "color"], page: "scanning", section: "appearance",
@@ -166,6 +167,8 @@ const catalogue = [
   // Settings
   { id: "startup", label: "Start with system", words: ["open at login", "launch", "startup", "boot", "sign in", "autostart", "background"], page: "settings", section: "general",
     value: (c) => c.settings ? (c.settings.startWithSystem ? "On" : "Off") : null, related: ["updates"] },
+  { id: "text-size", label: "Text size", words: ["text size", "font size", "bigger text", "larger text", "smaller text", "zoom", "make text bigger", "readability"], page: "settings", section: "general",
+    value: (c) => c.settings ? textSizeLabel(c.settings.textSizePercent) : null, related: ["panel-size"] },
   { id: "dwell", label: "Click when I stop", words: ["dwell", "dwell click", "wait before clicking", "automatic click", "remote pointer"], page: "settings", section: "input",
     value: (c) => c.settings ? (c.settings.dwellClickEnabled ? `On, after ${seconds(c.settings.dwellClickDelayMs)}` : "Off") : null, related: ["auto-select", "repeat"] },
   { id: "key-repeat", label: "Repeat keys", words: ["held keys", "key repeat", "scanned keyboard", "backspace", "arrow keys", "delay before repeating", "key interval"], page: "settings", section: "input",

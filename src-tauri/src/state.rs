@@ -102,7 +102,14 @@ pub struct AppSettings {
     /// computer with its own switch interface. Local to this install.
     #[serde(default = "default_sync_switches")]
     pub sync_switches: bool,
+    /// Text size of the main window as a percentage, or 0 to match the
+    /// system text size. Local to this install, since screens differ.
+    #[serde(default)]
+    pub text_size_percent: u16,
 }
+
+/// Fixed text sizes the main window offers besides matching the system.
+pub const TEXT_SIZE_PERCENTS: [u16; 5] = [100, 125, 150, 175, 200];
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -130,6 +137,7 @@ impl Default for AppSettings {
             share_diagnostics: false,
             auto_approve_account_devices: default_auto_approve_account_devices(),
             sync_switches: default_sync_switches(),
+            text_size_percent: 0,
         }
     }
 }
@@ -169,6 +177,9 @@ impl AppSettings {
             || !["onInput", "whileControlling"].contains(&self.cursor_overlay_visibility.as_str())
         {
             return Err("Cursor overlay setting is invalid.".into());
+        }
+        if self.text_size_percent != 0 && !TEXT_SIZE_PERCENTS.contains(&self.text_size_percent) {
+            return Err("Text size is invalid.".into());
         }
         self.cursor_overlay_size = self.cursor_overlay_size.to_lowercase();
         self.cursor_overlay_color = self.cursor_overlay_color.to_lowercase();
@@ -1429,6 +1440,7 @@ mod tests {
         assert_eq!(settings.key_repeat_initial_delay_ms, 500);
         assert!(settings.auto_approve_account_devices);
         assert!(settings.sync_switches);
+        assert_eq!(settings.text_size_percent, 0);
 
         // Everything that was stored survives untouched.
         assert_eq!(settings.pointer_scale_percent, 150);

@@ -61,6 +61,7 @@ windows = { version = "0.62.2", features = [
   "Foundation_Collections",
   "Security_Cryptography",
   "Storage_Streams",
+  "UI_ViewManagement",
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_Security",
